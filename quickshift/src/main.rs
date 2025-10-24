@@ -1,11 +1,11 @@
 // --- Sistema Generador de Horarios - Archivo principal ---
 
-mod server;
+use quickshift::run_server;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     println!("=== Sistema Generador de Horarios (API) ===");
     let bind = "127.0.0.1:8080";
     println!("Iniciando servidor en http://{}", bind);
-    server::run_server(bind).await
+    run_server(bind).await
 }

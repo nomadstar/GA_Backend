@@ -1,10 +1,10 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use quickshift::algorithms::{get_ramo_critico, extract_data, get_clique_max_pond};
-use quickshift::models::Seccion;
-use quickshift::api_json::InputParams;
-use quickshift::rutacomoda::{load_paths_from_file, best_paths, PathsOutput};
+use crate::algorithms::{get_ramo_critico, extract_data, get_clique_max_pond};
+use crate::models::Seccion;
+use crate::api_json::InputParams;
+use crate::rutacomoda::{load_paths_from_file, best_paths, PathsOutput};
 
 #[derive(Deserialize)]
 struct SolveRequest {
