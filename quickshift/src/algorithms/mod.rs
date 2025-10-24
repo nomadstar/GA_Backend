@@ -391,6 +391,155 @@ pub fn get_clique_max_pond(
     solutions
 }
 
+/// Variante del planificador que aplica las preferencias del usuario:
+/// - Excluye `ramos_pasados` del conjunto de secciones
+/// - Aumenta la prioridad de `ramos_prioritarios`
+/// - Favorece secciones cuyo horario coincide con `horarios_preferidos`
+pub fn get_clique_max_pond_with_prefs(
+    lista_secciones: &Vec<Seccion>,
+    ramos_disponibles: &HashMap<String, RamoDisponible>,
+    params: &crate::api_json::InputParams,
+) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    // construimos una lista filtrada excluyendo ramos_pasados
+    let mut filtered: Vec<Seccion> = Vec::new();
+    for s in lista_secciones.iter() {
+        let mut is_taken = false;
+        for rp in params.ramos_pasados.iter() {
+            if rp == &s.codigo_box || s.codigo.starts_with(rp) { is_taken = true; break; }
+        }
+        if !is_taken {
+            filtered.push(s.clone());
+        }
+    }
+
+    // Construir prioridades teniendo en cuenta preferencias del usuario
+    let mut priority_ramo: HashMap<String, i32> = HashMap::new();
+    let priority_sec: HashMap<String, i32> = HashMap::new();
+
+    // Dar un boost a ramos_prioritarios (por código o por nombre corto)
+    for rp in params.ramos_prioritarios.iter() {
+        // boost por código o por prefijo
+        priority_ramo.insert(rp.clone(), 5000);
+    }
+
+    // Construir grafo similar al original pero usando `filtered`
+    let mut graph = UnGraph::<usize, ()>::new_undirected();
+    let mut node_indices = Vec::new();
+    let mut priorities = HashMap::new();
+
+    for (idx, seccion) in filtered.iter().enumerate() {
+        // Si el ramo asociado no está en ramos_disponibles, lo saltamos
+        if !ramos_disponibles.contains_key(&seccion.codigo_box) && !ramos_disponibles.values().any(|r| r.codigo == seccion.codigo_box) {
+            continue;
+        }
+
+        let ramo = &ramos_disponibles[&seccion.codigo_box];
+
+        let cc = if ramo.critico { 10 } else { 0 };
+        let uu = 10 - ramo.holgura;
+        let mut kk = 60 - ramo.numb_correlativo;
+
+        // aplicar prioridad de ramo desde mapa de usuario si existe
+        if let Some(&prio) = priority_ramo.get(&seccion.nombre) {
+            kk = prio + 53;
+        }
+        if let Some(&prio) = priority_ramo.get(&seccion.codigo_box) {
+            kk = prio + 53;
+        }
+
+        let mut ss = seccion.seccion.parse::<i32>().unwrap_or(0);
+        if let Some(&prio) = priority_sec.get(&seccion.codigo) {
+            ss = prio + 20;
+        }
+
+        // aumentar prioridad si el horario coincide con preferencias del usuario
+        let mut horario_boost = 0;
+        for pref in params.horarios_preferidos.iter() {
+            for h in seccion.horario.iter() {
+                if h.contains(pref) || pref.contains(h) {
+                    horario_boost = 2000; // boost razonable
+                    break;
+                }
+            }
+            if horario_boost > 0 { break; }
+        }
+
+        let prioridad = cc * 10000 + uu * 1000 + kk * 100 + ss + horario_boost;
+
+        let node_idx = graph.add_node(idx);
+        node_indices.push(node_idx);
+        priorities.insert(node_idx, prioridad);
+    }
+
+    // Agregar aristas
+    for i in 0..node_indices.len() {
+        for j in (i + 1)..node_indices.len() {
+            let sec_i = &filtered[graph[node_indices[i]]];
+            let sec_j = &filtered[graph[node_indices[j]]];
+
+            if sec_i.codigo_box != sec_j.codigo_box &&
+               sec_i.codigo[..std::cmp::min(7, sec_i.codigo.len())] != 
+               sec_j.codigo[..std::cmp::min(7, sec_j.codigo.len())] {
+
+                if !horarios_tienen_conflicto(&sec_i.horario, &sec_j.horario) {
+                    graph.add_edge(node_indices[i], node_indices[j], ());
+                }
+            }
+        }
+    }
+
+    // Encontrar soluciones como en la versión original
+    let mut prev_solutions = Vec::new();
+    let mut graph_copy = graph.clone();
+    let mut solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+
+    for _solution_num in 1..=5 {
+        let max_clique = find_max_weight_clique(&graph_copy, &priorities);
+
+        if max_clique.len() <= 2 {
+            break;
+        }
+
+        let mut arr_aux_delete: Vec<(NodeIndex, i32)> = max_clique
+            .iter()
+            .map(|&idx| (idx, *priorities.get(&idx).unwrap_or(&0)))
+            .collect();
+
+        arr_aux_delete.sort_by_key(|&(_, prio)| prio);
+
+        while arr_aux_delete.len() > 6 {
+            arr_aux_delete.remove(0);
+        }
+
+        let solution_key: Vec<_> = arr_aux_delete.iter().map(|&(idx, _)| idx).collect();
+        if prev_solutions.contains(&solution_key) {
+            if !arr_aux_delete.is_empty() {
+                graph_copy.remove_node(arr_aux_delete[0].0);
+            }
+            continue;
+        }
+
+        let mut solution_entries: Vec<(Seccion, i32)> = Vec::new();
+        let mut total_score_i64: i64 = 0;
+
+        for &(node_idx, prioridad) in &arr_aux_delete {
+            let seccion_idx = graph_copy[node_idx];
+            let seccion = filtered[seccion_idx].clone();
+            solution_entries.push((seccion, prioridad));
+            total_score_i64 += prioridad as i64;
+        }
+
+        solutions.push((solution_entries, total_score_i64));
+        prev_solutions.push(solution_key);
+
+        if !arr_aux_delete.is_empty() {
+            graph_copy.remove_node(arr_aux_delete[0].0);
+        }
+    }
+
+    solutions
+}
+
 // Funciones auxiliares privadas
 fn create_fallback_data(nombre_excel_malla: &str) -> (HashMap<String, RamoDisponible>, String) {
     let mut ramos_disponibles = HashMap::new();
