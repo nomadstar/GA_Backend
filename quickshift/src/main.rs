@@ -1,11 +1,5 @@
 // --- Sistema Generador de Horarios - Archivo principal ---
 
-mod models;
-mod excel;
-mod algorithms;
-mod rutacomoda;
-
-use algorithms::{get_ramo_critico, extract_data, get_clique_max_pond};
 mod server;
 
 #[tokio::main]

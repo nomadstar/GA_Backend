@@ -1,14 +1,15 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::algorithms::{get_ramo_critico, extract_data, get_clique_max_pond};
-use crate::models::Seccion;
+use quickshift::algorithms::{get_ramo_critico, extract_data, get_clique_max_pond};
+use quickshift::models::Seccion;
 use quickshift::api_json::InputParams;
+use quickshift::rutacomoda::{load_paths_from_file, best_paths, PathsOutput};
 
 #[derive(Deserialize)]
 struct SolveRequest {
     // reuse InputParams structure fields (we accept a superset)
-    email: Option<String>,
+    _email: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -49,10 +50,39 @@ async fn solve_handler(_body: web::Json<serde_json::Value>) -> impl Responder {
     HttpResponse::Ok().json(resp)
 }
 
+/// Handler para obtener los mejores caminos desde un JSON de `PathsOutput` o un
+/// `file_path` que apunte a un JSON en disco generado por Ruta crítica.
+async fn rutacomoda_best_handler(body: web::Json<serde_json::Value>) -> impl Responder {
+    // Si el body contiene `file_path: "..."`, intentamos leer el fichero.
+    if let Some(fp) = body.get("file_path").and_then(|v| v.as_str()) {
+        match load_paths_from_file(fp) {
+            Ok(paths_output) => {
+                let best = best_paths(&paths_output);
+                return HttpResponse::Ok().json(json!({"best": best}));
+            }
+            Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to read file: {}", e)})),
+        }
+    }
+
+    // Si el body contiene directamente la estructura `paths`, la parseamos.
+    if body.get("paths").is_some() {
+        match serde_json::from_value::<PathsOutput>(body.into_inner()) {
+            Ok(po) => {
+                let best = best_paths(&po);
+                return HttpResponse::Ok().json(json!({"best": best}));
+            }
+            Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("invalid PathsOutput JSON: {}", e)})),
+        }
+    }
+
+    HttpResponse::BadRequest().json(json!({"error": "expected `file_path` string or `paths` array in body"}))
+}
+
 pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .route("/solve", web::post().to(solve_handler))
+            .route("/rutacomoda/best", web::post().to(rutacomoda_best_handler))
             .route("/help", web::get().to(help_handler))
     })
     .bind(bind_addr)?

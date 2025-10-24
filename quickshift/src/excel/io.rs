@@ -1,4 +1,4 @@
-use calamine::{open_workbook_auto, Data, Reader};
+use calamine::{open_workbook_auto, Data};
 use std::path::Path;
 
 /// Convierte un `Data` de calamine a String (versión genérica para celdas)

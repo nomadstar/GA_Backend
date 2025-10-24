@@ -6,6 +6,7 @@ pub mod algorithms;
 pub mod models;
 pub mod rutacritica;
 pub mod api_json;
+pub mod rutacomoda;
 
 /// Ejecuta el flujo completo de Ruta Crítica (extracción -> procesamiento -> clique)
 pub use rutacritica::run_ruta_critica;

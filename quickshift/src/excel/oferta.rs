@@ -17,16 +17,16 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
     for s in sheet_names.iter() { if !candidates.contains(s) { candidates.push(s.clone()); } }
 
     let mut range_opt = None;
-    let mut used_sheet: Option<String> = None;
+    let mut _used_sheet: Option<String> = None;
     let mut rows_vec_opt: Option<Vec<Vec<String>>> = None;
 
     for cand in candidates.iter() {
         match workbook.worksheet_range(cand) {
-            Ok(rng) => { range_opt = Some(rng); used_sheet = Some(cand.clone()); break; }
+            Ok(rng) => { range_opt = Some(rng); _used_sheet = Some(cand.clone()); break; }
             Err(_) => {
                 // intentar fallback
                 if let Ok(rows) = read_sheet_via_zip(nombre_archivo, cand) {
-                    if !rows.is_empty() { rows_vec_opt = Some(rows); used_sheet = Some(cand.clone()); break; }
+                    if !rows.is_empty() { rows_vec_opt = Some(rows); _used_sheet = Some(cand.clone()); break; }
                 }
             }
         }
