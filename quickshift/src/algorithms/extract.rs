@@ -106,15 +106,20 @@ fn create_simulated_sections(ramos_disponibles: &HashMap<String, RamoDisponible>
     let mut lista_secciones = Vec::new();
     for (codigo_box, ramo) in ramos_disponibles {
         for seccion_num in 1..=2 {
-            let s = Seccion {
-                codigo: format!("{}-SEC{}", codigo_box, seccion_num),
-                codigo_box: codigo_box.clone(),
+            let horarios = match seccion_num {
+                1 => vec!["LU 08:30".to_string(), "MI 08:30".to_string()],
+                2 => vec!["MA 10:00".to_string(), "JU 10:00".to_string()],
+                _ => vec!["VI 14:30".to_string()],
+            };
+
+            lista_secciones.push(Seccion {
+                codigo: format!("{}-SEC{}", ramo.codigo, seccion_num),
                 nombre: ramo.nombre.clone(),
                 seccion: seccion_num.to_string(),
+                horario: horarios,
                 profesor: format!("Profesor {}", seccion_num),
-                horario: vec!["08:00-10:00".to_string()],
-            };
-            lista_secciones.push(s);
+                codigo_box: codigo_box.clone(),
+            });
         }
     }
     (lista_secciones, ramos_disponibles.clone())
