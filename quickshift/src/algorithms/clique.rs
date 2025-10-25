@@ -260,3 +260,15 @@ pub fn get_clique_max_pond_with_prefs(
 
     solutions
 }
+
+/// Public wrapper kept in this module so the implementation and its API
+/// live together. Delegates to `get_clique_max_pond_with_prefs` which
+/// already applies `ramos_pasados`, `ramos_prioritarios` and
+/// `horarios_preferidos` from `InputParams`.
+pub fn get_clique_with_user_prefs(
+    lista_secciones: &Vec<Seccion>,
+    ramos_disponibles: &HashMap<String, RamoDisponible>,
+    params: &crate::api_json::InputParams,
+) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    get_clique_max_pond_with_prefs(lista_secciones, ramos_disponibles, params)
+}

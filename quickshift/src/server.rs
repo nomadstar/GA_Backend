@@ -1,7 +1,7 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::algorithms::{get_ramo_critico, extract_data, get_clique_max_pond_with_prefs};
+use crate::algorithms::{get_ramo_critico, extract_data, get_clique_with_user_prefs};
 use crate::models::Seccion;
 use crate::api_json::InputParams;
 use crate::rutacomoda::{load_paths_from_file, best_paths, PathsOutput};
@@ -41,7 +41,7 @@ async fn solve_handler(body: web::Json<serde_json::Value>) -> impl Responder {
     // Run the existing pipeline using the resolved params to influence selection
     let (ramos_disponibles, _nombre_excel_malla, malla_leida) = get_ramo_critico();
     let (lista_secciones, ramos_actualizados, oferta_leida) = extract_data(&ramos_disponibles, "MiMalla.xlsx");
-    let soluciones = get_clique_max_pond_with_prefs(&lista_secciones, &ramos_actualizados, &params);
+    let soluciones = get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params);
 
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
     for (sol, score) in soluciones.iter().take(10) {
@@ -149,7 +149,7 @@ async fn solve_get_handler(query: web::Query<std::collections::HashMap<String, S
     // Ejecutar pipeline
     let (ramos_disponibles, _nombre_excel_malla, malla_leida) = get_ramo_critico();
     let (lista_secciones, ramos_actualizados, oferta_leida) = extract_data(&ramos_disponibles, "MiMalla.xlsx");
-    let soluciones = get_clique_max_pond_with_prefs(&lista_secciones, &ramos_actualizados, &params);
+    let soluciones = get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params);
 
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
     for (sol, score) in soluciones.iter().take(10) {
