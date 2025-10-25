@@ -1,9 +1,9 @@
 // Módulo raíz para algoritmos. Reexporta funciones desde submódulos.
 
-pub mod extract;
-pub mod pert;
-pub mod conflict;
-pub mod clique;
+mod extract;
+mod pert;
+mod conflict;
+mod clique;
 
 pub use extract::{get_ramo_critico, extract_data};
 pub use pert::set_values_recursive;

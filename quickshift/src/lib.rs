@@ -1,12 +1,12 @@
 // Biblioteca raíz del crate `quickshift`.
 // Reexporta los módulos principales y proporciona una función de conveniencia
 // `run_ruta_critica` que orquesta el flujo principal.
-pub mod excel;
-pub mod algorithms;
-pub mod models;
-pub mod rutacritica;
-pub mod api_json;
-pub mod rutacomoda;
+mod excel;
+mod algorithms;
+mod models;
+mod rutacritica;
+mod api_json;
+mod rutacomoda;
 pub mod server;
 
 /// Ejecuta el flujo completo de Ruta Crítica (extracción -> procesamiento -> clique)

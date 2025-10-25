@@ -8,19 +8,19 @@
 //! - `asignatura`: búsqueda de "Asignatura" por "Nombre Asignado"
 
 /// Helpers de IO y utilidades para parsing de Excel
-pub mod io;
+mod io;
 
 /// Lectura de malla curricular: `leer_malla_excel`
-pub mod malla;
+mod malla;
 
 /// Lectura de porcentajes/aprobados: `leer_porcentajes_aprobados`
-pub mod porcentajes;
+mod porcentajes;
 
 /// Lectura de oferta académica: `leer_oferta_academica_excel`
-pub mod oferta;
+mod oferta;
 
 /// Búsqueda de "Asignatura" a partir de "Nombre Asignado": `asignatura_from_nombre`
-pub mod asignatura;
+mod asignatura;
 
 // Re-exports para mantener compatibilidad con la API previa
 pub use io::{normalize_header, column_letters_to_index, cell_to_string, data_to_string, read_sheet_via_zip};

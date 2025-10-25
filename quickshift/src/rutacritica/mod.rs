@@ -1,8 +1,8 @@
 // Módulo de alto nivel para la ejecución de la Ruta Crítica
 
-pub mod extract;
-pub mod clique;
-pub mod ruta;
+mod extract;
+mod clique;
+mod ruta;
 
 /// Ejecuta el flujo completo de Ruta Crítica:
 /// 1. Obtener ramos críticos (get_ramo_critico)
