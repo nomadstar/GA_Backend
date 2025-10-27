@@ -90,12 +90,21 @@ async fn rutacomoda_best_handler(body: web::Json<serde_json::Value>) -> impl Res
     HttpResponse::BadRequest().json(json!({"error": "expected `file_path` string or `paths` array in body"}))
 }
 
+async fn rutacritica_run_handler() -> impl Responder {
+    // Ejecutar el orquestador de ruta crítica (sincrónico) usando la API pública
+    match crate::rutacritica::run_ruta_critica() {
+        Ok(_) => HttpResponse::Ok().json(json!({"status": "ok", "message": "rutacritica executed"})),
+        Err(e) => HttpResponse::InternalServerError().json(json!({"status": "error", "error": format!("{}", e)})),
+    }
+}
+
 pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .route("/solve", web::post().to(solve_handler))
             .route("/solve", web::get().to(solve_get_handler))
             .route("/rutacomoda/best", web::post().to(rutacomoda_best_handler))
+            .route("/rutacritica/run", web::post().to(rutacritica_run_handler))
             .route("/help", web::get().to(help_handler))
     })
     .bind(bind_addr)?

@@ -17,3 +17,15 @@ pub fn run_clique_example() {
     let (lista_secciones, _, _oferta_leida) = crate::algorithms::extract_data(&ramos_disponibles, &nombre_malla);
     run_clique(&lista_secciones, &ramos_disponibles);
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_clique_example_should_not_panic() {
+        // The example runner uses fallback data when Excel files are missing.
+        run_clique_example();
+    }
+}

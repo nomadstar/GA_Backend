@@ -20,13 +20,7 @@ pub fn ejecutar_ruta_critica() {
         malla: None,
     };
 
-    let soluciones = crate::algorithms::get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params);
-
-    println!("--- Soluciones encontradas: {} ---", soluciones.len());
-    for (i, (sol, score)) in soluciones.iter().enumerate() {
-        println!("Solución #{} -> score: {} -> {} secciones", i + 1, score, sol.len());
-        for (s, prio) in sol.iter() {
-            println!(" - {} {} [{}] prioridad={}", s.codigo, s.nombre, s.seccion, prio);
-        }
-    }
+    // Use the rutacritica wrapper which delegates to algorithms and
+    // provides a stable integration point for route-critical analyses.
+    crate::rutacritica::clique::run_clique(&lista_secciones, &ramos_actualizados);
 }
