@@ -1,12 +1,12 @@
 // ruta.rs - orquestador que combina extracción y clique para producir la ruta crítica
 
-
-use std::error::Error;
 use std::collections::HashMap;
-use petgraph::graph::DiGraph;
-use petgraph::graph::NodeIndex;
-use crate::algorithms::pert::PertNode;
-use crate::models::{Seccion, RamoDisponible};
+use std::error::Error;
+use petgraph::graph::{NodeIndex, DiGraph};
+
+use crate::models::{Seccion, RamoDisponible, PertNode};
+use crate::algorithm::{extract, clique, conflict, pert}; // importa módulos
+// ahora puedes llamar: extract::extract_data(...), clique::get_clique_with_user_prefs(...), conflict::horarios_tienen_conflicto(...), pert::set_values_recursive...
 
 
 
@@ -19,9 +19,11 @@ pub fn ejecutar_ruta_critica_with_params(
     params: crate::api_json::InputParams,
 ) -> Result<Vec<(Vec<(Seccion, i32)>, i64)>, Box<dyn Error>> {
     // Obtener ramos y secciones, delegar en la versión que acepta datos precomputados.
-    let (ramos_disponibles, nombre_malla, _malla_leida) = crate::algorithms::get_ramo_critico();
-    let (lista_secciones, mut ramos_actualizados, _oferta_leida) =
-        crate::algorithms::extract_data(&ramos_disponibles, &nombre_malla);
+    let (ramos_disponibles, nombre_malla, _malla_leida) = crate::algorithm::get_ramo_critico();
+    let (lista_secciones, mut ramos_actualizados) = match crate::algorithm::extract_data(ramos_disponibles.clone(), &nombre_malla) {
+        Ok((ls, ra)) => (ls, ra),
+        Err(e) => return Err(e),
+    };
 
     ejecutar_ruta_critica_with_precomputed(lista_secciones, ramos_actualizados, params)
 }
@@ -104,7 +106,7 @@ pub fn ejecutar_ruta_critica_with_precomputed(
     for node_idx in pert_graph.node_indices() {
         // len_dag aproximado: número de nodos
         let len_dag = pert_graph.node_count() as i32;
-        crate::algorithms::pert::set_values_recursive(&mut pert_graph, node_idx, len_dag);
+    crate::algorithm::pert::set_values_recursive(&mut pert_graph, node_idx, len_dag);
     }
 
     // Propagar resultado PERT a ramos_actualizados (marcar críticos con holgura == 0)
@@ -121,8 +123,8 @@ pub fn ejecutar_ruta_critica_with_precomputed(
         }
     }
 
-    // Llamar al planner que respeta preferencias de usuario (wrapper en algorithms)
-    let soluciones = crate::algorithms::get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params);
+    // Llamar al planner que respeta preferencias de usuario (wrapper en algorithm)
+    let soluciones = crate::algorithm::get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params);
 
     Ok(soluciones)
 }
@@ -136,12 +138,11 @@ pub fn ejecutar_ruta_critica_with_precomputed(
 pub fn run_ruta_critica_solutions() -> Result<Vec<(Vec<(crate::models::Seccion, i32)>, i64)>, Box<dyn std::error::Error>> {
     println!("[rutacritica] Iniciando run_ruta_critica_solutions...");
 
-    let (ramos_disponibles, nombre_excel_malla, _malla_leida) = crate::algorithms::get_ramo_critico();
+    let (ramos_disponibles, nombre_excel_malla, _malla_leida) = crate::algorithm::get_ramo_critico();
 
-    // Usar la función de extracción del submódulo de algorithms (ya incorpora la lógica detallada)
-    let (lista_secciones, _ramos_actualizados) =
-        crate::algorithms::extract::extract_data(ramos_disponibles.clone(), &nombre_excel_malla)?;
-    let soluciones = crate::algorithms::get_clique_max_pond(&lista_secciones, &ramos_disponibles);
+    // Usar la función de extracción del submódulo de algorithm (ya incorpora la lógica detallada)
+    let (lista_secciones, _ramos_actualizados) = crate::algorithm::extract::extract_data(ramos_disponibles.clone(), &nombre_excel_malla)?;
+    let soluciones = crate::algorithm::get_clique_max_pond(&lista_secciones, &ramos_disponibles);
 
     println!("[rutacritica] Soluciones obtenidas: {}", soluciones.len());
     Ok(soluciones)
