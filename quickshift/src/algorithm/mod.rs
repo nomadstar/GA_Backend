@@ -10,7 +10,6 @@ mod ruta;
 pub use extract::{get_ramo_critico, extract_data};
 
 // Exponer las funciones de lectura de Excel que necesita el pipeline
-pub use crate::excel::{leer_malla_excel, leer_porcentajes_aprobados, leer_oferta_academica_excel};
 
 // Reexportar funciones del planner (clique) y el orquestador (ruta)
 pub use crate::algorithm::clique::{get_clique_with_user_prefs, get_clique_max_pond};

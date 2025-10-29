@@ -127,22 +127,3 @@ pub fn ejecutar_ruta_critica_with_precomputed(
 
     Ok(soluciones)
 }
-
-/// Compat: función simple que inicia la ruta crítica en modo no-parametrizado.
-/// Para el uso HTTP/producción preferimos `ejecutar_ruta_critica_with_params`.
-// Removed the compat no-op `ejecutar_ruta_critica` to avoid name clashes.
-
-/// Versión sin parámetros para compatibilidad: llama a la versión con params
-/// usando un `InputParams` vacío.
-pub fn run_ruta_critica_solutions() -> Result<Vec<(Vec<(crate::models::Seccion, i32)>, i64)>, Box<dyn std::error::Error>> {
-    println!("[rutacritica] Iniciando run_ruta_critica_solutions...");
-
-    let (ramos_disponibles, nombre_excel_malla, _malla_leida) = crate::algorithm::get_ramo_critico();
-
-    // Usar la función de extracción del submódulo de algorithm (ya incorpora la lógica detallada)
-    let (lista_secciones, _ramos_actualizados) = crate::algorithm::extract::extract_data(ramos_disponibles.clone(), &nombre_excel_malla)?;
-    let soluciones = crate::algorithm::get_clique_max_pond(&lista_secciones, &ramos_disponibles);
-
-    println!("[rutacritica] Soluciones obtenidas: {}", soluciones.len());
-    Ok(soluciones)
-}
