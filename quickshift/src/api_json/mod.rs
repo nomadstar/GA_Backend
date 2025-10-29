@@ -8,8 +8,14 @@ pub struct InputParams {
 	pub ramos_pasados: Vec<String>,
 	pub ramos_prioritarios: Vec<String>,
 	pub horarios_preferidos: Vec<String>,
-	// Optional: which curricular map to use. Example values: "MallaCurricular2010.xlsx", "MallaCurricular2018.xlsx", "MallaCurricular2020.xlsx"
-	pub malla: Option<String>,
+	// Required: which curricular map to use. Example values: "MallaCurricular2010.xlsx", "MallaCurricular2018.xlsx", "MallaCurricular2020.xlsx"
+	pub malla: String,
+
+	// Optional: ranking académico del alumno expresado como percentil (0.0 - 1.0)
+	pub student_ranking: Option<f64>,
+
+	// Optional ranking/preferences provided by the user (may be absent)
+	pub ranking: Option<Vec<String>>,
 }
 
 pub fn parse_json_input(json_str: &str) -> Result<InputParams, serde_json::Error> {
@@ -40,12 +46,8 @@ where
 {
 	let mut params = parse_json_input(json_str)?;
 
-	// Si no se especificó malla, devolvemos lo parseado sin resolución adicional.
-	let malla_name = match &params.malla {
-		Some(m) if !m.trim().is_empty() => m.clone(),
-		_ => return Ok(params),
-	};
-
+	// `malla` ahora es un campo obligatorio en `InputParams`.
+	let malla_name = params.malla.clone();
 	let malla_path: PathBuf = match base_dir {
 		Some(b) => b.as_ref().join(malla_name.clone()),
 		None => PathBuf::from(malla_name.clone()),
@@ -86,7 +88,7 @@ mod tests {
 			"ramos_pasados": ["Algebra y Geometría", "Calculo 1", "Programación"],
 			"ramos_prioritarios": ["Programación Avanzada", "Calculo 2"],
 			"horarios_preferidos": ["08:00-10:00"],
-			"malla": "MallaCurricularTest.xlsx"
+					"malla": "MallaCurricularTest.xlsx"
 		}
 		"#;
 
@@ -126,6 +128,6 @@ mod tests {
 		assert_eq!(params.ramos_pasados, vec!["CIT3313", "CIT3211"]);
 		assert_eq!(params.ramos_prioritarios, vec!["CIT3313", "CIT3413"]);
 	assert_eq!(params.horarios_preferidos, vec!["08:00-10:00", "14:00-16:00"]);
-	assert_eq!(params.malla.unwrap(), "MallaCurricular2020.xlsx");
+	assert_eq!(params.malla, "MallaCurricular2020.xlsx");
 	}
 }

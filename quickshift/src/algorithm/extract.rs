@@ -571,3 +571,17 @@ pub fn extract_data(
     // Fin: devolver lista y ramos actualizados
     Ok((lista_secciones, ramos_disponibles))
 }
+
+/// Helper público que devuelve el set inicial de ramos disponibles y el nombre
+/// de la malla por defecto. En la versión mínima devolvemos una estructura
+/// vacía cuando no existe una fuente persistente; esto permite a los callers
+/// invocar la extracción y la ejecución sin romper la API.
+pub fn get_ramo_critico() -> (HashMap<String, RamoDisponible>, String, bool) {
+    // Comportamiento conservador: no hay datos persistidos en este helper.
+    let map: HashMap<String, RamoDisponible> = HashMap::new();
+    // Nombre de malla por defecto usado en varios handlers/test
+    let nombre_malla = "MiMalla.xlsx".to_string();
+    // indicador si la malla fue leída desde disco; false pues no intentamos leer aquí
+    let malla_leida = false;
+    (map, nombre_malla, malla_leida)
+}
