@@ -30,3 +30,7 @@ pub use malla::leer_malla_excel;
 pub use porcentajes::leer_porcentajes_aprobados;
 pub use oferta::leer_oferta_academica_excel;
 pub use asignatura::asignatura_from_nombre;
+
+// Directorio donde se colocarán los archivos Excel de datos confidenciales.
+// Según la política del proyecto, solo `excel` debe acceder a este folder.
+pub(crate) const DATAFILES_DIR: &str = "src/datafiles";

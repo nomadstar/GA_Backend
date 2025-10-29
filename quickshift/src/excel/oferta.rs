@@ -4,7 +4,15 @@ use crate::excel::io::{data_to_string, read_sheet_via_zip};
 
 /// Lee la oferta académica y devuelve una lista de `Seccion`.
 pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>, Box<dyn std::error::Error>> {
-    let mut workbook = open_workbook_auto(nombre_archivo)?;
+    // Resolver ruta hacia el directorio protegido `DATAFILES_DIR` si es necesario
+    let resolved = if std::path::Path::new(nombre_archivo).exists() {
+        nombre_archivo.to_string()
+    } else {
+        let candidate = format!("{}/{}", crate::excel::DATAFILES_DIR, nombre_archivo);
+        if std::path::Path::new(&candidate).exists() { candidate } else { nombre_archivo.to_string() }
+    };
+
+    let mut workbook = open_workbook_auto(resolved)?;
     let mut secciones = Vec::new();
 
     let sheet_names = workbook.sheet_names().to_owned();

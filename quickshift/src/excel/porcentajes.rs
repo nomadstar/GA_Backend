@@ -7,8 +7,16 @@ use crate::excel::io::{data_to_string, read_sheet_via_zip};
 pub fn leer_porcentajes_aprobados(path: &str) -> Result<HashMap<String, (f64, f64)>, Box<dyn std::error::Error>> {
     let mut res: HashMap<String, (f64, f64)> = HashMap::new();
 
+    // Resolver ruta hacia el directorio protegido `DATAFILES_DIR` si el path directo no existe
+    let resolved = if std::path::Path::new(path).exists() {
+        path.to_string()
+    } else {
+        let candidate = format!("{}/{}", crate::excel::DATAFILES_DIR, path);
+        if std::path::Path::new(&candidate).exists() { candidate } else { path.to_string() }
+    };
+
     // Intentar con calamine primero
-    if let Ok(mut workbook) = open_workbook_auto(path) {
+    if let Ok(mut workbook) = open_workbook_auto(&resolved) {
         let sheet_names = workbook.sheet_names().to_owned();
         if !sheet_names.is_empty() {
             let primera = &sheet_names[0];

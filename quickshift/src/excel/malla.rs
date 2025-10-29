@@ -5,7 +5,15 @@ use crate::excel::io::data_to_string;
 
 /// Lee un archivo de malla (espera filas: codigo, nombre, correlativo, holgura, critico, ...)
 pub fn leer_malla_excel(nombre_archivo: &str) -> Result<HashMap<String, RamoDisponible>, Box<dyn std::error::Error>> {
-    let mut workbook = open_workbook_auto(nombre_archivo)?;
+    // Resolver ruta: si el path directo no existe, intentar buscar en el directorio protegido `DATAFILES_DIR`
+    let resolved = if std::path::Path::new(nombre_archivo).exists() {
+        nombre_archivo.to_string()
+    } else {
+        let candidate = format!("{}/{}", crate::excel::DATAFILES_DIR, nombre_archivo);
+        if std::path::Path::new(&candidate).exists() { candidate } else { nombre_archivo.to_string() }
+    };
+
+    let mut workbook = open_workbook_auto(resolved)?;
     let mut ramos_disponibles = HashMap::new();
 
     let sheet_names = workbook.sheet_names().to_owned();
