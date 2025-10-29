@@ -22,10 +22,11 @@ mod oferta;
 /// Búsqueda de "Asignatura" a partir de "Nombre Asignado": `asignatura_from_nombre`
 mod asignatura;
 
-// Re-exports para mantener compatibilidad con la API previa
-pub use io::{normalize_header, column_letters_to_index, cell_to_string, data_to_string, read_sheet_via_zip};
+// Re-exports: helpers de IO son internos al crate; exponemos sólo las funciones de alto nivel
+// helpers internos — no exportarlos públicamente
+pub(crate) use io::{normalize_header, column_letters_to_index, cell_to_string, data_to_string, read_sheet_via_zip};
+// funciones de alto nivel que sí usa `algorithm`
 pub use malla::leer_malla_excel;
 pub use porcentajes::leer_porcentajes_aprobados;
 pub use oferta::leer_oferta_academica_excel;
 pub use asignatura::asignatura_from_nombre;
- 

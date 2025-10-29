@@ -5,7 +5,6 @@ use std::error::Error;
 use petgraph::graph::{NodeIndex, DiGraph};
 
 use crate::models::{Seccion, RamoDisponible, PertNode};
-use crate::algorithm::{extract, clique, conflict, pert}; // importa módulos
 // ahora puedes llamar: extract::extract_data(...), clique::get_clique_with_user_prefs(...), conflict::horarios_tienen_conflicto(...), pert::set_values_recursive...
 
 
@@ -20,7 +19,7 @@ pub fn ejecutar_ruta_critica_with_params(
 ) -> Result<Vec<(Vec<(Seccion, i32)>, i64)>, Box<dyn Error>> {
     // Obtener ramos y secciones, delegar en la versión que acepta datos precomputados.
     let (ramos_disponibles, nombre_malla, _malla_leida) = crate::algorithm::get_ramo_critico();
-    let (lista_secciones, mut ramos_actualizados) = match crate::algorithm::extract_data(ramos_disponibles.clone(), &nombre_malla) {
+    let (lista_secciones, ramos_actualizados) = match crate::algorithm::extract_data(ramos_disponibles.clone(), &nombre_malla) {
         Ok((ls, ra)) => (ls, ra),
         Err(e) => return Err(e),
     };

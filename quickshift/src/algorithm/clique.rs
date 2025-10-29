@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use petgraph::graph::{NodeIndex, UnGraph};
 use crate::models::{Seccion, RamoDisponible};
+use crate::algorithm::conflict::horarios_tienen_conflicto;
 
  
 pub fn find_max_weight_clique(
@@ -87,7 +88,7 @@ pub fn get_clique_max_pond(
                sec_i.codigo[..std::cmp::min(7, sec_i.codigo.len())] != 
                sec_j.codigo[..std::cmp::min(7, sec_j.codigo.len())] {
 
-                if !super::horarios_tienen_conflicto(&sec_i.horario, &sec_j.horario) {
+                if !horarios_tienen_conflicto(&sec_i.horario, &sec_j.horario) {
                     graph.add_edge(node_indices[i], node_indices[j], ());
                 }
             }
@@ -213,7 +214,7 @@ pub fn get_clique_max_pond_with_prefs(
                sec_i.codigo[..std::cmp::min(7, sec_i.codigo.len())] != 
                sec_j.codigo[..std::cmp::min(7, sec_j.codigo.len())] {
 
-                if !super::horarios_tienen_conflicto(&sec_i.horario, &sec_j.horario) {
+                if !horarios_tienen_conflicto(&sec_i.horario, &sec_j.horario) {
                     graph.add_edge(node_indices[i], node_indices[j], ());
                 }
             }

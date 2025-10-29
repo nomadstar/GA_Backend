@@ -25,3 +25,11 @@
 7. — Política de reprobación/recuperación: si un estudiante reprueba, en el siguiente semestre reducir su carga un 15–25% y priorizar la reposición del ramo reprobado (si es requisito).
 
 8. — Titulación: reservar los créditos y requisitos de titulación (memoria / proyecto) como semestres finales, evitando sobrecargar el mismo semestre con ramos de alta dificultad más el proceso de titulación.
+
+## Puntos Importantes:
+
+Cada archivo excel debe tener su formato estandarizado en post de que el rpograma funcione.
+
+- MC = Malla Curricular
+- OA = Oferta Academica
+- PA = Porcentaje Aprobación
