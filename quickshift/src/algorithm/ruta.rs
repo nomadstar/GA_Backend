@@ -22,7 +22,7 @@ pub fn ejecutar_ruta_critica_with_params(
     // Use the malla and optional sheet provided in params to extract data.
     let initial_map: std::collections::HashMap<String, RamoDisponible> = std::collections::HashMap::new();
     let sheet_opt = params.sheet.as_deref();
-    let (lista_secciones, ramos_actualizados) = match extract::extract_data(initial_map, &params.malla, sheet_opt) {
+    let (lista_secciones, ramos_actualizados) = match super::extract_data(initial_map, &params.malla, sheet_opt) {
         Ok((ls, ra)) => (ls, ra),
         Err(e) => return Err(e),
     };

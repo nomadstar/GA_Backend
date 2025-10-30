@@ -1,16 +1,21 @@
 // Módulo de alto nivel para la ejecución de la Ruta Crítica
 // Declarar submódulos (archivos en la carpeta `src/algorithm`)
-mod extract;
+pub mod extract;
+pub mod extract_optimizado;
+pub mod extract_controller;
 mod clique;
 mod conflict;
 mod pert;
 mod ruta;
 
 // Reexportar solo la API pública que quieres exponer desde aquí
-pub use extract::extract_data;
+pub use extract::extract_data as extract_data_original;
+pub use extract_optimizado::extract_data_optimizado;
+pub use extract_controller::{extract_data, set_use_optimized, is_using_optimized};
 
 // Reexportar funciones del planner (clique) y el orquestador (ruta)
 pub use crate::algorithm::clique::get_clique_with_user_prefs;
+pub use crate::algorithm::clique::get_clique_dependencies_only;
 pub use crate::algorithm::ruta::ejecutar_ruta_critica_with_params;
 
 // Compat wrapper: invoca la versión de `excel` usando un nombre por defecto

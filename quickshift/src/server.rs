@@ -149,6 +149,50 @@ async fn rutacritica_run_handler(body: web::Json<serde_json::Value>) -> impl Res
     }
 }
 
+/// POST /rutacritica/run-dependencies-only
+/// Ejecuta la ruta crítica considerando SOLO dependencias, sin verificar conflictos de horarios.
+/// Útil para validar el orden correcto de cursos sin restricciones de compatibilidad de horarios.
+async fn rutacritica_run_dependencies_only_handler(body: web::Json<serde_json::Value>) -> impl Responder {
+    use crate::models::RamoDisponible;
+    use std::collections::HashMap;
+    
+    let body_value = body.into_inner();
+    let json_str = match serde_json::to_string(&body_value) {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("invalid JSON body: {}", e)})),
+    };
+
+    let params = match crate::api_json::parse_and_resolve_ramos(&json_str, Some(".")) {
+        Ok(p) => p,
+        Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to parse input: {}", e)})),
+    };
+
+    if params.email.trim().is_empty() {
+        return HttpResponse::BadRequest().json(json!({"error": "email is required"}));
+    }
+
+    // Obtener datos precomputados
+    let initial_map: HashMap<String, RamoDisponible> = HashMap::new();
+    let sheet_opt = params.sheet.as_deref();
+    let (lista_secciones, ramos_actualizados) = match crate::algorithm::extract_data(initial_map, &params.malla, sheet_opt) {
+        Ok((ls, ra)) => (ls, ra),
+        Err(e) => return HttpResponse::InternalServerError().json(json!({"status": "error", "error": format!("extraction failed: {}", e)})),
+    };
+
+    // Llamar a la versión sin horarios
+    let soluciones = crate::algorithm::get_clique_dependencies_only(&lista_secciones, &ramos_actualizados);
+
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    for (sol, total_score) in soluciones.into_iter().take(10) {
+        let mut secciones_json: Vec<serde_json::Value> = Vec::new();
+        for (s, prio) in sol.into_iter() {
+            secciones_json.push(json!({"seccion": s, "prioridad": prio}));
+        }
+        out.push(json!({"total_score": total_score, "secciones": secciones_json}));
+    }
+    HttpResponse::Ok().json(json!({"status": "ok", "soluciones": out, "note": "DEPENDENCIES ONLY - NO SCHEDULE CONFLICTS CHECKED"}))
+}
+
 /// POST /students
 /// Guarda los datos del estudiante en `data/students.json`. Si ya existe un
 /// estudiante con el mismo correo, lo sustituye.
@@ -222,6 +266,7 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
                 .route("/students", web::post().to(save_student_handler))
             .route("/rutacomoda/best", web::post().to(rutacomoda_best_handler))
             .route("/rutacritica/run", web::post().to(rutacritica_run_handler))
+            .route("/rutacritica/run-dependencies-only", web::post().to(rutacritica_run_dependencies_only_handler))
             .route("/datafiles", web::get().to(datafiles_list_handler))
             .route("/datafiles/content", web::get().to(datafiles_content_handler))
             .route("/datafiles/debug/pa-names", web::get().to(debug_pa_names_handler))

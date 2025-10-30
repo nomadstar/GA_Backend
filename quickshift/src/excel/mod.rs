@@ -14,6 +14,10 @@ mod io;
 /// Lectura de malla curricular: `leer_malla_excel`
 mod malla;
 
+/// Versión optimizada de malla usando MapeoMaestro
+/// Reemplaza búsquedas O(n²) con O(1) lookups
+pub mod malla_optimizado;
+
 /// Mapeo universal entre sistemas de códigos
 pub mod mapeo;
 
@@ -36,6 +40,7 @@ pub use malla::leer_malla_excel;
 pub use malla::leer_malla_excel_with_sheet;
 pub use malla::leer_prerequisitos;
 pub use malla::leer_malla_con_porcentajes;
+pub use malla_optimizado::leer_malla_con_porcentajes_optimizado;
 pub use porcentajes::leer_porcentajes_aprobados;
 pub use porcentajes::leer_porcentajes_aprobados_con_nombres;
 pub use oferta::leer_oferta_academica_excel;

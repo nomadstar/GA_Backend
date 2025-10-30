@@ -16,6 +16,17 @@ fn build_code_to_key_index(ramos_disponibles: &HashMap<String, RamoDisponible>) 
     index
 }
 
+/// Construir índice PA2025-1 código → nombre normalizado para TODOS los ramos
+/// (no solo electivos). Esto permite resolver ramos_prioritarios.
+fn build_code_to_name_index(ramos_disponibles: &HashMap<String, RamoDisponible>) -> HashMap<String, String> {
+    let mut index = HashMap::new();
+    for (key, ramo) in ramos_disponibles.iter() {
+        // Mapear código de PA2025-1 → nombre normalizado (clave del HashMap)
+        index.insert(ramo.codigo.clone(), key.clone());
+    }
+    index
+}
+
 pub fn find_max_weight_clique(
     graph: &UnGraph<usize, ()>,
     priorities: &HashMap<NodeIndex, i32>,
@@ -188,6 +199,148 @@ pub fn get_clique_max_pond(
     solutions
 }
 
+/// Resolver ruta crítica considerando SOLO dependencias, SIN verificar conflictos de horarios.
+/// Esta versión es útil para obtener la ruta crítica "ideal" en términos de dependencias,
+/// sin restricciones de horarios. Útil para validar el orden de cursos correcto.
+pub fn get_clique_dependencies_only(
+    lista_secciones: &Vec<Seccion>,
+    ramos_disponibles: &HashMap<String, RamoDisponible>,
+) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    eprintln!("DEBUG get_clique_dependencies_only: {} secciones, {} ramos disponibles (SIN VERIFICACIÓN DE HORARIOS)", 
+              lista_secciones.len(), ramos_disponibles.len());
+    println!("=== Generador de Ruta Crítica (Dependencias Solamente) ===");
+    println!("Ramos disponibles:\n");
+    for (i, (codigo, ramo)) in ramos_disponibles.iter().enumerate() {
+        println!("{}.- {} || {}", i, ramo.nombre, codigo);
+    }
+
+    // Construir índice inverso PA2025-1 código → clave del HashMap
+    let code_to_key = build_code_to_key_index(ramos_disponibles);
+
+    let mut priority_ramo: HashMap<String, i32> = HashMap::new();
+    let mut priority_sec: HashMap<String, i32> = HashMap::new();
+
+    priority_ramo.insert("Algoritmos y Programación".to_string(), 90);
+    priority_ramo.insert("Bases de Datos".to_string(), 85);
+    priority_sec.insert("CIT3313-SEC1".to_string(), 95);
+
+    let mut graph = UnGraph::<usize, ()>::new_undirected();
+    let mut node_indices = Vec::new();
+    let mut priorities = HashMap::new();
+
+    for (idx, seccion) in lista_secciones.iter().enumerate() {
+        // Buscar por nombre normalizado (para NO-ELECTIVOS)
+        let nombre_norm = crate::excel::normalize_name(&seccion.nombre);
+        let ramo = if let Some(r) = ramos_disponibles.get(&nombre_norm) {
+            Some(r)
+        } else if nombre_norm == "electivo profesional" {
+            // CASO ESPECIAL: Para electivos, buscar por el código de PA2025-1
+            if let Some(key) = code_to_key.get(&seccion.codigo) {
+                ramos_disponibles.get(key)
+            } else {
+                eprintln!("WARN: Electivo con código '{}' no encontrado en code_to_key", seccion.codigo);
+                None
+            }
+        } else {
+            None
+        };
+
+        let ramo = match ramo {
+            Some(r) => r,
+            None => {
+                eprintln!("WARN: No se encontró ramo con nombre normalizado '{}' (original: '{}', código: '{}')", nombre_norm, seccion.nombre, seccion.codigo);
+                continue;
+            }
+        };
+        
+        let cc = if ramo.critico { 10 } else { 0 };
+        let uu = 10 - ramo.holgura;
+        let mut kk = 60 - ramo.numb_correlativo;
+
+        if let Some(&prio) = priority_ramo.get(&seccion.nombre) {
+            kk = prio + 53;
+        }
+
+        let mut ss = seccion.seccion.parse::<i32>().unwrap_or(0);
+        if let Some(&prio) = priority_sec.get(&seccion.codigo) {
+            ss = prio + 20;
+        }
+
+        let prioridad = cc * 10000 + uu * 1000 + kk * 100 + ss;
+
+        let node_idx = graph.add_node(idx);
+        node_indices.push(node_idx);
+        priorities.insert(node_idx, prioridad);
+    }
+
+    // CLAVE DIFERENCIA: Conectar TODOS los cursos sin horarios conflictivos
+    // Solo verificar código (sin duplicados) pero NO horarios
+    for i in 0..node_indices.len() {
+        for j in (i + 1)..node_indices.len() {
+            let sec_i = &lista_secciones[graph[node_indices[i]]];
+            let sec_j = &lista_secciones[graph[node_indices[j]]];
+
+            if sec_i.codigo_box != sec_j.codigo_box &&
+               sec_i.codigo[..std::cmp::min(7, sec_i.codigo.len())] != 
+               sec_j.codigo[..std::cmp::min(7, sec_j.codigo.len())] {
+                // Conectar SIN verificar horarios - solo dependencias
+                graph.add_edge(node_indices[i], node_indices[j], ());
+            }
+        }
+    }
+
+    println!("\n=== Soluciones Recomendadas (Dependencias Solamente) ===");
+
+    let mut prev_solutions = Vec::new();
+    let mut graph_copy = graph.clone();
+    let mut solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+
+    for _solution_num in 1..=5 {
+        let max_clique = find_max_weight_clique(&graph_copy, &priorities);
+        if max_clique.len() <= 2 { break; }
+
+        let mut arr_aux_delete: Vec<(NodeIndex, i32)> = max_clique
+            .iter()
+            .map(|&idx| (idx, *priorities.get(&idx).unwrap_or(&0)))
+            .collect();
+
+        arr_aux_delete.sort_by_key(|&(_, prio)| prio);
+
+        while arr_aux_delete.len() > 6 { arr_aux_delete.remove(0); }
+
+        let solution_key: Vec<_> = arr_aux_delete.iter().map(|&(idx, _)| idx).collect();
+        if prev_solutions.contains(&solution_key) {
+            if !arr_aux_delete.is_empty() { graph_copy.remove_node(arr_aux_delete[0].0); }
+            continue;
+        }
+
+        let mut solution_entries: Vec<(Seccion, i32)> = Vec::new();
+        let mut total_score_i64: i64 = 0;
+
+        for &(node_idx, prioridad) in &arr_aux_delete {
+            let seccion_idx = graph_copy[node_idx];
+            let seccion = lista_secciones[seccion_idx].clone();
+            println!("{} || {} - Sección: {} | Horario -> {:?} || {}",
+                &seccion.codigo[..std::cmp::min(7, seccion.codigo.len())],
+                seccion.nombre,
+                seccion.seccion,
+                seccion.horario,
+                prioridad
+            );
+
+            solution_entries.push((seccion, prioridad));
+            total_score_i64 += prioridad as i64;
+        }
+
+        solutions.push((solution_entries, total_score_i64));
+        prev_solutions.push(solution_key);
+
+        if !arr_aux_delete.is_empty() { graph_copy.remove_node(arr_aux_delete[0].0); }
+    }
+
+    solutions
+}
+
 pub fn get_clique_max_pond_with_prefs(
     lista_secciones: &Vec<Seccion>,
     ramos_disponibles: &HashMap<String, RamoDisponible>,
@@ -202,13 +355,23 @@ pub fn get_clique_max_pond_with_prefs(
         if !is_taken { filtered.push(s.clone()); }
     }
 
-    // Construir índice inverso PA2025-1 código → clave del HashMap
-    let code_to_key = build_code_to_key_index(ramos_disponibles);
+    // Construir índice inverso PA2025-1 código → clave del HashMap (para TODOS los ramos)
+    let code_to_name = build_code_to_name_index(ramos_disponibles);
+    let code_to_key_electivos = build_code_to_key_index(ramos_disponibles);
 
     let mut priority_ramo: HashMap<String, i32> = HashMap::new();
     let priority_sec: HashMap<String, i32> = HashMap::new();
 
+    // Convertir ramos_prioritarios de códigos a nombres normalizados
     for rp in params.ramos_prioritarios.iter() {
+        // Si es código, convertir a nombre normalizado; si no, usarlo como está
+        let nombre_o_codigo = if let Some(nombre_norm) = code_to_name.get(rp) {
+            nombre_norm.clone()
+        } else {
+            rp.clone()  // Si no encuentra en mapeo, asumir que ya es nombre
+        };
+        priority_ramo.insert(nombre_o_codigo, 5000);
+        // También agregar el código directo para casos electivos
         priority_ramo.insert(rp.clone(), 5000);
     }
 
@@ -224,7 +387,7 @@ pub fn get_clique_max_pond_with_prefs(
             Some(r)
         } else if nombre_norm == "electivo profesional" {
             // CASO ESPECIAL: Para electivos, buscar por el código de PA2025-1
-            if let Some(key) = code_to_key.get(&seccion.codigo) {
+            if let Some(key) = code_to_key_electivos.get(&seccion.codigo) {
                 ramos_disponibles.get(key)
             } else {
                 None
