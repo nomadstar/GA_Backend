@@ -28,6 +28,7 @@ mod asignatura;
 pub use malla::leer_malla_excel;
 pub use malla::leer_malla_excel_with_sheet;
 pub use malla::leer_prerequisitos;
+pub use malla::leer_malla_con_porcentajes;
 pub use porcentajes::leer_porcentajes_aprobados;
 pub use porcentajes::leer_porcentajes_aprobados_con_nombres;
 pub use oferta::leer_oferta_academica_excel;
@@ -247,6 +248,118 @@ mod tests {
         println!("Malla leída desde: {} -> {} ramos", malla_str, map.len());
         for (codigo, ramo) in map.iter().take(50) {
             println!("{} => {}", codigo, ramo.nombre);
+        }
+    }
+}
+
+/// ============================================================================
+/// MATCHING INTELIGENTE ENTRE TABLAS
+/// ============================================================================
+/// 
+/// Intenta emparejar un nombre de ramo (de la malla) con nombres de la oferta
+/// académica usando normalización de acentos y espacios.
+///
+/// Ejemplo:
+/// - Nombre malla: "Mecánica"
+/// - Nombre oferta: "MECÁNICA"
+/// - normalize_name("Mecánica") == normalize_name("MECÁNICA") → MATCH
+pub fn find_best_name_match(
+    malla_name: &str,
+    oferta_names: &[String],
+) -> Option<String> {
+    let malla_norm = normalize_name(malla_name);
+    
+    for oferta_name in oferta_names {
+        let oferta_norm = normalize_name(oferta_name);
+        if malla_norm == oferta_norm {
+            return Some(oferta_name.clone());
+        }
+    }
+    
+    None
+}
+
+/// Enriquece el mapa de `ramos_disponibles` con información de oferta y porcentajes
+/// usando matching por nombre normalizado.
+///
+/// Flujo:
+/// 1. Para cada ramo en `ramos_disponibles`, normaliza su nombre
+/// 2. Busca coincidencias en `oferta_secciones` por nombre normalizado
+/// 3. Busca coincidencias en `porcentajes_por_nombre` por nombre normalizado
+/// 4. Actualiza `dificultad` si encuentra datos de porcentajes
+pub fn enrich_ramos_with_oferta_and_porcent(
+    ramos_disponibles: &mut HashMap<String, RamoDisponible>,
+    oferta_secciones: &[crate::models::Seccion],
+    porcentajes_por_nombre: &HashMap<String, (String, f64, f64)>,
+) {
+    // Construir índice de oferta por nombre normalizado
+    let mut oferta_por_nombre_norm: HashMap<String, Vec<&crate::models::Seccion>> = HashMap::new();
+    for seccion in oferta_secciones.iter() {
+        let nombre_norm = normalize_name(&seccion.nombre);
+        oferta_por_nombre_norm.entry(nombre_norm).or_default().push(seccion);
+    }
+
+    // Enriquecer cada ramo
+    for ramo in ramos_disponibles.values_mut() {
+        let ramo_nombre_norm = normalize_name(&ramo.nombre);
+
+        // Buscar en porcentajes por nombre normalizado
+        if let Some((_codigo_origen, porc, _total)) = porcentajes_por_nombre.get(&ramo_nombre_norm) {
+            ramo.dificultad = Some(*porc);
+            eprintln!("DEBUG: Ramo '{}' → porcentaje encontrado: {}", ramo.nombre, porc);
+        } else {
+            eprintln!("DEBUG: Ramo '{}' → NO encontrado en porcentajes (norm: '{}')", ramo.nombre, ramo_nombre_norm);
+        }
+
+        // Nota: Las secciones de oferta no se usan aquí directamente para enriquecer,
+        // pero se registra si hay coincidencia en oferta
+        if oferta_por_nombre_norm.contains_key(&ramo_nombre_norm) {
+            eprintln!("DEBUG: Ramo '{}' encontrado en oferta académica", ramo.nombre);
+        }
+    }
+}
+
+
+/// Crea un índice de nombres normalizados → nombre original para búsqueda rápida.
+/// Útil para matchear Malla ↔ Oferta ↔ Porcentajes por nombre.
+pub fn build_normalized_index(names: &[String]) -> HashMap<String, String> {
+    let mut index = HashMap::new();
+    for name in names {
+        let norm = normalize_name(name);
+        index.insert(norm, name.clone());
+    }
+    index
+}
+
+/// Enriquece un `RamoDisponible` con información de oferta académica.
+/// Intenta encontrar la mejor coincidencia por nombre normalizado.
+/// 
+/// Ejemplo de uso:
+/// ```ignore
+/// let mut ramo = RamoDisponible { nombre: "Mecánica", ... };
+/// enrich_ramo_with_oferta(&mut ramo, &secciones);
+/// // Ahora ramo tiene referencias a las secciones que ofrecen "Mecánica"
+/// ```
+pub fn enrich_ramo_with_congruencias(
+    ramos: &mut HashMap<String, RamoDisponible>,
+    oferta_names: &[String],
+    porcentajes: &HashMap<String, (f64, f64)>,
+) {
+    // Crear índice de nombres normalizados en oferta
+    let oferta_index = build_normalized_index(oferta_names);
+    
+    for (codigo, ramo) in ramos.iter_mut() {
+        let ramo_norm = normalize_name(&ramo.nombre);
+        
+        // Buscar en oferta por nombre normalizado
+        if let Some(_oferta_name) = oferta_index.get(&ramo_norm) {
+            // Si encontramos la oferta, intentamos buscar porcentajes
+            // usando el código del ramo o el nombre normalizado
+            if let Some(&(porc, total)) = porcentajes.get(codigo) {
+                ramo.dificultad = Some(porc);
+            } else if let Some(&(porc, total)) = porcentajes.get(&ramo_norm) {
+                ramo.dificultad = Some(porc);
+            }
         }
     }
 }

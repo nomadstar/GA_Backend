@@ -481,12 +481,13 @@ async fn debug_pa_names_handler(query: web::Query<std::collections::HashMap<Stri
         Ok((_porcent_map, porcent_names)) => {
             // Show first 50 entries from the name index
             let mut sample: Vec<serde_json::Value> = Vec::new();
-            for (norm_name, (codigo, pct, total)) in porcent_names.iter().take(50) {
+            for (norm_name, (codigo, pct, total, es_electivo)) in porcent_names.iter().take(50) {
                 sample.push(json!({
                     "normalized_name": norm_name,
                     "codigo": codigo,
                     "porcentaje": pct,
-                    "total": total
+                    "total": total,
+                    "es_electivo": es_electivo
                 }));
             }
             HttpResponse::Ok().json(json!({"total_names": porcent_names.len(), "sample": sample}))

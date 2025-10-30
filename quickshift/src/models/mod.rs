@@ -14,15 +14,24 @@ pub struct Seccion {
 #[allow(dead_code)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RamoDisponible {
+    /// ID único dentro de Malla2020 (1-57 típicamente)
+    /// Usado para resolver dependencias en PERT
+    pub id: i32,
     pub nombre: String,
+    /// Código de la oferta (PA2025-1). Ej: "CIT2107"
+    /// Usado para búsqueda en oferta y como referencia universal
     pub codigo: String,
     pub holgura: i32,
     pub numb_correlativo: i32,
     pub critico: bool,
-    pub codigo_ref: Option<String>,
+    /// ID del ramo anterior (para dependencias PERT)
+    /// Apunta al campo `id` del ramo precedente
+    pub codigo_ref: Option<i32>,
     /// Porcentaje de aprobados (0.0 - 100.0). Se usará como estimador de dificultad inversa.
     /// Valores cercanos a 0 => muy difícil, cercanos a 100 => muy fácil.
     pub dificultad: Option<f64>,
+    /// True si es un ramo electivo (puede elegirse entre opciones)
+    pub electivo: bool,
 }
 
 #[allow(dead_code)]

@@ -18,11 +18,11 @@ pub fn build_and_run_pert(
 ) -> Result<(), Box<dyn Error>> {
     // Construir grafo y índice de nodos
     let mut pert_graph: DiGraph<PertNode, ()> = DiGraph::new();
-    let mut node_map: HashMap<String, NodeIndex> = HashMap::new();
+    let mut node_map: HashMap<i32, NodeIndex> = HashMap::new();  // id (i32) -> NodeIndex
 
-    for (codigo, ramo) in ramos_actualizados.iter() {
+    for (_nombre_norm, ramo) in ramos_actualizados.iter() {
         let node = PertNode {
-            codigo: codigo.clone(),
+            codigo: ramo.id.to_string(),  // Usar ID como identificador en PERT
             nombre: ramo.nombre.clone(),
             es: None,
             ef: None,
@@ -31,14 +31,14 @@ pub fn build_and_run_pert(
             h: None,
         };
         let idx = pert_graph.add_node(node);
-        node_map.insert(codigo.clone(), idx);
+        node_map.insert(ramo.id, idx);
     }
 
-    // Añadir aristas por codigo_ref
-    for (codigo, ramo) in ramos_actualizados.iter() {
-        if let Some(ref_code) = &ramo.codigo_ref {
-            if ref_code != codigo {
-                if let (Some(&from), Some(&to)) = (node_map.get(ref_code), node_map.get(codigo)) {
+    // Añadir aristas por codigo_ref (que apunta a IDs)
+    for (_nombre_norm, ramo) in ramos_actualizados.iter() {
+        if let Some(ref_id) = &ramo.codigo_ref {
+            if ref_id != &ramo.id {
+                if let (Some(&from), Some(&to)) = (node_map.get(ref_id), node_map.get(&ramo.id)) {
                     let _ = pert_graph.add_edge(from, to, ());
                 }
             }
@@ -46,10 +46,10 @@ pub fn build_and_run_pert(
     }
 
     // Añadir aristas por correlativo (i -> j si j = i+1)
-    for (a_code, a) in ramos_actualizados.iter() {
-        for (b_code, b) in ramos_actualizados.iter() {
+    for (_norm_i, a) in ramos_actualizados.iter() {
+        for (_norm_j, b) in ramos_actualizados.iter() {
             if b.numb_correlativo == a.numb_correlativo + 1 {
-                if let (Some(&from), Some(&to)) = (node_map.get(a_code), node_map.get(b_code)) {
+                if let (Some(&from), Some(&to)) = (node_map.get(&a.id), node_map.get(&b.id)) {
                     if pert_graph.find_edge(from, to).is_none() {
                         let _ = pert_graph.add_edge(from, to, ());
                     }
@@ -89,48 +89,50 @@ pub fn build_and_run_pert(
     let malla_path = malla_pathbuf.to_str().unwrap_or(malla_name).to_string();
 
     if let Ok(pr_map) = crate::excel::leer_prerequisitos(&malla_path) {
-        // construir índices normalizados
-        let mut code_index: HashMap<String, NodeIndex> = HashMap::new();
-        for (code, idx) in node_map.iter() { code_index.insert(normalize(code), *idx); }
-
-        let mut name_index: HashMap<String, NodeIndex> = HashMap::new();
-        for s in lista_secciones.iter() {
-            if let Some(&idx) = node_map.get(&s.codigo) {
-                name_index.insert(normalize(&s.nombre), idx);
-            }
+        // construir índice: ID (i32) -> NodeIndex
+        let mut id_to_node: HashMap<i32, NodeIndex> = HashMap::new();
+        for (id, idx) in node_map.iter() {
+            id_to_node.insert(*id, *idx);
         }
 
-        for (codigo, prereqs) in pr_map.into_iter() {
-            for prereq in prereqs.into_iter() {
-                let mut matched: Option<NodeIndex> = None;
+        // construir índice: nombre normalizado -> ID
+        let mut name_norm_to_id: HashMap<String, i32> = HashMap::new();
+        for (_norm_name, ramo) in ramos_actualizados.iter() {
+            name_norm_to_id.insert(normalize(&ramo.nombre), ramo.id);
+        }
 
-                // 1) match directo por código
-                if let Some(&idx) = node_map.get(&prereq) { matched = Some(idx); }
+        for (codigo_str, prereqs) in pr_map.into_iter() {
+            // Intentar parsear codigo_str como ID (i32) para identificar el ramo destino
+            let to_id_opt = codigo_str.parse::<i32>().ok()
+                .and_then(|id| node_map.contains_key(&id).then_some(id))
+                .or_else(|| {
+                    // Si no es un ID directo, buscar por nombre normalizado
+                    name_norm_to_id.get(&normalize(&codigo_str)).copied()
+                });
 
-                // 2) match por código normalizado
-                if matched.is_none() {
-                    let k = normalize(&prereq);
-                    if let Some(&idx) = code_index.get(&k) { matched = Some(idx); }
-                }
+            if let Some(to_id) = to_id_opt {
+                if let Some(&to_idx) = node_map.get(&to_id) {
+                    for prereq in prereqs.into_iter() {
+                        let mut matched_from_id: Option<i32> = None;
 
-                // 3) match por nombre humano (normalizado)
-                if matched.is_none() {
-                    let k = normalize(&prereq);
-                    if let Some(&idx) = name_index.get(&k) { matched = Some(idx); }
-                }
+                        // 1) Intentar parsear como ID directo
+                        if let Ok(id) = prereq.parse::<i32>() {
+                            if node_map.contains_key(&id) {
+                                matched_from_id = Some(id);
+                            }
+                        }
 
-                // 4) intentar resolver nombre -> asignatura usando asignatura_from_nombre
-                if matched.is_none() {
-                    if let Ok(Some(asig)) = crate::excel::asignatura_from_nombre(&malla_path, &prereq) {
-                        if let Some(&idx) = node_map.get(&asig) { matched = Some(idx); }
-                        else if let Some(&idx) = code_index.get(&normalize(&asig)) { matched = Some(idx); }
-                    }
-                }
+                        // 2) Buscar por nombre normalizado
+                        if matched_from_id.is_none() {
+                            matched_from_id = name_norm_to_id.get(&normalize(&prereq)).copied();
+                        }
 
-                if let Some(from_idx) = matched {
-                    if let Some(&to_idx) = node_map.get(&codigo) {
-                        if pert_graph.find_edge(from_idx, to_idx).is_none() {
-                            let _ = pert_graph.add_edge(from_idx, to_idx, ());
+                        if let Some(from_id) = matched_from_id {
+                            if let Some(&from_idx) = node_map.get(&from_id) {
+                                if pert_graph.find_edge(from_idx, to_idx).is_none() {
+                                    let _ = pert_graph.add_edge(from_idx, to_idx, ());
+                                }
+                            }
                         }
                     }
                 }
@@ -138,19 +140,27 @@ pub fn build_and_run_pert(
         }
     }
 
-    // Ejecutar cálculo PERT para cada nodo
-    for node_idx in pert_graph.node_indices() {
-        let len_dag = pert_graph.node_count() as i32;
-        crate::algorithm::pert::set_values_recursive(&mut pert_graph, node_idx, len_dag);
+    // Ejecutar cálculo PERT para cada nodo (versión simplificada sin recursión profunda)
+    // Usar una aproximación iterativa para evitar stack overflow
+    let node_count = pert_graph.node_count();
+    for _ in 0..node_count {
+        for node_idx in pert_graph.node_indices() {
+            let len_dag = node_count as i32;
+            set_values_simple(&mut pert_graph, node_idx, len_dag);
+        }
     }
 
     // Propagar resultado PERT a ramos_actualizados (marcar críticos con holgura == 0)
-    for (codigo, idx) in node_map.iter() {
+    for (id, idx) in node_map.iter() {
         if let Some(pn) = pert_graph.node_weight(*idx) {
             if let Some(h) = pn.h {
-                if let Some(r) = ramos_actualizados.get_mut(codigo) {
-                    if h == 0 {
-                        r.critico = true;
+                // Buscar el ramo por ID
+                for (_norm_name, ramo) in ramos_actualizados.iter_mut() {
+                    if ramo.id == *id {
+                        if h == 0 {
+                            ramo.critico = true;
+                        }
+                        break;
                     }
                 }
             }
@@ -159,6 +169,37 @@ pub fn build_and_run_pert(
 
     Ok(())
 }
+/// Versión simplificada NO RECURSIVA para cálcular PERT
+/// Calcula valores para un nodo basándose en sus predecesores
+fn set_values_simple(
+    pert: &mut DiGraph<PertNode, ()>,
+    node_idx: NodeIndex,
+    len_dag: i32,
+) {
+    // Encontrar ancestros del nodo
+    let mut max_count_jump = 1;
+
+    // Calcular el camino más largo desde cualquier antecesor
+    let predecessors: Vec<_> = pert.neighbors_directed(node_idx, Direction::Incoming).collect();
+
+    for pred_idx in predecessors.iter() {
+        if let Some(pred_node) = pert.node_weight(*pred_idx) {
+            if let Some(pred_es) = pred_node.es {
+                max_count_jump = std::cmp::max(max_count_jump, pred_es + 1);
+            }
+        }
+    }
+
+    // Actualizar valores del nodo
+    let node = &mut pert[node_idx];
+    node.es = Some(max_count_jump);
+    node.ef = Some(node.es.unwrap() + 1);
+    node.lf = Some(len_dag);
+    let h = node.lf.unwrap() - node.ef.unwrap();
+    node.h = Some(if h > 0 { h } else { 0 });
+    node.ls = Some(node.lf.unwrap() - 1);
+}
+
 /// Versión simplificada de la función recursiva para ruta crítica (PERT)
 #[allow(dead_code)]
 pub fn set_values_recursive(

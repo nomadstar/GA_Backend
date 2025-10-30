@@ -8,22 +8,18 @@ mod ruta;
 
 // Reexportar solo la API pública que quieres exponer desde aquí
 pub use extract::extract_data;
-// Note: la funcionalidad de lectura de malla queda centralizada en `crate::excel`.
-// Exponemos aquí un wrapper compat (get_ramo_critico()) para no romper callers.
-
-// Compat wrapper: invoca la versión de `excel` usando un nombre por defecto
-// para no romper llamadas existentes que esperan `get_ramo_critico()` sin args.
-pub fn get_ramo_critico() -> (std::collections::HashMap<String, crate::models::RamoDisponible>, String, bool) {
-	// Nombre por defecto (legacy); `excel::resolve_datafile_paths` preferirá
-	// archivos en `src/datafiles` cuando existan.
-	crate::excel::get_ramo_critico("MiMalla.xlsx")
-}
-
-// Exponer las funciones de lectura de Excel que necesita el pipeline
 
 // Reexportar funciones del planner (clique) y el orquestador (ruta)
 pub use crate::algorithm::clique::get_clique_with_user_prefs;
 pub use crate::algorithm::ruta::ejecutar_ruta_critica_with_params;
+
+// Compat wrapper: invoca la versión de `excel` usando un nombre por defecto
+// para no romper llamadas existentes que esperan `get_ramo_critico()` sin args.
+pub fn get_ramo_critico() -> (HashMap<String, RamoDisponible>, String, bool) {
+	// Nombre por defecto (legacy); `excel::resolve_datafile_paths` preferirá
+	// archivos en `src/datafiles` cuando existan.
+	crate::excel::get_ramo_critico("MiMalla.xlsx")
+}
 
 // Helpers que exponen listas y resúmenes de ficheros de datos via el módulo
 // `algorithm` (encapsulan acceso a `crate::excel` para que el server use la API
@@ -32,22 +28,22 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use crate::models::{RamoDisponible, Seccion};
-use crate::excel::normalize_name as normalize_human_name;
+use crate::excel::normalize_name;
 use serde_json::json;
 
 /// Une la malla, la oferta y los porcentajes intentando emparejar por nombre
-/// normalizado. Devuelve una lista de objetos JSON con los campos:
-/// { malla_codigo, malla_nombre, oferta_codigo, oferta_codigo_box, oferta_nombre, pa_codigo, porcentaje, total }
+/// normalizado. Devuelve una lista de objetos JSON ordenada por malla_codigo.
+/// { malla_codigo, malla_nombre, oferta_codigo, oferta_codigo_box, oferta_nombre, pa_codigo, porcentaje, total, es_electivo }
 pub fn merge_malla_oferta_porcentajes(
 	malla_map: &HashMap<String, RamoDisponible>,
 	oferta: &Vec<Seccion>,
 	porcent: &HashMap<String, (f64,f64)>,
-	porcent_names: &std::collections::HashMap<String, (String, f64, f64)>,
+	porcent_names: &std::collections::HashMap<String, (String, f64, f64, bool)>,
 ) -> Vec<serde_json::Value> {
 	// Construir índice de oferta por nombre normalizado -> Vec<Seccion>
 	let mut oferta_index: std::collections::HashMap<String, Vec<&Seccion>> = std::collections::HashMap::new();
 	for s in oferta.iter() {
-		let key = normalize_human_name(&s.nombre);
+		let key = normalize_name(&s.nombre);
 		oferta_index.entry(key).or_default().push(s);
 	}
 
@@ -55,7 +51,7 @@ pub fn merge_malla_oferta_porcentajes(
 
 	// Para cada ramo en la malla, buscar coincidencias en oferta por nombre
 	for (mcode, ramo) in malla_map.iter() {
-		let rname_norm = normalize_human_name(&ramo.nombre);
+		let rname_norm = normalize_name(&ramo.nombre);
 		if let Some(matches) = oferta_index.get(&rname_norm) {
 			for s in matches.iter() {
 				// buscar porcentaje por oferta.codigo primero, luego por codigo_box
@@ -79,36 +75,21 @@ pub fn merge_malla_oferta_porcentajes(
 						"total": *tot
 					}));
 				} else {
-					// intentar emparejar PA por nombre de la oferta (fallback adicional)
-					let oferta_name_norm = normalize_human_name(&s.nombre);
-					if let Some((pa_code2, pct2, tot2)) = porcent_names.get(&oferta_name_norm) {
-						out.push(json!({
-							"malla_codigo": mcode,
-							"malla_nombre": ramo.nombre,
-							"oferta_codigo": s.codigo,
-							"oferta_codigo_box": s.codigo_box,
-							"oferta_nombre": s.nombre,
-							"pa_codigo": pa_code2,
-							"porcentaje": *pct2,
-							"total": *tot2
-						}));
-					} else {
-						out.push(json!({
-							"malla_codigo": mcode,
-							"malla_nombre": ramo.nombre,
-							"oferta_codigo": s.codigo,
-							"oferta_codigo_box": s.codigo_box,
-							"oferta_nombre": s.nombre,
-							"pa_codigo": serde_json::Value::Null,
-							"porcentaje": serde_json::Value::Null,
-							"total": serde_json::Value::Null
-						}));
-					}
+					out.push(json!({
+						"malla_codigo": mcode,
+						"malla_nombre": ramo.nombre,
+						"oferta_codigo": s.codigo,
+						"oferta_codigo_box": s.codigo_box,
+						"oferta_nombre": s.nombre,
+						"pa_codigo": serde_json::Value::Null,
+						"porcentaje": serde_json::Value::Null,
+						"total": serde_json::Value::Null
+					}));
 				}
 			}
 		} else {
 			// Intentar emparejar directamente PA -> malla por nombre como fallback
-			if let Some((pa_code, pct, tot)) = porcent_names.get(&rname_norm) {
+			if let Some((pa_code, pct, tot, es_electivo)) = porcent_names.get(&rname_norm) {
 				out.push(json!({
 					"malla_codigo": mcode,
 					"malla_nombre": ramo.nombre,
@@ -117,7 +98,8 @@ pub fn merge_malla_oferta_porcentajes(
 					"oferta_nombre": serde_json::Value::Null,
 					"pa_codigo": pa_code,
 					"porcentaje": *pct,
-					"total": *tot
+					"total": *tot,
+					"es_electivo": es_electivo
 				}));
 			} else {
 				// No encontrado en oferta ni en PA por nombre: fila vacía
@@ -135,6 +117,26 @@ pub fn merge_malla_oferta_porcentajes(
 		}
 	}
 
+	// **ORDENAR POR MALLA_CODIGO NUMÉRICO**
+	out.sort_by(|a, b| {
+		let a_code_str = a.get("malla_codigo")
+			.and_then(|v| v.as_str())
+			.unwrap_or("ZZZZZ");
+		let b_code_str = b.get("malla_codigo")
+			.and_then(|v| v.as_str())
+			.unwrap_or("ZZZZZ");
+
+		let a_num = a_code_str.parse::<i32>().ok();
+		let b_num = b_code_str.parse::<i32>().ok();
+
+		match (a_num, b_num) {
+			(Some(an), Some(bn)) => an.cmp(&bn),
+			(Some(_), None) => std::cmp::Ordering::Less,
+			(None, Some(_)) => std::cmp::Ordering::Greater,
+			(None, None) => a_code_str.cmp(b_code_str),
+		}
+	});
+
 	out
 }
 
@@ -146,7 +148,7 @@ pub fn list_datafiles() -> Result<(Vec<String>, Vec<String>, Vec<String>), Box<d
 
 /// Resumen práctico de contenidos para una malla dada. Devuelve las rutas
 /// resueltas y los objetos de alto nivel leídos (malla map, oferta vec, porcentajes map).
-pub fn summarize_datafiles(malla_name: &str, sheet: Option<&str>) -> Result<(PathBuf, PathBuf, PathBuf, HashMap<String, RamoDisponible>, Vec<Seccion>, HashMap<String, (f64,f64)>, std::collections::HashMap<String, (String, f64, f64)>), Box<dyn Error>> {
+pub fn summarize_datafiles(malla_name: &str, sheet: Option<&str>) -> Result<(PathBuf, PathBuf, PathBuf, HashMap<String, RamoDisponible>, Vec<Seccion>, HashMap<String, (f64,f64)>, std::collections::HashMap<String, (String, f64, f64, bool)>), Box<dyn Error>> {
 	let (malla_path, oferta_path, porcent_path) = crate::excel::resolve_datafile_paths(malla_name)?;
 
 	// Leer primero la malla: si esto falla, no podemos continuar.
@@ -185,4 +187,3 @@ pub fn summarize_datafiles(malla_name: &str, sheet: Option<&str>) -> Result<(Pat
 // Nota: la API pública principal es `ruta::ejecutar_ruta_critica_with_params` y
 // se reexporta arriba. Eliminamos la función wrapper para evitar lints
 // en builds donde no se usa el helper genérico.
-

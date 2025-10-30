@@ -106,12 +106,12 @@ pub fn leer_porcentajes_aprobados(path: &str) -> Result<HashMap<String, (f64, f6
     }
 }
 
-/// Variante que además intenta extraer el nombre/denominación del ramo
-/// para construir un índice nombre_normalizado -> (codigo, porcentaje, total)
+/// Variante que además intenta extraer el nombre/denominación del ramo y si es electivo
+/// para construir un índice nombre_normalizado -> (codigo, porcentaje, total, es_electivo)
 /// Este índice se puede usar como fallback para emparejar PA -> malla por nombre.
-pub fn leer_porcentajes_aprobados_con_nombres(path: &str) -> Result<(HashMap<String, (f64, f64)>, std::collections::HashMap<String, (String, f64, f64)>), Box<dyn std::error::Error>> {
+pub fn leer_porcentajes_aprobados_con_nombres(path: &str) -> Result<(HashMap<String, (f64, f64)>, std::collections::HashMap<String, (String, f64, f64, bool)>), Box<dyn std::error::Error>> {
     let mut res: HashMap<String, (f64, f64)> = HashMap::new();
-    let mut name_index: std::collections::HashMap<String, (String, f64, f64)> = std::collections::HashMap::new();
+    let mut name_index: std::collections::HashMap<String, (String, f64, f64, bool)> = std::collections::HashMap::new();
 
     let resolved = if std::path::Path::new(path).exists() {
         path.to_string()
@@ -146,12 +146,14 @@ pub fn leer_porcentajes_aprobados_con_nombres(path: &str) -> Result<(HashMap<Str
                     let mut idx_total: Option<usize> = None;
                     let mut idx_porcentaje: Option<usize> = None;
                     let mut idx_nombre: Option<usize> = None;
+                    let mut idx_electivo: Option<usize> = None;
                     for (i, h) in headers.iter().enumerate() {
                         if h.contains("codigo") || h == "ramo" || h == "asignatura" { idx_codigo = i; }
                         if h.contains("aprob") { idx_aprobados = Some(i); }
                         if h.contains("total") { idx_total = Some(i); }
                         if h.contains("porcentaje") || h.contains('%') { idx_porcentaje = Some(i); }
                         if h.contains("denomin") || h.contains("denominación") || h.contains("denominacion") || h.contains("asignatura") { idx_nombre = Some(i); }
+                        if h.contains("electivo") { idx_electivo = Some(i); }
                     }
 
                     for row in rows.iter().skip(hidx+1) {
@@ -177,13 +179,21 @@ pub fn leer_porcentajes_aprobados_con_nombres(path: &str) -> Result<(HashMap<Str
                             }
                         }
 
+                        // Extraer si es electivo
+                        let es_electivo = if let Some(ei) = idx_electivo {
+                            let ev = data_to_string(row.get(ei).unwrap_or(&Data::Empty)).to_lowercase();
+                            ev == "true" || ev == "1" || ev == "sí" || ev == "si"
+                        } else {
+                            false
+                        };
+
                         if let Some(pctv) = pct {
                             res.insert(codigo.clone(), (pctv, tot));
                             if let Some(ni) = idx_nombre {
                                 let nombre = data_to_string(row.get(ni).unwrap_or(&Data::Empty)).trim().to_string();
                                 if !nombre.is_empty() {
                                     let key = normalize_name(&nombre);
-                                    name_index.insert(key, (codigo.clone(), pctv, tot));
+                                    name_index.insert(key, (codigo.clone(), pctv, tot, es_electivo));
                                 }
                             }
                         }
@@ -204,12 +214,14 @@ pub fn leer_porcentajes_aprobados_con_nombres(path: &str) -> Result<(HashMap<Str
             let mut idx_total: Option<usize> = None;
             let mut idx_porcentaje: Option<usize> = None;
             let mut idx_nombre: Option<usize> = None;
+            let mut idx_electivo: Option<usize> = None;
             for (i, h) in headers.iter().enumerate() {
                 if h.contains("codigo") || h == "ramo" || h == "asignatura" { idx_codigo = i; }
                 if h.contains("aprob") { idx_aprobados = Some(i); }
                 if h.contains("total") { idx_total = Some(i); }
                 if h.contains("porcentaje") || h.contains('%') { idx_porcentaje = Some(i); }
                 if h.contains("denomin") || h.contains("denominación") || h.contains("denominacion") || h.contains("asignatura") { idx_nombre = Some(i); }
+                if h.contains("electivo") { idx_electivo = Some(i); }
             }
 
             for (i, row) in rows.iter().enumerate() {
@@ -236,13 +248,21 @@ pub fn leer_porcentajes_aprobados_con_nombres(path: &str) -> Result<(HashMap<Str
                     }
                 }
 
+                // Extraer si es electivo
+                let es_electivo = if let Some(ei) = idx_electivo {
+                    let ev = row.get(ei).cloned().unwrap_or_default().to_lowercase();
+                    ev == "true" || ev == "1" || ev == "sí" || ev == "si"
+                } else {
+                    false
+                };
+
                 if let Some(pctv) = pct {
                     res.insert(codigo.clone(), (pctv, tot));
                     if let Some(ni) = idx_nombre {
                         let nombre = row.get(ni).cloned().unwrap_or_default().trim().to_string();
                         if !nombre.is_empty() {
                             let key = normalize_name(&nombre);
-                            name_index.insert(key, (codigo.clone(), pctv, tot));
+                            name_index.insert(key, (codigo.clone(), pctv, tot, es_electivo));
                         }
                     }
                 }

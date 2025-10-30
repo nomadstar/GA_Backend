@@ -58,7 +58,29 @@ pub fn get_clique_max_pond(
     let mut priorities = HashMap::new();
 
     for (idx, seccion) in lista_secciones.iter().enumerate() {
-        let ramo = &ramos_disponibles[&seccion.codigo_box];
+        // Buscar por nombre normalizado (para NO-ELECTIVOS)
+        let nombre_norm = crate::excel::normalize_name(&seccion.nombre);
+        let ramo = if let Some(r) = ramos_disponibles.get(&nombre_norm) {
+            Some(r)
+        } else if nombre_norm == "electivo profesional" {
+            // CASO ESPECIAL: Para electivos, la clave es diferente
+            // Intentar buscar por la clave patrón usado en leer_malla_con_porcentajes
+            // Pero como no tenemos el ID aquí, solo buscar el primer electivo disponible
+            ramos_disponibles.iter()
+                .find(|(k, _)| k.starts_with("electivo_profesional_"))
+                .map(|(_, r)| r)
+        } else {
+            None
+        };
+
+        let ramo = match ramo {
+            Some(r) => r,
+            None => {
+                eprintln!("WARN: No se encontró ramo con nombre normalizado '{}' (original: '{}', código: '{}')", nombre_norm, seccion.nombre, seccion.codigo);
+                continue;
+            }
+        };
+        
         let cc = if ramo.critico { 10 } else { 0 };
         let uu = 10 - ramo.holgura;
         let mut kk = 60 - ramo.numb_correlativo;
@@ -173,17 +195,31 @@ pub fn get_clique_max_pond_with_prefs(
     let mut priorities = HashMap::new();
 
     for (idx, seccion) in filtered.iter().enumerate() {
-        if !ramos_disponibles.contains_key(&seccion.codigo_box) && !ramos_disponibles.values().any(|r| r.codigo == seccion.codigo_box) {
+        // Buscar por nombre normalizado (para NO-ELECTIVOS)
+        let nombre_norm = crate::excel::normalize_name(&seccion.nombre);
+        
+        let ramo = if let Some(r) = ramos_disponibles.get(&nombre_norm) {
+            Some(r)
+        } else if nombre_norm == "electivo profesional" {
+            // CASO ESPECIAL: Para electivos, buscar por clave patrón
+            ramos_disponibles.iter()
+                .find(|(k, _)| k.starts_with("electivo_profesional_"))
+                .map(|(_, r)| r)
+        } else {
+            None
+        };
+
+        if ramo.is_none() {
             continue;
         }
 
-        let ramo = &ramos_disponibles[&seccion.codigo_box];
+        let ramo = ramo.unwrap();
         let cc = if ramo.critico { 10 } else { 0 };
         let uu = 10 - ramo.holgura;
         let mut kk = 60 - ramo.numb_correlativo;
 
         if let Some(&prio) = priority_ramo.get(&seccion.nombre) { kk = prio + 53; }
-        if let Some(&prio) = priority_ramo.get(&seccion.codigo_box) { kk = prio + 53; }
+        if let Some(&prio) = priority_ramo.get(&nombre_norm) { kk = prio + 53; }
 
         let mut ss = seccion.seccion.parse::<i32>().unwrap_or(0);
         if let Some(&prio) = priority_sec.get(&seccion.codigo) { ss = prio + 20; }
