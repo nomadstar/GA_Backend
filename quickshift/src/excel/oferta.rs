@@ -25,20 +25,19 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
                     if row_idx == 0 { continue; }  // skip header
                     if row.is_empty() { continue; }
                     
-                    let codigo = data_to_string(row.get(0).unwrap_or(&Data::Empty)).trim().to_string();
+                    // Para OA2024: Columna 2 = Codigo, Columna 3 = Nombre, Columna 4 = Sección
+                    let codigo = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
                     if codigo.is_empty() { continue; }
                     
-                    let nombre = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
-                    let seccion = data_to_string(row.get(2).unwrap_or(&Data::Empty)).trim().to_string();
-                    let horario_str = data_to_string(row.get(3).unwrap_or(&Data::Empty)).trim().to_string();
-                    let profesor = data_to_string(row.get(4).unwrap_or(&Data::Empty)).trim().to_string();
-                    let codigo_box = data_to_string(row.get(5).unwrap_or(&Data::Empty)).trim().to_string();
+                    let nombre = data_to_string(row.get(2).unwrap_or(&Data::Empty)).trim().to_string();
+                    let seccion = data_to_string(row.get(3).unwrap_or(&Data::Empty)).trim().to_string();
+                    let horario_str = data_to_string(row.get(7).unwrap_or(&Data::Empty)).trim().to_string();
+                    let profesor = data_to_string(row.get(9).unwrap_or(&Data::Empty)).trim().to_string();
+                    
+                    // codigo_box es el ID del paquete de clases
+                    let codigo_box = data_to_string(row.get(18).unwrap_or(&Data::Empty)).trim().to_string();
                     let codigo_box = if codigo_box.is_empty() { 
-                        if codigo.contains('-') { 
-                            codigo.split('-').next().unwrap_or(&codigo).to_string() 
-                        } else { 
-                            codigo.clone() 
-                        } 
+                        codigo.clone() 
                     } else { 
                         codigo_box 
                     };
@@ -83,20 +82,15 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
                     if row_idx == 0 { continue; }  // skip header
                     if row.iter().all(|c| c.trim().is_empty()) { continue; }
                     
-                    let codigo = row.get(0).cloned().unwrap_or_default().trim().to_string();
+                    // Para OA2024: Columna 2 = Codigo, Columna 3 = Nombre, Columna 4 = Sección
+                    let codigo = row.get(1).cloned().unwrap_or_default().trim().to_string();
                     if codigo.is_empty() { continue; }
                     
-                    let nombre = row.get(1).cloned().unwrap_or_else(|| "Sin nombre".to_string());
-                    let seccion = row.get(2).cloned().unwrap_or_else(|| "1".to_string());
-                    let horario_str = row.get(3).cloned().unwrap_or_default();
-                    let profesor = row.get(4).cloned().unwrap_or_else(|| "Sin asignar".to_string());
-                    let codigo_box = row.get(5).cloned().unwrap_or_else(|| {
-                        if codigo.contains('-') { 
-                            codigo.split('-').next().unwrap_or(&codigo).to_string() 
-                        } else { 
-                            codigo.clone() 
-                        }
-                    });
+                    let nombre = row.get(2).cloned().unwrap_or_else(|| "Sin nombre".to_string());
+                    let seccion = row.get(3).cloned().unwrap_or_else(|| "1".to_string());
+                    let horario_str = row.get(7).cloned().unwrap_or_default();
+                    let profesor = row.get(9).cloned().unwrap_or_else(|| "Sin asignar".to_string());
+                    let codigo_box = row.get(18).cloned().unwrap_or_else(|| codigo.clone());
                     
                     let horario: Vec<String> = if horario_str.is_empty() { 
                         vec!["Sin horario".to_string()] 
