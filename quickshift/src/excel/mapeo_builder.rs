@@ -46,7 +46,8 @@ fn leer_pa2025_al_mapeo(
     };
 
     let mut workbook = open_workbook_auto(&resolved)?;
-    let range = workbook.worksheet_range(workbook.sheet_names()[0])?;
+    let sheet_name = workbook.sheet_names()[0].clone();
+    let range = workbook.worksheet_range(&sheet_name)?;
 
     for (row_idx, row) in range.rows().enumerate() {
         if row_idx == 0 { continue; } // Skip header
@@ -89,7 +90,8 @@ fn leer_oa2024_al_mapeo(
     };
 
     let mut workbook = open_workbook_auto(&resolved)?;
-    let range = workbook.worksheet_range(workbook.sheet_names()[0])?;
+    let sheet_name = workbook.sheet_names()[0].clone();
+    let range = workbook.worksheet_range(&sheet_name)?;
 
     let mut contador = 0;
     for (row_idx, row) in range.rows().enumerate() {

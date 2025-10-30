@@ -17,6 +17,9 @@ mod malla;
 /// Mapeo universal entre sistemas de códigos
 pub mod mapeo;
 
+/// Constructor del Mapeo Maestro (une 3 fuentes Excel)
+pub mod mapeo_builder;
+
 /// Lectura de porcentajes/aprobados: `leer_porcentajes_aprobados`
 mod porcentajes;
 
@@ -37,6 +40,8 @@ pub use porcentajes::leer_porcentajes_aprobados;
 pub use porcentajes::leer_porcentajes_aprobados_con_nombres;
 pub use oferta::leer_oferta_academica_excel;
 pub use asignatura::asignatura_from_nombre;
+pub use mapeo_builder::construir_mapeo_maestro;
+pub use mapeo::{MapeoMaestro, MapeoAsignatura};
 // Normalizadores expuestos para que otros módulos (algorithm, ruta) los puedan usar
 // Re-exportar los helpers de normalización desde el submódulo `io` para que sean
 // accesibles fuera del módulo `excel` sin exponer el módulo `io` completo.
