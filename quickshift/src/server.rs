@@ -224,6 +224,7 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
             .route("/rutacritica/run", web::post().to(rutacritica_run_handler))
             .route("/datafiles", web::get().to(datafiles_list_handler))
             .route("/datafiles/content", web::get().to(datafiles_content_handler))
+            .route("/datafiles/debug/pa-names", web::get().to(debug_pa_names_handler))
             .route("/help", web::get().to(help_handler))
     })
     .bind(bind_addr)?
@@ -465,4 +466,31 @@ async fn help_handler() -> impl Responder {
     });
 
     HttpResponse::Ok().json(help)
+}
+
+/// DEBUG: GET /datafiles/debug/pa-names
+/// Muestra un sample del índice de nombres normalizados extraídos del PA para diagnóstico
+async fn debug_pa_names_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
+    let qm = query.into_inner();
+    let porcent_file = match qm.get("porcent").and_then(|s| if s.trim().is_empty() { None } else { Some(s.clone()) }) {
+        Some(f) => f,
+        None => "src/datafiles/PA2025-1.xlsx".to_string(),
+    };
+
+    match crate::excel::leer_porcentajes_aprobados_con_nombres(&porcent_file) {
+        Ok((_porcent_map, porcent_names)) => {
+            // Show first 50 entries from the name index
+            let mut sample: Vec<serde_json::Value> = Vec::new();
+            for (norm_name, (codigo, pct, total)) in porcent_names.iter().take(50) {
+                sample.push(json!({
+                    "normalized_name": norm_name,
+                    "codigo": codigo,
+                    "porcentaje": pct,
+                    "total": total
+                }));
+            }
+            HttpResponse::Ok().json(json!({"total_names": porcent_names.len(), "sample": sample}))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("failed to read PA: {}", e)})),
+    }
 }

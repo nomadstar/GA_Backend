@@ -88,14 +88,6 @@ pub fn normalize_name(s: &str) -> String {
     res.trim().to_string()
 }
 
-/// Normaliza un código: elimina caracteres no alfanuméricos y pasa a mayúsculas.
-pub fn normalize_code(s: &str) -> String {
-    s.chars()
-        .filter(|c| c.is_alphanumeric())
-        .map(|c| c.to_ascii_uppercase())
-        .collect()
-}
-
 /// Intenta leer una hoja del archivo Excel y devolverla como Vec<Vec<String>>.
 /// Implementación basada en `calamine::open_workbook_auto` para simplicidad (sirve como fallback)
 pub fn read_sheet_via_zip<P: AsRef<Path>>(path: P, sheet_name: &str) -> Result<Vec<Vec<String>>, Box<dyn std::error::Error>> {

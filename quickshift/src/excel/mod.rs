@@ -35,7 +35,7 @@ pub use asignatura::asignatura_from_nombre;
 // Normalizadores expuestos para que otros módulos (algorithm, ruta) los puedan usar
 // Re-exportar los helpers de normalización desde el submódulo `io` para que sean
 // accesibles fuera del módulo `excel` sin exponer el módulo `io` completo.
-pub use io::{normalize_name,normalize_code};
+pub use io::normalize_name;
 
 use std::path::{Path, PathBuf};
 use std::fs;
