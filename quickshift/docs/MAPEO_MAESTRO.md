@@ -2,9 +2,9 @@
 
 ## El Problema Descubierto
 
-La universidad cambió los **códigos de asignaturas entre 2024 y 2025**, pero mantuvieron los **nombres** (aproximadamente) iguales.
+Es posible que la universidad cambió los **códigos de asignaturas entre 2024 y 2025**, pero mantuvieron los **nombres** (aproximadamente) iguales.
 
-### Ejemplo del Engaño:
+### Ejemplo del Error:
 ```
 INGLÉS GENERAL II:
   - En OA2024 (Jan 2024):  CIG1002
