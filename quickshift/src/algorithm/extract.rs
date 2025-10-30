@@ -55,7 +55,7 @@ pub fn extract_data(
     let oferta_str = oferta_path.to_str().ok_or("ruta oferta no UTF-8")?;
     let secciones: Vec<Seccion> = match excel::leer_oferta_academica_excel(oferta_str) {
         Ok(s) => {
-            eprintln!("DEBUG: Oferta académica cargada: {} secciones", s.len());
+            eprintln!("DEBUG: Oferta académica cargada: {} secciones totales", s.len());
             s
         }
         Err(e) => {
@@ -65,7 +65,19 @@ pub fn extract_data(
         }
     };
 
-    Ok((secciones, ramos_disponibles))
+    // 3) IMPORTANTE: Filtrar secciones para que solo incluya aquellas que existen en la Malla
+    // Esto es crítico porque OA2024 contiene muchos cursos que no están en Malla2020
+    let total_secciones = secciones.len();
+    let secciones_filtradas: Vec<Seccion> = secciones.into_iter().filter(|sec| {
+        let nombre_norm = crate::excel::normalize_name(&sec.nombre);
+        // Aceptar si existe en ramos_disponibles (de Malla) O si es electivo
+        ramos_disponibles.contains_key(&nombre_norm) || nombre_norm == "electivo profesional"
+    }).collect();
+    
+    eprintln!("DEBUG: Secciones filtradas por Malla2020: {} → {} (quedaron)", 
+              total_secciones, secciones_filtradas.len());
+
+    Ok((secciones_filtradas, ramos_disponibles))
 }
 
 // get_ramo_critico fue movido a `crate::excel::get_ramo_critico` para

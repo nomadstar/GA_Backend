@@ -3,7 +3,19 @@ use petgraph::graph::{NodeIndex, UnGraph};
 use crate::models::{Seccion, RamoDisponible};
 use crate::algorithm::conflict::horarios_tienen_conflicto;
 
- 
+/// Construir un índice inverso: PA2025-1 código → clave de HashMap (para electivos)
+/// Permite buscar un electivo por su código de PA2025-1
+fn build_code_to_key_index(ramos_disponibles: &HashMap<String, RamoDisponible>) -> HashMap<String, String> {
+    let mut index = HashMap::new();
+    for (key, ramo) in ramos_disponibles.iter() {
+        if ramo.electivo {
+            // Mapear código de PA2025-1 → clave del HashMap
+            index.insert(ramo.codigo.clone(), key.clone());
+        }
+    }
+    index
+}
+
 pub fn find_max_weight_clique(
     graph: &UnGraph<usize, ()>,
     priorities: &HashMap<NodeIndex, i32>,
@@ -40,11 +52,16 @@ pub fn get_clique_max_pond(
     lista_secciones: &Vec<Seccion>,
     ramos_disponibles: &HashMap<String, RamoDisponible>,
 ) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    eprintln!("DEBUG get_clique_max_pond: {} secciones, {} ramos disponibles", 
+              lista_secciones.len(), ramos_disponibles.len());
     println!("=== Generador de Horarios ===");
     println!("Ramos disponibles:\n");
     for (i, (codigo, ramo)) in ramos_disponibles.iter().enumerate() {
         println!("{}.- {} || {}", i, ramo.nombre, codigo);
     }
+
+    // Construir índice inverso PA2025-1 código → clave del HashMap
+    let code_to_key = build_code_to_key_index(ramos_disponibles);
 
     let mut priority_ramo: HashMap<String, i32> = HashMap::new();
     let mut priority_sec: HashMap<String, i32> = HashMap::new();
@@ -63,12 +80,14 @@ pub fn get_clique_max_pond(
         let ramo = if let Some(r) = ramos_disponibles.get(&nombre_norm) {
             Some(r)
         } else if nombre_norm == "electivo profesional" {
-            // CASO ESPECIAL: Para electivos, la clave es diferente
-            // Intentar buscar por la clave patrón usado en leer_malla_con_porcentajes
-            // Pero como no tenemos el ID aquí, solo buscar el primer electivo disponible
-            ramos_disponibles.iter()
-                .find(|(k, _)| k.starts_with("electivo_profesional_"))
-                .map(|(_, r)| r)
+            // CASO ESPECIAL: Para electivos, buscar por el código de PA2025-1
+            // El código en la sección es el código de PA2025-1 del electivo asignado
+            if let Some(key) = code_to_key.get(&seccion.codigo) {
+                ramos_disponibles.get(key)
+            } else {
+                eprintln!("WARN: Electivo con código '{}' no encontrado en code_to_key", seccion.codigo);
+                None
+            }
         } else {
             None
         };
@@ -183,6 +202,9 @@ pub fn get_clique_max_pond_with_prefs(
         if !is_taken { filtered.push(s.clone()); }
     }
 
+    // Construir índice inverso PA2025-1 código → clave del HashMap
+    let code_to_key = build_code_to_key_index(ramos_disponibles);
+
     let mut priority_ramo: HashMap<String, i32> = HashMap::new();
     let priority_sec: HashMap<String, i32> = HashMap::new();
 
@@ -201,10 +223,12 @@ pub fn get_clique_max_pond_with_prefs(
         let ramo = if let Some(r) = ramos_disponibles.get(&nombre_norm) {
             Some(r)
         } else if nombre_norm == "electivo profesional" {
-            // CASO ESPECIAL: Para electivos, buscar por clave patrón
-            ramos_disponibles.iter()
-                .find(|(k, _)| k.starts_with("electivo_profesional_"))
-                .map(|(_, r)| r)
+            // CASO ESPECIAL: Para electivos, buscar por el código de PA2025-1
+            if let Some(key) = code_to_key.get(&seccion.codigo) {
+                ramos_disponibles.get(key)
+            } else {
+                None
+            }
         } else {
             None
         };

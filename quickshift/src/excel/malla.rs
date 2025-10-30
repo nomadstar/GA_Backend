@@ -203,7 +203,36 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
     // 1. Leer porcentajes y construir índice por nombre normalizado
     let (_porcent_by_code, porcent_by_name) = leer_porcentajes_aprobados_con_nombres(porcentajes_archivo)?;
     
-    // 2. Construir índice invertido: si es_electivo en PA2025-1, indexar también por codigo
+    // 2. Intentar leer OA2024 para obtener mapeo nombre→código
+    // Esto es importante para cursos regulares: Malla (nombre) → OA2024 (código) → PA2025-1 (porcentaje)
+    let oa_nombre_to_codigo: HashMap<String, String> = {
+        let mut map = HashMap::new();
+        // Resolver ruta de OA2024
+        if let Ok((malla_path, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
+            if let Ok(mut workbook) = calamine::open_workbook_auto(oferta_path.to_str().unwrap_or("")) {
+                let sheet_names = workbook.sheet_names().to_owned();
+                if let Some(sheet) = sheet_names.first() {
+                    if let Ok(range) = workbook.worksheet_range(sheet) {
+                        for (row_idx, row) in range.rows().enumerate() {
+                            if row_idx == 0 { continue; }  // skip header
+                            let codigo = data_to_string(row.get(0).unwrap_or(&Data::Empty)).trim().to_string();
+                            let nombre = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
+                            if !codigo.is_empty() && !nombre.is_empty() {
+                                let nombre_norm = normalize_name(&nombre);
+                                // Solo insertar si no existe aún (primera ocurrencia)
+                                map.entry(nombre_norm).or_insert_with(|| codigo);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        map
+    };
+    
+    eprintln!("DEBUG: Mapeo OA2024 nombre→código: {} entradas cargadas", oa_nombre_to_codigo.len());
+    
+    // 3. Construir índice invertido: si es_electivo en PA2025-1, indexar también por codigo
     let mut porcent_by_code_electivos: HashMap<String, (String, f64, f64, bool)> = HashMap::new();
     for (norm_name, (codigo, pct, tot, es_electivo)) in porcent_by_name.iter() {
         if *es_electivo {
@@ -211,12 +240,19 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
         }
     }
     
-    // 3. Recopilar todos los electivos disponibles en PA2025-1 (para búsqueda posterior)
+    // 4. Recopilar todos los electivos disponibles en PA2025-1 y ordenarlos por porcentaje (DESC)
+    // Los electivos con mayor porcentaje (más fáciles) se asignan primero
     let mut todos_electivos: Vec<(String, f64, f64)> = Vec::new();
     for (codigo, pct, tot, es_electivo) in porcent_by_code_electivos.values() {
         if *es_electivo {
             todos_electivos.push((codigo.clone(), *pct, *tot));
         }
+    }
+    // Ordenar por porcentaje DESCENDENTE (más fácil primero)
+    todos_electivos.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    eprintln!("DEBUG: {} electivos disponibles en PA2025-1 (ordenados por dificultad):", todos_electivos.len());
+    for (cod, pct, _) in todos_electivos.iter() {
+        eprintln!("  - {} ({}%)", cod, pct);
     }
     
     // 4. Leer Malla2020
@@ -229,6 +265,9 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
     
     let mut workbook = open_workbook_auto(resolved)?;
     let mut ramos_disponibles = HashMap::new();
+    
+    // Contador para asignación secuencial de electivos sin repetir
+    let mut contador_electivos = 0;
     
     // Usar hoja "Malla2020"
     let range = workbook.worksheet_range("Malla2020")?;
@@ -253,37 +292,60 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
         
         // DIFERENCIA CLAVE: usar estrategia diferente para electivos vs no-electivos
         let (clave_hashmap, codigo_final, dificultad, es_electivo_final) = if es_electivo_en_malla {
-            // PARA ELECTIVOS: Usar una clave ÚNICA que combine el nombre y el ID
-            // Esto permite que cada "Electivo Profesional" (ID 44, 46, 50, 51, 52) sea tratado por separado
-            // pero comparten la misma lista de opciones de electivos en PA2025-1
+            // PARA ELECTIVOS: Cada ID recibe el N-ésimo electivo más fácil disponible
+            // Si hay 5 electivos en Malla (IDs 44,46,50,51,52) y 10 en PA2025-1:
+            // - El primer "Electivo Profesional" recibe el #1 más fácil
+            // - El segundo recibe el #2 más fácil
+            // - Etc., sin repetir
             
-            // Buscar en PA2025-1 por Electivo=TRUE y elegir el de MEJOR porcentaje (más fácil)
-            let mejor_electivo = todos_electivos.iter()
-                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            // Contar cuántos electivos de Malla ya hemos procesado
+            let indice_electivo_para_esta_id = contador_electivos;
+            contador_electivos += 1;
             
-            if let Some((cod_elec, pct_elec, _tot_elec)) = mejor_electivo {
-                // Clave única: "electivo_profesional_{id}" para evitar colisiones
+            // Elegir el electivo en la posición indice_electivo_para_esta_id
+            if indice_electivo_para_esta_id < todos_electivos.len() {
+                let (cod_elec, pct_elec, _tot_elec) = &todos_electivos[indice_electivo_para_esta_id];
                 let clave_unica = format!("electivo_profesional_{}", id);
+                eprintln!("DEBUG enrich_electivo: ID={}, slot={}, asignado código='{}' ({}%)", 
+                          id, indice_electivo_para_esta_id, cod_elec, pct_elec);
                 (
                     clave_unica,  // CLAVE = "electivo_profesional_44", "electivo_profesional_46", etc.
-                    cod_elec.clone(),  // CÓDIGO = CIT3501, CII2002, etc.
+                    cod_elec.clone(),  // CÓDIGO = CIT3501, CII2002, etc. (diferente para cada ID)
                     Some(*pct_elec),
                     true
                 )
             } else {
-                // Si no hay electivos en PA2025-1, usar código con ID como fallback
+                // Si hay más electivos en Malla que en PA2025-1, usar fallback
+                eprintln!("WARN: No hay suficientes electivos en PA2025-1 para slot {}. Malla tiene más de {} electivos.", indice_electivo_para_esta_id, todos_electivos.len());
                 let clave_unica = format!("electivo_profesional_{}", id);
                 (clave_unica, id_str.clone(), None, true)
             }
         } else {
-            // PARA NO-ELECTIVOS: usar nombre normalizado como clave
+            // PARA NO-ELECTIVOS: usar nombre normalizado como clave universal
+            // Estrategia: Malla (nombre) → OA2024 (código) → PA2025-1 (porcentaje)
             let nombre_norm = normalize_name(&nombre);
             
-            // Buscar en porcentajes por nombre normalizado
-            let (codigo, dificultad, es_elec_porcent) = if let Some((codigo_encontrado, porcentaje, _total, es_electivo_en_porcent)) = porcent_by_name.get(&nombre_norm) {
-                (codigo_encontrado.clone(), Some(*porcentaje), *es_electivo_en_porcent)
+            // Paso 1: Intentar obtener código de OA2024
+            let codigo_de_oa = oa_nombre_to_codigo.get(&nombre_norm).cloned();
+            
+            // Paso 2: Buscar porcentaje en PA2025-1 usando el código de OA2024 (o fallback por nombre)
+            let (codigo, dificultad, es_elec_porcent) = if let Some(cod_oa) = codigo_de_oa {
+                // Primero intentar buscar en PA2025-1 por el código de OA2024
+                let mut resultado = (cod_oa.clone(), None, false);
+                for (nom_pa, (codigo_pa, porcentaje, _total, es_electivo_en_porcent)) in porcent_by_name.iter() {
+                    if codigo_pa == &cod_oa {
+                        resultado = (cod_oa.clone(), Some(*porcentaje), *es_electivo_en_porcent);
+                        break;
+                    }
+                }
+                resultado
             } else {
-                (id_str.clone(), None, false)
+                // Si no hay código en OA2024, buscar por nombre en PA2025-1
+                if let Some((codigo_encontrado, porcentaje, _total, es_electivo_en_porcent)) = porcent_by_name.get(&nombre_norm) {
+                    (codigo_encontrado.clone(), Some(*porcentaje), *es_electivo_en_porcent)
+                } else {
+                    (id_str.clone(), None, false)
+                }
             };
             
             (nombre_norm, codigo, dificultad, es_elec_porcent)
