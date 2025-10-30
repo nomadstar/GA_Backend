@@ -36,8 +36,12 @@ pub fn leer_malla_excel_with_sheet(nombre_archivo: &str, sheet: Option<&str>) ->
     for (row_idx, row) in range.rows().enumerate() {
         if row_idx == 0 { continue; }
 
-        let codigo = data_to_string(row.get(0).unwrap_or(&Data::Empty));
-        let nombre = data_to_string(row.get(1).unwrap_or(&Data::Empty));
+        // Leer las dos primeras columnas (pueden venir como "ID | Nombre" o
+        // como "Nombre | ID" según el archivo). Normalizamos su orden con una
+        // función auxiliar que encapsula la heurística de detección.
+        let col0 = data_to_string(row.get(0).unwrap_or(&Data::Empty));
+        let col1 = data_to_string(row.get(1).unwrap_or(&Data::Empty));
+        let (codigo, nombre) = normalize_codigo_nombre(&col0, &col1);
 
         let correlativo = data_to_string(row.get(2).unwrap_or(&Data::Empty)).parse::<i32>().unwrap_or(0);
         let holgura = data_to_string(row.get(3).unwrap_or(&Data::Empty)).parse::<i32>().unwrap_or(0);
@@ -65,6 +69,44 @@ pub fn leer_malla_excel_with_sheet(nombre_archivo: &str, sheet: Option<&str>) ->
     }
 
     Ok(ramos_disponibles)
+}
+
+/// Normaliza el par (col0, col1) devolviendo (codigo, nombre).
+/// Si detecta que la primera columna contiene letras y la segunda contiene
+/// dígitos (por ejemplo: "Nombre" | "ID"), invierte el orden para que el
+/// resultado sea siempre (ID, Nombre).
+fn normalize_codigo_nombre(col0: &str, col1: &str) -> (String, String) {
+    let mut codigo = col0.to_string();
+    let mut nombre = col1.to_string();
+    let first_has_alpha = codigo.chars().any(|c| c.is_alphabetic());
+    let second_has_digit = nombre.chars().any(|c| c.is_digit(10));
+    if first_has_alpha && second_has_digit {
+        std::mem::swap(&mut codigo, &mut nombre);
+    }
+    (codigo, nombre)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_codigo_nombre;
+
+    #[test]
+    fn detect_swap_nombre_id() {
+        let nombre = "Álgebra y Geometría";
+        let id = "1";
+        let (codigo, nombre_out) = normalize_codigo_nombre(nombre, id);
+        assert_eq!(codigo, "1");
+        assert_eq!(nombre_out, "Álgebra y Geometría");
+    }
+
+    #[test]
+    fn keep_id_nombre() {
+        let id = "7";
+        let nombre = "Cálculo II";
+        let (codigo, nombre_out) = normalize_codigo_nombre(id, nombre);
+        assert_eq!(codigo, "7");
+        assert_eq!(nombre_out, "Cálculo II");
+    }
 }
 
 /// Compat wrapper existente que conserva el nombre original y usa la primera hoja

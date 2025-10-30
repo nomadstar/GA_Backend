@@ -2,10 +2,11 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use petgraph::graph::{NodeIndex, DiGraph};
-
-use crate::models::{Seccion, RamoDisponible, PertNode};
+use crate::models::{Seccion, RamoDisponible};
 // ahora puedes llamar: extract::extract_data(...), clique::get_clique_with_user_prefs(...), conflict::horarios_tienen_conflicto(...), pert::set_values_recursive...
+
+use super::{pert, extract, clique};
+// ahora puedes usar: pert::build_and_run_pert(...), extract::extract_data(...), clique::get_clique_max_pond(...), conflict::horarios_tienen_conflicto...
 
 
 
@@ -18,8 +19,10 @@ pub fn ejecutar_ruta_critica_with_params(
     params: crate::api_json::InputParams,
 ) -> Result<Vec<(Vec<(Seccion, i32)>, i64)>, Box<dyn Error>> {
     // Obtener ramos y secciones, delegar en la versión que acepta datos precomputados.
-    let (ramos_disponibles, nombre_malla, _malla_leida) = crate::algorithm::get_ramo_critico();
-    let (lista_secciones, ramos_actualizados) = match crate::algorithm::extract_data(ramos_disponibles.clone(), &nombre_malla) {
+    // Use the malla and optional sheet provided in params to extract data.
+    let initial_map: std::collections::HashMap<String, RamoDisponible> = std::collections::HashMap::new();
+    let sheet_opt = params.sheet.as_deref();
+    let (lista_secciones, ramos_actualizados) = match extract::extract_data(initial_map, &params.malla, sheet_opt) {
         Ok((ls, ra)) => (ls, ra),
         Err(e) => return Err(e),
     };
@@ -55,157 +58,9 @@ pub fn ejecutar_ruta_critica_with_precomputed(
         }
     }
 
-    // Construir un grafo PERT simple a partir de los ramos disponibles.
-    // Uso heurístico: si `codigo_ref` existe lo usamos como prerequisito; else usamos
-    // `numb_correlativo` para inferir precedencias adyacentes.
-    let mut pert_graph: DiGraph<PertNode, ()> = DiGraph::new();
-    let mut node_map: HashMap<String, NodeIndex> = HashMap::new();
-
-    for (codigo, ramo) in ramos_actualizados.iter() {
-        let node = PertNode {
-            codigo: codigo.clone(),
-            nombre: ramo.nombre.clone(),
-            es: None,
-            ef: None,
-            ls: None,
-            lf: None,
-            h: None,
-        };
-        let idx = pert_graph.add_node(node);
-        node_map.insert(codigo.clone(), idx);
-    }
-
-    // Añadir aristas por `codigo_ref` donde exista
-    for (codigo, ramo) in ramos_actualizados.iter() {
-        if let Some(ref_code) = &ramo.codigo_ref {
-            if ref_code != codigo {
-                if let (Some(&from), Some(&to)) = (node_map.get(ref_code), node_map.get(codigo)) {
-                    // from -> to (prerequisito)
-                    let _ = pert_graph.add_edge(from, to, ());
-                }
-            }
-        }
-    }
-
-    // Heurística por numero correlativo: unir i -> j si j = i+1
-    for (a_code, a) in ramos_actualizados.iter() {
-        for (b_code, b) in ramos_actualizados.iter() {
-            if b.numb_correlativo == a.numb_correlativo + 1 {
-                if let (Some(&from), Some(&to)) = (node_map.get(a_code), node_map.get(b_code)) {
-                    // evitar duplicados
-                    if pert_graph.find_edge(from, to).is_none() {
-                        let _ = pert_graph.add_edge(from, to, ());
-                    }
-                }
-            }
-        }
-    }
-
-    // Añadir aristas usando el mapa de prerequisitos leído desde la malla (hojas adicionales).
-    // Hacemos este paso robusto: resolvemos el path de la malla, leemos prereqs
-    // y intentamos emparejar cada prerequisito con un código de `ramos_actualizados`
-    // ya sea por código directo, por código normalizado, o por nombre humano (lista_secciones).
-    {
-        // Normalización simple para comparar códigos y nombres
-        fn normalize(s: &str) -> String {
-            s.chars().filter(|c| c.is_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect()
-        }
-
-        // Resolver path de malla a usar para leer prerequisitos y para resolución por nombre
-        let malla_name = params.malla.clone();
-        let malla_pathbuf = match crate::excel::resolve_datafile_paths(&malla_name) {
-            Ok((m, _, _)) => m,
-            Err(_) => {
-                // fallback: buscar en DATAFILES_DIR por nombre que contenga la palabra 'malla' o el mismo nombre
-                let data_dir = std::path::Path::new(crate::excel::DATAFILES_DIR);
-                let mut found: Option<std::path::PathBuf> = None;
-                if let Ok(entries) = std::fs::read_dir(data_dir) {
-                    for e in entries.flatten() {
-                        if !e.path().is_file() { continue; }
-                        if let Some(n) = e.file_name().to_str() {
-                            let ln = n.to_lowercase();
-                            if ln.contains("malla") || n == malla_name {
-                                found = Some(e.path());
-                                break;
-                            }
-                        }
-                    }
-                }
-                found.unwrap_or_else(|| std::path::PathBuf::from(malla_name.clone()))
-            }
-        };
-
-        let malla_path = malla_pathbuf.to_str().unwrap_or(&malla_name).to_string();
-
-        if let Ok(pr_map) = crate::excel::leer_prerequisitos(&malla_path) {
-            // Construir índices normalizados de búsqueda
-            let mut code_index: HashMap<String, NodeIndex> = HashMap::new();
-            for (code, idx) in node_map.iter() { code_index.insert(normalize(code), *idx); }
-
-            let mut name_index: HashMap<String, NodeIndex> = HashMap::new();
-            for s in lista_secciones.iter() {
-                name_index.insert(normalize(&s.nombre), *node_map.get(&s.codigo).unwrap());
-            }
-
-            for (codigo, prereqs) in pr_map.into_iter() {
-                for prereq in prereqs.into_iter() {
-                    let mut matched: Option<NodeIndex> = None;
-
-                    // 1) match directo por código
-                    if let Some(&idx) = node_map.get(&prereq) { matched = Some(idx); }
-
-                    // 2) match por código normalizado
-                    if matched.is_none() {
-                        let k = normalize(&prereq);
-                        if let Some(&idx) = code_index.get(&k) { matched = Some(idx); }
-                    }
-
-                    // 3) match por nombre humano (normalizado)
-                    if matched.is_none() {
-                        let k = normalize(&prereq);
-                        if let Some(&idx) = name_index.get(&k) { matched = Some(idx); }
-                    }
-
-                    // 4) intentar resolver nombre -> asignatura usando asignatura_from_nombre sobre la malla
-                    if matched.is_none() {
-                        if let Ok(Some(asig)) = crate::excel::asignatura_from_nombre(&malla_path, &prereq) {
-                            if let Some(&idx) = node_map.get(&asig) { matched = Some(idx); }
-                            else if let Some(&idx) = code_index.get(&normalize(&asig)) { matched = Some(idx); }
-                        }
-                    }
-
-                    // 5) si encontramos un match, añadir arista matched -> codigo
-                    if let Some(from_idx) = matched {
-                        if let Some(&to_idx) = node_map.get(&codigo) {
-                            if pert_graph.find_edge(from_idx, to_idx).is_none() {
-                                let _ = pert_graph.add_edge(from_idx, to_idx, ());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Ejecutar cálculo PERT para cada nodo (simplificado)
-    for node_idx in pert_graph.node_indices() {
-        // len_dag aproximado: número de nodos
-        let len_dag = pert_graph.node_count() as i32;
-    crate::algorithm::pert::set_values_recursive(&mut pert_graph, node_idx, len_dag);
-    }
-
-    // Propagar resultado PERT a ramos_actualizados (marcar críticos con holgura == 0)
-    for (codigo, idx) in node_map.iter() {
-        if let Some(pn) = pert_graph.node_weight(*idx) {
-            if let Some(h) = pn.h {
-                if let Some(r) = ramos_actualizados.get_mut(codigo) {
-                    // Si la holgura es 0, reforzamos la bandera `critico`.
-                    if h == 0 {
-                        r.critico = true;
-                    }
-                }
-            }
-        }
+    // Delegar la construcción y ejecución del PERT al módulo `pert`.
+    if let Err(e) = pert::build_and_run_pert(&mut ramos_actualizados, &lista_secciones, &params.malla) {
+        return Err(e);
     }
 
     // Decidir cuál planner usar: si el usuario NO proporcionó preferencias
@@ -218,9 +73,9 @@ pub fn ejecutar_ruta_critica_with_precomputed(
         && params.student_ranking.is_none();
 
     let soluciones = if solo_pasados {
-        crate::algorithm::get_clique_max_pond(&lista_secciones, &ramos_actualizados)
+        clique::get_clique_max_pond(&lista_secciones, &ramos_actualizados)
     } else {
-        crate::algorithm::get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params)
+        clique::get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params)
     };
 
     Ok(soluciones)
@@ -231,6 +86,8 @@ pub fn ejecutar_ruta_critica_with_precomputed(
 mod tests {
     use super::*;
     use crate::excel;
+    use petgraph::graph::{NodeIndex, DiGraph};
+    use crate::models::PertNode;
 
     #[test]
     fn test_prereqs_produce_pert_edges() {

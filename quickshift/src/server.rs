@@ -1,7 +1,7 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::algorithm::{get_ramo_critico, extract_data, get_clique_with_user_prefs, list_datafiles, summarize_datafiles};
+use crate::algorithm::{extract_data, get_clique_with_user_prefs, list_datafiles, summarize_datafiles};
 use crate::models::Seccion;
 use crate::api_json::InputParams;
 use std::fs::{OpenOptions, create_dir_all};
@@ -41,12 +41,13 @@ async fn solve_handler(body: web::Json<serde_json::Value>) -> impl Responder {
     };
 
     // Run the existing pipeline using the resolved params to influence selection
-    let (ramos_disponibles, _nombre_excel_malla, malla_leida) = get_ramo_critico();
-    let (lista_secciones, ramos_actualizados) = match extract_data(ramos_disponibles.clone(), "MiMalla.xlsx") {
+    // Use requested malla and optional sheet from params when extracting data
+    let initial_map: std::collections::HashMap<String, crate::models::RamoDisponible> = std::collections::HashMap::new();
+    let sheet_opt = params.sheet.as_deref();
+    let (lista_secciones, ramos_actualizados) = match extract_data(initial_map, &params.malla, sheet_opt) {
         Ok((ls, ra)) => (ls, ra),
         Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("extract failed: {}", e)})),
     };
-    let oferta_leida = true;
     let soluciones = get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params);
 
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
@@ -55,9 +56,8 @@ async fn solve_handler(body: web::Json<serde_json::Value>) -> impl Responder {
         soluciones_serial.push(SolutionEntry { total_score: *score, secciones: secs });
     }
 
-    let mut documentos = 0usize;
-    if malla_leida { documentos += 1; }
-    if oferta_leida { documentos += 1; }
+    // Contamos como leídos: malla + oferta si extract_data fue exitoso
+    let documentos = 2usize;
 
     let resp = SolveResponse {
         documentos_leidos: documentos,
@@ -244,27 +244,83 @@ async fn datafiles_list_handler() -> impl Responder {
 /// Devuelve un resumen de los contenidos (primeros elementos) de MALLA, OA y PA
 async fn datafiles_content_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
     let qm = query.into_inner();
-    let malla = match qm.get("malla").and_then(|s| if s.trim().is_empty() { None } else { Some(s.clone()) }) {
+    // Accept `malla` either as plain filename or with an inline sheet in brackets,
+    // e.g. `MiMalla.xlsx[Malla 2020]` or `MiMalla.xlsx[&sheet=Malla 2020]`.
+    let raw_malla = match qm.get("malla").and_then(|s| if s.trim().is_empty() { None } else { Some(s.clone()) }) {
         Some(m) => m,
         None => return HttpResponse::BadRequest().json(json!({"error": "malla query parameter is required"})),
     };
 
+    // Extract optional sheet if provided inline in `malla` using brackets.
+    let mut malla = raw_malla.clone();
+    let mut sheet_from_brackets: Option<String> = None;
+    if let Some(start) = raw_malla.find('[') {
+        if let Some(end) = raw_malla.rfind(']') {
+            if end > start {
+                let inner = raw_malla[start+1..end].trim();
+                if !inner.is_empty() {
+                    // support forms: "sheet=Name" or "&sheet=Name" or just "Name"
+                    let inner = inner.trim_start_matches('&');
+                    let sheet_val = if inner.to_lowercase().starts_with("sheet=") {
+                        inner[6..].trim().to_string()
+                    } else {
+                        inner.to_string()
+                    };
+                    if !sheet_val.is_empty() {
+                        sheet_from_brackets = Some(sheet_val);
+                    }
+                }
+                // remove the bracketed part from malla
+                malla = raw_malla[..start].trim().to_string();
+            }
+        }
+    }
+
     // Optional 'sheet' query parameter lets client request a specific internal sheet
-    let sheet_opt: Option<String> = qm.get("sheet").and_then(|s| if s.trim().is_empty() { None } else { Some(s.clone()) });
+    let sheet_qparam: Option<String> = qm.get("sheet").and_then(|s| if s.trim().is_empty() { None } else { Some(s.clone()) });
+    // precedence: explicit ?sheet=... overrides inline bracket; otherwise use inline
+    let sheet_opt: Option<String> = match (sheet_qparam, sheet_from_brackets) {
+        (Some(q), _) => Some(q),
+        (None, Some(b)) => Some(b),
+        _ => None,
+    };
+
+    // Ensure the requested malla exists among available datafiles to avoid
+    // accidental fallthrough or fuzzy resolution returning a different file.
+    if let Ok((available_mallas, _ofertas, _porc)) = list_datafiles() {
+        if !available_mallas.iter().any(|name| name == &malla) {
+            return HttpResponse::BadRequest().json(json!({"error": format!("malla '{}' not found; available: {:?}", malla, available_mallas)}));
+        }
+    }
 
     // Resolve paths via excel module (so only excel reads src/datafiles)
     match summarize_datafiles(&malla, sheet_opt.as_deref()) {
         Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent)) => {
-            // Preparar resúmenes para enviar (no volcar todo si es grande)
-            let mut malla_sample: Vec<serde_json::Value> = Vec::new();
-            for (code, ramo) in malla_map.iter().take(200) {
-                malla_sample.push(json!({"codigo": code, "nombre": ramo.nombre, "numb_correlativo": ramo.numb_correlativo, "dificultad": ramo.dificultad, "codigo_ref": ramo.codigo_ref}));
-            }
+            // Preparar resúmenes para enviar. Por defecto retornamos muestras (para evitar payloads enormes).
+            // Si el cliente solicita `full=true` en la query, devolvemos todas las filas.
+            let full = qm.get("full").map(|s| { let sl = s.to_lowercase(); sl == "1" || sl == "true" }).unwrap_or(false);
 
-            let oferta_sample: Vec<serde_json::Value> = oferta.into_iter().take(200).map(|s| json!(s)).collect();
+            let malla_sample: Vec<serde_json::Value> = if full {
+                malla_map.iter().map(|(code, ramo)| json!({"codigo": code, "nombre": ramo.nombre, "numb_correlativo": ramo.numb_correlativo, "dificultad": ramo.dificultad, "codigo_ref": ramo.codigo_ref})).collect()
+            } else {
+                malla_map.iter().take(200).map(|(code, ramo)| json!({"codigo": code, "nombre": ramo.nombre, "numb_correlativo": ramo.numb_correlativo, "dificultad": ramo.dificultad, "codigo_ref": ramo.codigo_ref})).collect()
+            };
+
+            let oferta_sample: Vec<serde_json::Value> = if full {
+                oferta.into_iter().map(|s| json!(s)).collect()
+            } else {
+                oferta.into_iter().take(200).map(|s| json!(s)).collect()
+            };
+
             let mut porcent_sample: Vec<serde_json::Value> = Vec::new();
-            for (k, v) in porcent.iter().take(200) {
-                porcent_sample.push(json!({"codigo": k, "porcentaje": v.0, "total": v.1}));
+            if full {
+                for (k, v) in porcent.iter() {
+                    porcent_sample.push(json!({"codigo": k, "porcentaje": v.0, "total": v.1}));
+                }
+            } else {
+                for (k, v) in porcent.iter().take(200) {
+                    porcent_sample.push(json!({"codigo": k, "porcentaje": v.0, "total": v.1}));
+                }
             }
 
             // Intentar listar hojas internas de la malla (si el workbook contiene varias tablas)
@@ -320,6 +376,7 @@ async fn solve_get_handler(query: web::Query<std::collections::HashMap<String, S
         ramos_prioritarios,
         horarios_preferidos,
         malla,
+        sheet: None,
         ranking: None,
         student_ranking: None,
     };
@@ -337,12 +394,13 @@ async fn solve_get_handler(query: web::Query<std::collections::HashMap<String, S
     };
 
     // Ejecutar pipeline
-    let (ramos_disponibles, _nombre_excel_malla, malla_leida) = get_ramo_critico();
-    let (lista_secciones, ramos_actualizados) = match extract_data(ramos_disponibles.clone(), "MiMalla.xlsx") {
+    // Ejecutar pipeline usando la malla y sheet del input params
+    let initial_map: std::collections::HashMap<String, crate::models::RamoDisponible> = std::collections::HashMap::new();
+    let sheet_opt = params.sheet.as_deref();
+    let (lista_secciones, ramos_actualizados) = match extract_data(initial_map, &params.malla, sheet_opt) {
         Ok((ls, ra)) => (ls, ra),
         Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("extract failed: {}", e)})),
     };
-    let oferta_leida = true;
     let soluciones = get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params);
 
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
@@ -351,9 +409,8 @@ async fn solve_get_handler(query: web::Query<std::collections::HashMap<String, S
         soluciones_serial.push(SolutionEntry { total_score: *score, secciones: secs });
     }
 
-    let mut documentos = 0usize;
-    if malla_leida { documentos += 1; }
-    if oferta_leida { documentos += 1; }
+    // Contamos como leídos: malla + oferta si extract_data fue exitoso
+    let documentos = 2usize;
 
     let resp = SolveResponse {
         documentos_leidos: documentos,
@@ -374,6 +431,7 @@ async fn help_handler() -> impl Responder {
         ramos_prioritarios: vec!["CIT3313".to_string(), "CIT3413".to_string()],
         horarios_preferidos: vec!["08:00-10:00".to_string(), "14:00-16:00".to_string()],
         malla: "MallaCurricular2020.xlsx".to_string(),
+        sheet: None,
         ranking: None,
         student_ranking: None,
     };

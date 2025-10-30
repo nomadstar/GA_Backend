@@ -46,7 +46,7 @@ where
     P: AsRef<Path>,
     F: Fn(&Path, &str) -> Result<Option<String>, Box<dyn std::error::Error>>,
 {
-    let mut params = parse_json_input(json_str)?;
+    let params = parse_json_input(json_str)?;
 
     // delegar la lógica de resolución a la función que acepta InputParams
     resolve_ramos_with_resolver(params, base_dir, resolver)

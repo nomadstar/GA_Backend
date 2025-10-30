@@ -22,7 +22,7 @@ pub fn get_ramo_critico() -> (std::collections::HashMap<String, crate::models::R
 // Exponer las funciones de lectura de Excel que necesita el pipeline
 
 // Reexportar funciones del planner (clique) y el orquestador (ruta)
-pub use crate::algorithm::clique::{get_clique_with_user_prefs, get_clique_max_pond};
+pub use crate::algorithm::clique::get_clique_with_user_prefs;
 pub use crate::algorithm::ruta::ejecutar_ruta_critica_with_params;
 
 // Helpers que exponen listas y resúmenes de ficheros de datos via el módulo
@@ -43,9 +43,34 @@ pub fn list_datafiles() -> Result<(Vec<String>, Vec<String>, Vec<String>), Box<d
 /// resueltas y los objetos de alto nivel leídos (malla map, oferta vec, porcentajes map).
 pub fn summarize_datafiles(malla_name: &str, sheet: Option<&str>) -> Result<(PathBuf, PathBuf, PathBuf, HashMap<String, RamoDisponible>, Vec<Seccion>, HashMap<String, (f64,f64)>), Box<dyn Error>> {
 	let (malla_path, oferta_path, porcent_path) = crate::excel::resolve_datafile_paths(malla_name)?;
-	let malla_map = crate::excel::leer_malla_excel_with_sheet(malla_path.to_str().ok_or("malla path invalid UTF-8")?, sheet)?;
-	let oferta = crate::excel::leer_oferta_academica_excel(oferta_path.to_str().ok_or("oferta path invalid UTF-8")?)?;
-	let porcent = crate::excel::leer_porcentajes_aprobados(porcent_path.to_str().ok_or("porcent path invalid UTF-8")?)?;
+
+	// Leer primero la malla: si esto falla, no podemos continuar.
+	let malla_path_str = malla_path.to_str().ok_or("malla path invalid UTF-8")?;
+	let malla_map = match crate::excel::leer_malla_excel_with_sheet(malla_path_str, sheet) {
+		Ok(m) => m,
+		Err(e) => return Err(format!("failed to read malla '{}': {}", malla_path_str, e).into()),
+	};
+
+	// Intentar leer oferta; si falla degradamos a fallback vacío pero no abortamos.
+	let oferta_path_str = oferta_path.to_str().ok_or("oferta path invalid UTF-8")?;
+	let oferta = match crate::excel::leer_oferta_academica_excel(oferta_path_str) {
+		Ok(o) => o,
+		Err(e) => {
+			eprintln!("WARN: no se pudo leer Oferta Académica '{}': {}. Usando fallback vacío.", oferta_path_str, e);
+			Vec::new()
+		}
+	};
+
+	// Intentar leer porcentajes; si falla devolvemos mapa vacío
+	let porcent_path_str = porcent_path.to_str().ok_or("porcent path invalid UTF-8")?;
+	let porcent = match crate::excel::leer_porcentajes_aprobados(porcent_path_str) {
+		Ok(p) => p,
+		Err(e) => {
+			eprintln!("WARN: no se pudo leer Porcentajes '{}': {}. Usando fallback vacío.", porcent_path_str, e);
+			HashMap::new()
+		}
+	};
+
 	Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent))
 }
 

@@ -16,6 +16,7 @@ use crate::excel; // usamos la API de alto nivel de excel
 pub fn extract_data(
     mut ramos_disponibles: HashMap<String, RamoDisponible>,
     nombre_excel_malla: &str,
+    sheet: Option<&str>,
 ) -> Result<(Vec<Seccion>, HashMap<String, RamoDisponible>), Box<dyn Error>> {
     // Resolver rutas de malla, oferta y porcentajes en DATAFILES_DIR
     let (malla_path, oferta_path, porcent_path) = excel::resolve_datafile_paths(nombre_excel_malla)?;
@@ -24,7 +25,7 @@ pub fn extract_data(
     // La firma de leer_malla_excel puede variar; adaptarla si es necesario.
     // Asumimos que leer_malla_excel puede aceptar &Path or &str; convertimos a str.
     let malla_str = malla_path.to_str().ok_or("ruta malla no UTF-8")?;
-    match excel::leer_malla_excel(malla_str) {
+    match excel::leer_malla_excel_with_sheet(malla_str, sheet) {
         Ok(malla_map) => {
             if ramos_disponibles.is_empty() {
                 ramos_disponibles = malla_map;

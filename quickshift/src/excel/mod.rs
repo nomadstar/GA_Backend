@@ -32,7 +32,6 @@ pub use porcentajes::leer_porcentajes_aprobados;
 pub use oferta::leer_oferta_academica_excel;
 pub use asignatura::asignatura_from_nombre;
 // Normalizadores expuestos para que otros módulos (algorithm, ruta) los puedan usar
-pub use io::{normalize_name, normalize_code};
 
 use std::path::{Path, PathBuf};
 use std::fs;
@@ -65,7 +64,10 @@ fn latest_file_matching(dir: &Path, keywords: &[&str]) -> Option<PathBuf> {
     for entry in read.flatten() {
         let p = entry.path();
         if !p.is_file() { continue; }
-        let name = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s.to_lowercase(), None => continue };
+        let name_raw = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s.to_string(), None => continue };
+        // ignore hidden or temporary files (editor temp like .~OA2024.xlsx, backup files ending with ~, etc.)
+        if name_raw.starts_with('.') || name_raw.starts_with('~') || name_raw.ends_with('~') { continue; }
+        let name = name_raw.to_lowercase();
 
         if keywords.iter().any(|kw| name.contains(&kw.to_lowercase())) {
             if let Ok(meta) = entry.metadata() {
@@ -110,8 +112,35 @@ pub fn resolve_datafile_paths(malla_name: &str) -> Result<(PathBuf, PathBuf, Pat
 
     // 3) Porcentajes: elegir el archivo más reciente que parezca porcentajes de aprobación
     let porcent_keywords = ["porcentaje", "porcentajes", "porcentajeaprob", "porcentaje_aprobados"];
-    let porcent_path = latest_file_matching(data_dir, &porcent_keywords)
-        .ok_or(format!("no se encontró archivo de Porcentajes en {}", DATAFILES_DIR))?;
+    let porcent_path = if let Some(p) = latest_file_matching(data_dir, &porcent_keywords) {
+        p
+    } else {
+        // Fallback: aceptar archivos con nombre tipo 'PA2025-1.xlsx' o que comiencen con 'pa' seguido de dígitos
+        let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+        if let Ok(read) = fs::read_dir(data_dir) {
+            for entry in read.flatten() {
+                let p = entry.path();
+                if !p.is_file() { continue; }
+                let name = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s.to_lowercase(), None => continue };
+                // name like 'pa2025-1.xlsx' or starting with 'pa' and then a digit
+                let is_pa_like = name.starts_with("pa") && name.chars().nth(2).map(|c| c.is_ascii_digit()).unwrap_or(false);
+                if is_pa_like {
+                    if let Ok(meta) = entry.metadata() {
+                        if let Ok(modified) = meta.modified() {
+                            match &best {
+                                Some((best_time, _)) if *best_time >= modified => (),
+                                _ => best = Some((modified, p.clone())),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        match best {
+            Some((_, p)) => p,
+            None => return Err(format!("no se encontró archivo de Porcentajes en {}", DATAFILES_DIR).into()),
+        }
+    };
 
     Ok((malla_path, oferta_path, porcent_path))
 }
@@ -128,14 +157,22 @@ pub fn list_available_datafiles() -> Result<(Vec<String>, Vec<String>, Vec<Strin
     for entry in read.flatten() {
         let p = entry.path();
         if !p.is_file() { continue; }
-        if let Some(name) = p.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()) {
-            let name_low = name.to_lowercase();
+        if let Some(name_raw) = p.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()) {
+            // ignore hidden or temporary files
+            if name_raw.starts_with('.') || name_raw.starts_with('~') || name_raw.ends_with('~') { continue; }
+            let name_low = name_raw.to_lowercase();
             if name_low.contains("malla") || name_low.contains("malla_curricular") {
-                mallas.push(name);
+                mallas.push(name_raw.clone());
             } else if name_low.contains("oferta") || name_low.contains("oa") {
-                ofertas.push(name);
+                ofertas.push(name_raw.clone());
             } else if name_low.contains("porcent") || name_low.contains("aprob") || name_low.contains("porcentaje") {
-                porcentajes.push(name);
+                porcentajes.push(name_raw.clone());
+            } else {
+                // Accept PA-style filenames like 'PA2025-1.xlsx' (starts with 'pa' + digit)
+                let is_pa_like = name_low.starts_with("pa") && name_low.chars().nth(2).map(|c| c.is_ascii_digit()).unwrap_or(false);
+                if is_pa_like {
+                    porcentajes.push(name_raw.clone());
+                }
             }
         }
     }
@@ -148,7 +185,7 @@ pub fn list_available_datafiles() -> Result<(Vec<String>, Vec<String>, Vec<Strin
 pub fn listar_hojas_malla<P: AsRef<Path>>(path: P) -> Result<Vec<String>, Box<dyn Error>> {
     // Usar calamine para abrir el workbook de forma genérica (xlsx/xls/xlsb)
     use calamine::{open_workbook_auto, Reader};
-    let mut workbook = open_workbook_auto(path)?;
+    let workbook = open_workbook_auto(path)?;
     let names = workbook.sheet_names().to_owned();
     Ok(names)
 }
