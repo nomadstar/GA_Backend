@@ -32,6 +32,81 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use crate::models::{RamoDisponible, Seccion};
+use crate::excel::normalize_name as normalize_human_name;
+use serde_json::json;
+
+/// Une la malla, la oferta y los porcentajes intentando emparejar por nombre
+/// normalizado. Devuelve una lista de objetos JSON con los campos:
+/// { malla_codigo, malla_nombre, oferta_codigo, oferta_codigo_box, oferta_nombre, pa_codigo, porcentaje, total }
+pub fn merge_malla_oferta_porcentajes(
+	malla_map: &HashMap<String, RamoDisponible>,
+	oferta: &Vec<Seccion>,
+	porcent: &HashMap<String, (f64,f64)>,
+) -> Vec<serde_json::Value> {
+	// Construir índice de oferta por nombre normalizado -> Vec<Seccion>
+	let mut oferta_index: std::collections::HashMap<String, Vec<&Seccion>> = std::collections::HashMap::new();
+	for s in oferta.iter() {
+		let key = normalize_human_name(&s.nombre);
+		oferta_index.entry(key).or_default().push(s);
+	}
+
+	let mut out: Vec<serde_json::Value> = Vec::new();
+
+	// Para cada ramo en la malla, buscar coincidencias en oferta por nombre
+	for (mcode, ramo) in malla_map.iter() {
+		let rname_norm = normalize_human_name(&ramo.nombre);
+		if let Some(matches) = oferta_index.get(&rname_norm) {
+			for s in matches.iter() {
+				// buscar porcentaje por oferta.codigo primero, luego por codigo_box
+				let mut found_pa: Option<(&String, &(f64,f64))> = None;
+				if porcent.contains_key(&s.codigo) {
+					if let Some(v) = porcent.get(&s.codigo) { found_pa = Some((&s.codigo, v)); }
+				}
+				if found_pa.is_none() && porcent.contains_key(&s.codigo_box) {
+					if let Some(v) = porcent.get(&s.codigo_box) { found_pa = Some((&s.codigo_box, v)); }
+				}
+
+				if let Some((pa_code, (pct, tot))) = found_pa {
+					out.push(json!({
+						"malla_codigo": mcode,
+						"malla_nombre": ramo.nombre,
+						"oferta_codigo": s.codigo,
+						"oferta_codigo_box": s.codigo_box,
+						"oferta_nombre": s.nombre,
+						"pa_codigo": pa_code,
+						"porcentaje": *pct,
+						"total": *tot
+					}));
+				} else {
+					out.push(json!({
+						"malla_codigo": mcode,
+						"malla_nombre": ramo.nombre,
+						"oferta_codigo": s.codigo,
+						"oferta_codigo_box": s.codigo_box,
+						"oferta_nombre": s.nombre,
+						"pa_codigo": serde_json::Value::Null,
+						"porcentaje": serde_json::Value::Null,
+						"total": serde_json::Value::Null
+					}));
+				}
+			}
+		} else {
+			// No se encontró oferta por nombre; devolver fila mínima con nulls
+			out.push(json!({
+				"malla_codigo": mcode,
+				"malla_nombre": ramo.nombre,
+				"oferta_codigo": serde_json::Value::Null,
+				"oferta_codigo_box": serde_json::Value::Null,
+				"oferta_nombre": serde_json::Value::Null,
+				"pa_codigo": serde_json::Value::Null,
+				"porcentaje": serde_json::Value::Null,
+				"total": serde_json::Value::Null
+			}));
+		}
+	}
+
+	out
+}
 
 /// Lista los archivos disponibles (mallas, ofertas, porcentajes) devolviendo
 /// sólo los nombres de fichero.

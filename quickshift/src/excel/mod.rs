@@ -32,6 +32,9 @@ pub use porcentajes::leer_porcentajes_aprobados;
 pub use oferta::leer_oferta_academica_excel;
 pub use asignatura::asignatura_from_nombre;
 // Normalizadores expuestos para que otros módulos (algorithm, ruta) los puedan usar
+// Re-exportar los helpers de normalización desde el submódulo `io` para que sean
+// accesibles fuera del módulo `excel` sin exponer el módulo `io` completo.
+pub use io::{normalize_name, normalize_code};
 
 use std::path::{Path, PathBuf};
 use std::fs;

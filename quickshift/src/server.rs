@@ -306,10 +306,12 @@ async fn datafiles_content_handler(query: web::Query<std::collections::HashMap<S
                 malla_map.iter().take(200).map(|(code, ramo)| json!({"codigo": code, "nombre": ramo.nombre, "numb_correlativo": ramo.numb_correlativo, "dificultad": ramo.dificultad, "codigo_ref": ramo.codigo_ref})).collect()
             };
 
+            // Build oferta_sample without consuming `oferta` so we can reuse it
+            // later to compute merged mappings (malla <-> oferta <-> porcentajes).
             let oferta_sample: Vec<serde_json::Value> = if full {
-                oferta.into_iter().map(|s| json!(s)).collect()
+                oferta.iter().map(|s| json!(s)).collect()
             } else {
-                oferta.into_iter().take(200).map(|s| json!(s)).collect()
+                oferta.iter().take(200).map(|s| json!(s)).collect()
             };
 
             let mut porcent_sample: Vec<serde_json::Value> = Vec::new();
@@ -323,8 +325,22 @@ async fn datafiles_content_handler(query: web::Query<std::collections::HashMap<S
                 }
             }
 
-            // Intentar listar hojas internas de la malla (si el workbook contiene varias tablas)
+            // Construir un sample combinado (malla <-> oferta <-> porcentajes)
+            // usando el helper del módulo `algorithm`. Limitamos la salida a 200
+            // filas para evitar payloads enormes en respuestas por defecto.
+            let merged_full = crate::algorithm::merge_malla_oferta_porcentajes(&malla_map, &oferta, &porcent);
+            let merged_sample: Vec<serde_json::Value> = if full {
+                merged_full.into_iter().collect()
+            } else {
+                merged_full.into_iter().take(200).collect()
+            };
+
+            // Intentar listar hojas internas de la malla y de la oferta (si los workbooks contienen varias tablas)
             let malla_sheets = match crate::excel::listar_hojas_malla(&malla_path) {
+                Ok(s) => s,
+                Err(_) => Vec::new(),
+            };
+            let oferta_sheets = match crate::excel::listar_hojas_malla(&oferta_path) {
                 Ok(s) => s,
                 Err(_) => Vec::new(),
             };
@@ -333,9 +349,11 @@ async fn datafiles_content_handler(query: web::Query<std::collections::HashMap<S
                 "oferta_path": oferta_path.to_string_lossy(),
                 "porcent_path": porcent_path.to_string_lossy(),
                 "malla_sheets": malla_sheets,
+                "oferta_sheets": oferta_sheets,
                 "malla_sample": malla_sample,
                 "oferta_sample": oferta_sample,
                 "porcent_sample": porcent_sample
+                ,"merged_sample": merged_sample
             }))
         }
         Err(e) => HttpResponse::BadRequest().json(json!({"error": format!("failed to resolve paths for malla '{}': {}", malla, e)})),
