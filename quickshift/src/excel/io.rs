@@ -42,6 +42,60 @@ pub fn normalize_header(s: &str) -> String {
     s.to_lowercase().chars().filter(|c| !c.is_whitespace()).collect()
 }
 
+/// Normaliza un nombre human-readable: minusculas, elimina acentos, convierte
+/// puntuación a espacios y colapsa espacios múltiples.
+pub fn normalize_name(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    // mapa simple de acentos comunes en español/latam
+    for ch in s.chars() {
+        let c = match ch {
+            'Á' | 'À' | 'Ä' | 'Â' | 'Ã' | 'á' | 'à' | 'ä' | 'â' | 'ã' => 'a',
+            'É' | 'È' | 'Ë' | 'Ê' | 'é' | 'è' | 'ë' | 'ê' => 'e',
+            'Í' | 'Ì' | 'Ï' | 'Î' | 'í' | 'ì' | 'ï' | 'î' => 'i',
+            'Ó' | 'Ò' | 'Ö' | 'Ô' | 'Õ' | 'ó' | 'ò' | 'ö' | 'ô' | 'õ' => 'o',
+            'Ú' | 'Ù' | 'Ü' | 'Û' | 'ú' | 'ù' | 'ü' | 'û' => 'u',
+            'Ñ' | 'ñ' => 'n',
+            'Ç' | 'ç' => 'c',
+            other => other,
+        };
+
+        // permitir letras, dígitos y espacios; reemplazar cualquier otra cosa por espacio
+        if c.is_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if c.is_whitespace() {
+            out.push(' ');
+        } else {
+            // punctuation -> space
+            out.push(' ');
+        }
+    }
+
+    // colapsar espacios múltiples
+    let mut res = String::with_capacity(out.len());
+    let mut prev_space = false;
+    for ch in out.chars() {
+        if ch.is_whitespace() {
+            if !prev_space {
+                res.push(' ');
+                prev_space = true;
+            }
+        } else {
+            res.push(ch);
+            prev_space = false;
+        }
+    }
+
+    res.trim().to_string()
+}
+
+/// Normaliza un código: elimina caracteres no alfanuméricos y pasa a mayúsculas.
+pub fn normalize_code(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
+}
+
 /// Intenta leer una hoja del archivo Excel y devolverla como Vec<Vec<String>>.
 /// Implementación basada en `calamine::open_workbook_auto` para simplicidad (sirve como fallback)
 pub fn read_sheet_via_zip<P: AsRef<Path>>(path: P, sheet_name: &str) -> Result<Vec<Vec<String>>, Box<dyn std::error::Error>> {

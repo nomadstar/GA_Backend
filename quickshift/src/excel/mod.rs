@@ -112,3 +112,60 @@ pub fn resolve_datafile_paths(malla_name: &str) -> Result<(PathBuf, PathBuf, Pat
 
     Ok((malla_path, oferta_path, porcent_path))
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Test helper: dado un año (p.ej. 2020) intenta resolver la malla y la imprime.
+    #[test]
+    fn test_print_malla_by_year() {
+        // Cambia este valor para probar distinto año desde el test
+        let year = 2020i32;
+        // Intentamos varios patrones comunes (MallaCurricular{year}, MiMalla{year}, MiMalla)
+        let candidate1 = format!("MallaCurricular{}.xlsx", year);
+        let candidate2 = format!("MiMalla{}.xlsx", year);
+        let candidate3 = "MiMalla.xlsx".to_string();
+
+        let mut resolved_malla: Option<std::path::PathBuf> = None;
+        for cand in &[candidate1.clone(), candidate2.clone(), candidate3.clone()] {
+            if let Ok((m, _o, _p)) = resolve_datafile_paths(cand) {
+                resolved_malla = Some(m);
+                break;
+            }
+        }
+
+        // Si no encontramos por patrón, buscar cualquier fichero en DATAFILES_DIR que contenga el año
+        if resolved_malla.is_none() {
+            let data_dir = std::path::Path::new(DATAFILES_DIR);
+            if let Ok(entries) = std::fs::read_dir(data_dir) {
+                for e in entries.flatten() {
+                    if let Some(name) = e.file_name().to_str() {
+                        if name.contains(&year.to_string()) {
+                            resolved_malla = Some(e.path());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let malla_path = match resolved_malla {
+            Some(p) => p,
+            None => panic!("No se encontró ninguna malla para el año {} en {}. Archivos disponibles: {:?}", year, DATAFILES_DIR, std::fs::read_dir(DATAFILES_DIR).map(|r| r.filter_map(|e| e.ok().and_then(|ent| ent.file_name().into_string().ok())).collect::<Vec<_>>()).unwrap_or_default()),
+        };
+
+        let malla_str = malla_path.to_str().expect("malla path no UTF-8");
+        let map = leer_malla_excel(malla_str).expect("falló leer_malla_excel");
+
+        // Aserción mínima: la malla no debe estar vacía
+        assert!(!map.is_empty(), "La malla leída está vacía para {}", malla_str);
+
+        // Imprimir las primeras entradas para inspección humana
+        println!("Malla leída desde: {} -> {} ramos", malla_str, map.len());
+        for (codigo, ramo) in map.iter().take(50) {
+            println!("{} => {}", codigo, ramo.nombre);
+        }
+    }
+}
