@@ -295,7 +295,7 @@ async fn datafiles_content_handler(query: web::Query<std::collections::HashMap<S
 
     // Resolve paths via excel module (so only excel reads src/datafiles)
     match summarize_datafiles(&malla, sheet_opt.as_deref()) {
-        Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent)) => {
+        Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent, porcent_names)) => {
             // Preparar resúmenes para enviar. Por defecto retornamos muestras (para evitar payloads enormes).
             // Si el cliente solicita `full=true` en la query, devolvemos todas las filas.
             let full = qm.get("full").map(|s| { let sl = s.to_lowercase(); sl == "1" || sl == "true" }).unwrap_or(false);
@@ -328,7 +328,7 @@ async fn datafiles_content_handler(query: web::Query<std::collections::HashMap<S
             // Construir un sample combinado (malla <-> oferta <-> porcentajes)
             // usando el helper del módulo `algorithm`. Limitamos la salida a 200
             // filas para evitar payloads enormes en respuestas por defecto.
-            let merged_full = crate::algorithm::merge_malla_oferta_porcentajes(&malla_map, &oferta, &porcent);
+            let merged_full = crate::algorithm::merge_malla_oferta_porcentajes(&malla_map, &oferta, &porcent, &porcent_names);
             let merged_sample: Vec<serde_json::Value> = if full {
                 merged_full.into_iter().collect()
             } else {

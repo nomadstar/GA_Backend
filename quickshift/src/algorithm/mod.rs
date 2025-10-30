@@ -42,6 +42,7 @@ pub fn merge_malla_oferta_porcentajes(
 	malla_map: &HashMap<String, RamoDisponible>,
 	oferta: &Vec<Seccion>,
 	porcent: &HashMap<String, (f64,f64)>,
+	porcent_names: &std::collections::HashMap<String, (String, f64, f64)>,
 ) -> Vec<serde_json::Value> {
 	// Construir índice de oferta por nombre normalizado -> Vec<Seccion>
 	let mut oferta_index: std::collections::HashMap<String, Vec<&Seccion>> = std::collections::HashMap::new();
@@ -78,30 +79,59 @@ pub fn merge_malla_oferta_porcentajes(
 						"total": *tot
 					}));
 				} else {
-					out.push(json!({
-						"malla_codigo": mcode,
-						"malla_nombre": ramo.nombre,
-						"oferta_codigo": s.codigo,
-						"oferta_codigo_box": s.codigo_box,
-						"oferta_nombre": s.nombre,
-						"pa_codigo": serde_json::Value::Null,
-						"porcentaje": serde_json::Value::Null,
-						"total": serde_json::Value::Null
-					}));
+					// intentar emparejar PA por nombre de la oferta (fallback adicional)
+					let oferta_name_norm = normalize_human_name(&s.nombre);
+					if let Some((pa_code2, pct2, tot2)) = porcent_names.get(&oferta_name_norm) {
+						out.push(json!({
+							"malla_codigo": mcode,
+							"malla_nombre": ramo.nombre,
+							"oferta_codigo": s.codigo,
+							"oferta_codigo_box": s.codigo_box,
+							"oferta_nombre": s.nombre,
+							"pa_codigo": pa_code2,
+							"porcentaje": *pct2,
+							"total": *tot2
+						}));
+					} else {
+						out.push(json!({
+							"malla_codigo": mcode,
+							"malla_nombre": ramo.nombre,
+							"oferta_codigo": s.codigo,
+							"oferta_codigo_box": s.codigo_box,
+							"oferta_nombre": s.nombre,
+							"pa_codigo": serde_json::Value::Null,
+							"porcentaje": serde_json::Value::Null,
+							"total": serde_json::Value::Null
+						}));
+					}
 				}
 			}
 		} else {
-			// No se encontró oferta por nombre; devolver fila mínima con nulls
-			out.push(json!({
-				"malla_codigo": mcode,
-				"malla_nombre": ramo.nombre,
-				"oferta_codigo": serde_json::Value::Null,
-				"oferta_codigo_box": serde_json::Value::Null,
-				"oferta_nombre": serde_json::Value::Null,
-				"pa_codigo": serde_json::Value::Null,
-				"porcentaje": serde_json::Value::Null,
-				"total": serde_json::Value::Null
-			}));
+			// Intentar emparejar directamente PA -> malla por nombre como fallback
+			if let Some((pa_code, pct, tot)) = porcent_names.get(&rname_norm) {
+				out.push(json!({
+					"malla_codigo": mcode,
+					"malla_nombre": ramo.nombre,
+					"oferta_codigo": serde_json::Value::Null,
+					"oferta_codigo_box": serde_json::Value::Null,
+					"oferta_nombre": serde_json::Value::Null,
+					"pa_codigo": pa_code,
+					"porcentaje": *pct,
+					"total": *tot
+				}));
+			} else {
+				// No encontrado en oferta ni en PA por nombre: fila vacía
+				out.push(json!({
+					"malla_codigo": mcode,
+					"malla_nombre": ramo.nombre,
+					"oferta_codigo": serde_json::Value::Null,
+					"oferta_codigo_box": serde_json::Value::Null,
+					"oferta_nombre": serde_json::Value::Null,
+					"pa_codigo": serde_json::Value::Null,
+					"porcentaje": serde_json::Value::Null,
+					"total": serde_json::Value::Null
+				}));
+			}
 		}
 	}
 
@@ -116,7 +146,7 @@ pub fn list_datafiles() -> Result<(Vec<String>, Vec<String>, Vec<String>), Box<d
 
 /// Resumen práctico de contenidos para una malla dada. Devuelve las rutas
 /// resueltas y los objetos de alto nivel leídos (malla map, oferta vec, porcentajes map).
-pub fn summarize_datafiles(malla_name: &str, sheet: Option<&str>) -> Result<(PathBuf, PathBuf, PathBuf, HashMap<String, RamoDisponible>, Vec<Seccion>, HashMap<String, (f64,f64)>), Box<dyn Error>> {
+pub fn summarize_datafiles(malla_name: &str, sheet: Option<&str>) -> Result<(PathBuf, PathBuf, PathBuf, HashMap<String, RamoDisponible>, Vec<Seccion>, HashMap<String, (f64,f64)>, std::collections::HashMap<String, (String, f64, f64)>), Box<dyn Error>> {
 	let (malla_path, oferta_path, porcent_path) = crate::excel::resolve_datafile_paths(malla_name)?;
 
 	// Leer primero la malla: si esto falla, no podemos continuar.
@@ -136,17 +166,18 @@ pub fn summarize_datafiles(malla_name: &str, sheet: Option<&str>) -> Result<(Pat
 		}
 	};
 
-	// Intentar leer porcentajes; si falla devolvemos mapa vacío
+	// Intentar leer porcentajes; si falla devolvemos mapa vacío. Usamos
+	// la variante que también intenta extraer nombres para matching por nombre.
 	let porcent_path_str = porcent_path.to_str().ok_or("porcent path invalid UTF-8")?;
-	let porcent = match crate::excel::leer_porcentajes_aprobados(porcent_path_str) {
-		Ok(p) => p,
+	let (porcent, porcent_names) = match crate::excel::leer_porcentajes_aprobados_con_nombres(porcent_path_str) {
+		Ok((p, pn)) => (p, pn),
 		Err(e) => {
 			eprintln!("WARN: no se pudo leer Porcentajes '{}': {}. Usando fallback vacío.", porcent_path_str, e);
-			HashMap::new()
+			(HashMap::new(), std::collections::HashMap::new())
 		}
 	};
 
-	Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent))
+	Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent, porcent_names))
 }
 
 
