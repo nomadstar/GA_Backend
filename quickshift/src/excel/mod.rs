@@ -30,6 +30,8 @@ pub use malla::leer_prerequisitos;
 pub use porcentajes::leer_porcentajes_aprobados;
 pub use oferta::leer_oferta_academica_excel;
 pub use asignatura::asignatura_from_nombre;
+// Normalizadores expuestos para que otros módulos (algorithm, ruta) los puedan usar
+pub use io::{normalize_name, normalize_code};
 
 use std::path::{Path, PathBuf};
 use std::fs;
@@ -111,6 +113,33 @@ pub fn resolve_datafile_paths(malla_name: &str) -> Result<(PathBuf, PathBuf, Pat
         .ok_or(format!("no se encontró archivo de Porcentajes en {}", DATAFILES_DIR))?;
 
     Ok((malla_path, oferta_path, porcent_path))
+}
+
+/// Lista los ficheros disponibles en `DATAFILES_DIR` categorizados como:
+/// (mallas, ofertas, porcentajes). Devuelve los nombres de archivo (no paths absolutos).
+pub fn list_available_datafiles() -> Result<(Vec<String>, Vec<String>, Vec<String>), Box<dyn Error>> {
+    let data_dir = Path::new(DATAFILES_DIR);
+    let mut mallas: Vec<String> = Vec::new();
+    let mut ofertas: Vec<String> = Vec::new();
+    let mut porcentajes: Vec<String> = Vec::new();
+
+    let read = fs::read_dir(data_dir)?;
+    for entry in read.flatten() {
+        let p = entry.path();
+        if !p.is_file() { continue; }
+        if let Some(name) = p.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()) {
+            let name_low = name.to_lowercase();
+            if name_low.contains("malla") || name_low.contains("malla_curricular") {
+                mallas.push(name);
+            } else if name_low.contains("oferta") || name_low.contains("oa") {
+                ofertas.push(name);
+            } else if name_low.contains("porcent") || name_low.contains("aprob") || name_low.contains("porcentaje") {
+                porcentajes.push(name);
+            }
+        }
+    }
+
+    Ok((mallas, ofertas, porcentajes))
 }
 
 

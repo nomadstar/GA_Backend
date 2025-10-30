@@ -5,7 +5,6 @@ mod excel;
 mod algorithm;
 mod models;
 mod api_json;
-mod rutacomoda;
 pub mod server;
 
 /// Ejecuta el servidor HTTP (reexport para facilitar uso desde `main`)

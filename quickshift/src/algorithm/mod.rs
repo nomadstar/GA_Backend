@@ -25,6 +25,30 @@ pub fn get_ramo_critico() -> (std::collections::HashMap<String, crate::models::R
 pub use crate::algorithm::clique::{get_clique_with_user_prefs, get_clique_max_pond};
 pub use crate::algorithm::ruta::ejecutar_ruta_critica_with_params;
 
+// Helpers que exponen listas y resúmenes de ficheros de datos via el módulo
+// `algorithm` (encapsulan acceso a `crate::excel` para que el server use la API
+// del algoritmo en lugar de leer `src/datafiles` directamente).
+use std::error::Error;
+use std::path::PathBuf;
+use std::collections::HashMap;
+use crate::models::{RamoDisponible, Seccion};
+
+/// Lista los archivos disponibles (mallas, ofertas, porcentajes) devolviendo
+/// sólo los nombres de fichero.
+pub fn list_datafiles() -> Result<(Vec<String>, Vec<String>, Vec<String>), Box<dyn Error>> {
+	crate::excel::list_available_datafiles()
+}
+
+/// Resumen práctico de contenidos para una malla dada. Devuelve las rutas
+/// resueltas y los objetos de alto nivel leídos (malla map, oferta vec, porcentajes map).
+pub fn summarize_datafiles(malla_name: &str) -> Result<(PathBuf, PathBuf, PathBuf, HashMap<String, RamoDisponible>, Vec<Seccion>, HashMap<String, (f64,f64)>), Box<dyn Error>> {
+	let (malla_path, oferta_path, porcent_path) = crate::excel::resolve_datafile_paths(malla_name)?;
+	let malla_map = crate::excel::leer_malla_excel(malla_path.to_str().ok_or("malla path invalid UTF-8")?)?;
+	let oferta = crate::excel::leer_oferta_academica_excel(oferta_path.to_str().ok_or("oferta path invalid UTF-8")?)?;
+	let porcent = crate::excel::leer_porcentajes_aprobados(porcent_path.to_str().ok_or("porcent path invalid UTF-8")?)?;
+	Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent))
+}
+
 
 
 // Nota: la API pública principal es `ruta::ejecutar_ruta_critica_with_params` y

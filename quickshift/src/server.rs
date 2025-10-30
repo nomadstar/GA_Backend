@@ -1,10 +1,9 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::algorithm::{get_ramo_critico, extract_data, get_clique_with_user_prefs};
+use crate::algorithm::{get_ramo_critico, extract_data, get_clique_with_user_prefs, list_datafiles, summarize_datafiles};
 use crate::models::Seccion;
 use crate::api_json::InputParams;
-use crate::rutacomoda::{load_paths_from_file, best_paths, PathsOutput};
 use std::fs::{OpenOptions, create_dir_all};
 use std::io::Write;
 use std::path::Path;
@@ -72,29 +71,51 @@ async fn solve_handler(body: web::Json<serde_json::Value>) -> impl Responder {
 /// Handler para obtener los mejores caminos desde un JSON de `PathsOutput` o un
 /// `file_path` que apunte a un JSON en disco generado por Ruta crítica.
 async fn rutacomoda_best_handler(body: web::Json<serde_json::Value>) -> impl Responder {
-    // Si el body contiene `file_path: "..."`, intentamos leer el fichero.
-    if let Some(fp) = body.get("file_path").and_then(|v| v.as_str()) {
-        match load_paths_from_file(fp) {
-            Ok(paths_output) => {
-                let best = best_paths(&paths_output);
-                return HttpResponse::Ok().json(json!({"best": best}));
-            }
-            Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to read file: {}", e)})),
-        }
-    }
+    // Now this endpoint delegates to the algorithm orchestrator: it expects
+    // an `InputParams`-compatible JSON body (same as /rutacritica/run) and
+    // returns the best path(s) computed by `ejecutar_ruta_critica_with_params`.
+    let body_value = body.into_inner();
+    let json_str = match serde_json::to_string(&body_value) {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("invalid JSON body: {}", e)})),
+    };
 
-    // Si el body contiene directamente la estructura `paths`, la parseamos.
-    if body.get("paths").is_some() {
-        match serde_json::from_value::<PathsOutput>(body.into_inner()) {
-            Ok(po) => {
-                let best = best_paths(&po);
-                return HttpResponse::Ok().json(json!({"best": best}));
-            }
-            Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("invalid PathsOutput JSON: {}", e)})),
-        }
-    }
+    let params = match crate::api_json::parse_and_resolve_ramos(&json_str, Some(".")) {
+        Ok(p) => p,
+        Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to parse input: {}", e)})),
+    };
 
-    HttpResponse::BadRequest().json(json!({"error": "expected `file_path` string or `paths` array in body"}))
+    match crate::algorithm::ejecutar_ruta_critica_with_params(params) {
+        Ok(soluciones) => {
+            // soluciones: Vec<(Vec<(Seccion, i32)>, i64)>
+            if soluciones.is_empty() {
+                return HttpResponse::Ok().json(json!({"best": []}));
+            }
+
+            // Encontrar el score máximo
+            let mut max_score: Option<i64> = None;
+            for (_sol, score) in soluciones.iter() {
+                match max_score {
+                    None => max_score = Some(*score),
+                    Some(ms) => if *score > ms { max_score = Some(*score); }
+                }
+            }
+
+            let ms = max_score.unwrap_or(0);
+            // Filtrar soluciones que tengan score == ms
+            let mut bests: Vec<serde_json::Value> = Vec::new();
+            for (sol, score) in soluciones.into_iter() {
+                if score == ms {
+                    // Mapear solución a lista de códigos
+                    let path_codes: Vec<String> = sol.into_iter().map(|(s, _prio)| s.codigo).collect();
+                    bests.push(json!({"path": path_codes, "score": score}));
+                }
+            }
+
+            HttpResponse::Ok().json(json!({"best": bests}))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("algorithm error: {}", e)})),
+    }
 }
 
 async fn rutacritica_run_handler(body: web::Json<serde_json::Value>) -> impl Responder {
@@ -201,11 +222,52 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
                 .route("/students", web::post().to(save_student_handler))
             .route("/rutacomoda/best", web::post().to(rutacomoda_best_handler))
             .route("/rutacritica/run", web::post().to(rutacritica_run_handler))
+            .route("/datafiles", web::get().to(datafiles_list_handler))
+            .route("/datafiles/content", web::get().to(datafiles_content_handler))
             .route("/help", web::get().to(help_handler))
     })
     .bind(bind_addr)?
     .run()
     .await
+}
+
+/// GET /datafiles
+/// Lista los nombres de archivos MC, OA y PA disponibles en `src/datafiles`.
+async fn datafiles_list_handler() -> impl Responder {
+    match list_datafiles() {
+        Ok((mallas, ofertas, porcentajes)) => HttpResponse::Ok().json(json!({"mallas": mallas, "ofertas": ofertas, "porcentajes": porcentajes})),
+        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("failed to list datafiles: {}", e)})),
+    }
+}
+
+/// GET /datafiles/content?malla=MiMalla.xlsx
+/// Devuelve un resumen de los contenidos (primeros elementos) de MALLA, OA y PA
+async fn datafiles_content_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
+    let qm = query.into_inner();
+    let malla = match qm.get("malla").and_then(|s| if s.trim().is_empty() { None } else { Some(s.clone()) }) {
+        Some(m) => m,
+        None => return HttpResponse::BadRequest().json(json!({"error": "malla query parameter is required"})),
+    };
+
+    // Resolve paths via excel module (so only excel reads src/datafiles)
+    match summarize_datafiles(&malla) {
+        Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent)) => {
+            // Preparar resúmenes para enviar (no volcar todo si es grande)
+            let mut malla_sample: Vec<serde_json::Value> = Vec::new();
+            for (code, ramo) in malla_map.iter().take(200) {
+                malla_sample.push(json!({"codigo": code, "nombre": ramo.nombre, "numb_correlativo": ramo.numb_correlativo, "dificultad": ramo.dificultad, "codigo_ref": ramo.codigo_ref}));
+            }
+
+            let oferta_sample: Vec<serde_json::Value> = oferta.into_iter().take(200).map(|s| json!(s)).collect();
+            let mut porcent_sample: Vec<serde_json::Value> = Vec::new();
+            for (k, v) in porcent.iter().take(200) {
+                porcent_sample.push(json!({"codigo": k, "porcentaje": v.0, "total": v.1}));
+            }
+
+            HttpResponse::Ok().json(json!({"malla_path": malla_path.to_string_lossy(), "oferta_path": oferta_path.to_string_lossy(), "porcent_path": porcent_path.to_string_lossy(), "malla_sample": malla_sample, "oferta_sample": oferta_sample, "porcent_sample": porcent_sample}))
+        }
+        Err(e) => HttpResponse::BadRequest().json(json!({"error": format!("failed to resolve paths for malla '{}': {}", malla, e)})),
+    }
 }
 
 /// GET /solve handler: acepta parámetros simples en query string.
