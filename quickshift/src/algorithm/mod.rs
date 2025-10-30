@@ -7,7 +7,17 @@ mod pert;
 mod ruta;
 
 // Reexportar solo la API pública que quieres exponer desde aquí
-pub use extract::{get_ramo_critico, extract_data};
+pub use extract::extract_data;
+// Note: la funcionalidad de lectura de malla queda centralizada en `crate::excel`.
+// Exponemos aquí un wrapper compat (get_ramo_critico()) para no romper callers.
+
+// Compat wrapper: invoca la versión de `excel` usando un nombre por defecto
+// para no romper llamadas existentes que esperan `get_ramo_critico()` sin args.
+pub fn get_ramo_critico() -> (std::collections::HashMap<String, crate::models::RamoDisponible>, String, bool) {
+	// Nombre por defecto (legacy); `excel::resolve_datafile_paths` preferirá
+	// archivos en `src/datafiles` cuando existan.
+	crate::excel::get_ramo_critico("MiMalla.xlsx")
+}
 
 // Exponer las funciones de lectura de Excel que necesita el pipeline
 

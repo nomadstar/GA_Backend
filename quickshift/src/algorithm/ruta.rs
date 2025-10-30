@@ -101,6 +101,20 @@ pub fn ejecutar_ruta_critica_with_precomputed(
         }
     }
 
+    // Añadir aristas usando el mapa de prerequisitos leído desde la malla (hojas adicionales).
+    let malla_name_for_prereq = params.malla.clone();
+    if let Ok(pr_map) = crate::excel::leer_prerequisitos(&malla_name_for_prereq) {
+        for (codigo, prereqs) in pr_map.into_iter() {
+            for prereq in prereqs.into_iter() {
+                if let (Some(&from), Some(&to)) = (node_map.get(&prereq), node_map.get(&codigo)) {
+                    if pert_graph.find_edge(from, to).is_none() {
+                        let _ = pert_graph.add_edge(from, to, ());
+                    }
+                }
+            }
+        }
+    }
+
     // Ejecutar cálculo PERT para cada nodo (simplificado)
     for node_idx in pert_graph.node_indices() {
         // len_dag aproximado: número de nodos
@@ -122,8 +136,20 @@ pub fn ejecutar_ruta_critica_with_precomputed(
         }
     }
 
-    // Llamar al planner que respeta preferencias de usuario (wrapper en algorithm)
-    let soluciones = crate::algorithm::get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params);
+    // Decidir cuál planner usar: si el usuario NO proporcionó preferencias
+    // adicionales (solo entregó `ramos_pasados`) usamos la versión sin prefs
+    // `get_clique_max_pond`. En caso contrario usamos la variante que respeta
+    // preferencias `get_clique_with_user_prefs`.
+    let solo_pasados = params.ramos_prioritarios.is_empty()
+        && params.horarios_preferidos.is_empty()
+        && params.ranking.is_none()
+        && params.student_ranking.is_none();
+
+    let soluciones = if solo_pasados {
+        crate::algorithm::get_clique_max_pond(&lista_secciones, &ramos_actualizados)
+    } else {
+        crate::algorithm::get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params)
+    };
 
     Ok(soluciones)
 }

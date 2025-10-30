@@ -42,17 +42,6 @@ pub fn normalize_header(s: &str) -> String {
     s.to_lowercase().chars().filter(|c| !c.is_whitespace()).collect()
 }
 
-/// Convierte letras de columna (ej: "AB") a índice 1-based (A=1)
-pub fn column_letters_to_index(s: &str) -> usize {
-    let mut acc = 0usize;
-    for ch in s.chars() {
-        if ch.is_ascii_alphabetic() {
-            acc = acc * 26 + ((ch.to_ascii_uppercase() as u8 - b'A') as usize + 1);
-        }
-    }
-    acc
-}
-
 /// Intenta leer una hoja del archivo Excel y devolverla como Vec<Vec<String>>.
 /// Implementación basada en `calamine::open_workbook_auto` para simplicidad (sirve como fallback)
 pub fn read_sheet_via_zip<P: AsRef<Path>>(path: P, sheet_name: &str) -> Result<Vec<Vec<String>>, Box<dyn std::error::Error>> {
