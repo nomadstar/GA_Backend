@@ -13,7 +13,7 @@ La Universidad cambió **códigos de asignaturas** entre 2024 y 2025, pero mantu
 ❌ El sistema anterior no podía encontrar secciones (horarios) de enero 2025 porque los códigos cambiaron
 ❌ De 692 secciones en OA2024, **0 coincidían** con los códigos de PA2025-1
 
-### El Engaño (que descubriste):
+### El Error (que descubriste):
 ```
 INGLÉS GENERAL II
   └─ Código 2024: CIG1002 (en OA2024, tiene secciones)
@@ -140,7 +140,7 @@ Coincidencias:
 
 ---
 
-## 📝 NOTA: EL ENGAÑO DEL CÓDIGOS
+## 📝 NOTA: EL ERROR DEL CÓDIGOS
 
 Lo que descubriste es un **anti-patrón común en sistemas universitarios**:
 - Los códigos se cambian frecuentemente (restructuras administrativas)
