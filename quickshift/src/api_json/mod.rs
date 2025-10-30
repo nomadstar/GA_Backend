@@ -41,38 +41,45 @@ pub fn parse_and_resolve_ramos<P: AsRef<Path>>(json_str: &str, base_dir: Option<
 /// depender de un archivo Excel real en los tests.
 pub fn parse_and_resolve_ramos_with_resolver<P, F>(json_str: &str, base_dir: Option<P>, resolver: F) -> Result<InputParams, Box<dyn std::error::Error>>
 where
-	P: AsRef<Path>,
-	F: Fn(&Path, &str) -> Result<Option<String>, Box<dyn std::error::Error>>,
+    P: AsRef<Path>,
+    F: Fn(&Path, &str) -> Result<Option<String>, Box<dyn std::error::Error>>,
 {
-	let mut params = parse_json_input(json_str)?;
+    let mut params = parse_json_input(json_str)?;
 
-	// `malla` ahora es un campo obligatorio en `InputParams`.
-	let malla_name = params.malla.clone();
-	let malla_path: PathBuf = match base_dir {
-		Some(b) => b.as_ref().join(malla_name.clone()),
-		None => PathBuf::from(malla_name.clone()),
-	};
+    // delegar la lógica de resolución a la función que acepta InputParams
+    resolve_ramos_with_resolver(params, base_dir, resolver)
+}
 
-	// heurística simple: si la cadena contiene un dígito la consideramos código
-	fn looks_like_code(s: &str) -> bool {
-		s.chars().any(|c| c.is_ascii_digit())
-	}
+/// Resolver ramos de un InputParams ya parseado (inyección de resolver para tests)
+pub fn resolve_ramos_with_resolver<P, F>(mut params: InputParams, base_dir: Option<P>, resolver: F) -> Result<InputParams, Box<dyn std::error::Error>>
+where
+    P: AsRef<Path>,
+    F: Fn(&Path, &str) -> Result<Option<String>, Box<dyn std::error::Error>>,
+{
+    let malla_name = params.malla.clone();
+    let malla_path: PathBuf = match base_dir {
+        Some(b) => b.as_ref().join(malla_name.clone()),
+        None => PathBuf::from(malla_name.clone()),
+    };
 
-	let resolve_one = |r: String| -> String {
-		if looks_like_code(&r) {
-			return r;
-		}
-		match resolver(&malla_path, &r) {
-			Ok(Some(asig)) => asig,
-			Ok(None) => r,
-			Err(_) => r,
-		}
-	};
+    // heurística simple: si la cadena contiene un dígito la consideramos código
+    fn looks_like_code(s: &str) -> bool {
+        s.chars().any(|c| c.is_ascii_digit())
+    }
 
-	params.ramos_pasados = params.ramos_pasados.into_iter().map(resolve_one).collect();
-	params.ramos_prioritarios = params.ramos_prioritarios.into_iter().map(resolve_one).collect();
+    let resolve_one = |r: String| -> String {
+        if looks_like_code(&r) { return r; }
+        match resolver(&malla_path, &r) {
+            Ok(Some(asig)) => asig,
+            Ok(None) => r,
+            Err(_) => r,
+        }
+    };
 
-	Ok(params)
+    params.ramos_pasados = params.ramos_pasados.into_iter().map(resolve_one).collect();
+    params.ramos_prioritarios = params.ramos_prioritarios.into_iter().map(resolve_one).collect();
+
+    Ok(params)
 }
 
 #[cfg(test)]
