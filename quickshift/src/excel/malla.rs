@@ -5,7 +5,9 @@ use crate::excel::io::data_to_string;
 use std::path::Path;
 
 /// Lee un archivo de malla (espera filas: codigo, nombre, correlativo, holgura, critico, ...)
-pub fn leer_malla_excel(nombre_archivo: &str) -> Result<HashMap<String, RamoDisponible>, Box<dyn std::error::Error>> {
+/// Leer malla desde un archivo Excel, permitiendo opcionalmente elegir la hoja
+/// por nombre. Si `sheet` es None se usa la primera hoja del workbook.
+pub fn leer_malla_excel_with_sheet(nombre_archivo: &str, sheet: Option<&str>) -> Result<HashMap<String, RamoDisponible>, Box<dyn std::error::Error>> {
     // Resolver ruta: si el path directo no existe, intentar buscar en el directorio protegido `DATAFILES_DIR`
     let resolved = if std::path::Path::new(nombre_archivo).exists() {
         nombre_archivo.to_string()
@@ -22,8 +24,14 @@ pub fn leer_malla_excel(nombre_archivo: &str) -> Result<HashMap<String, RamoDisp
         return Err("No se encontraron hojas en el archivo Excel".into());
     }
 
-    let primera_hoja = &sheet_names[0];
-    let range = workbook.worksheet_range(primera_hoja)?;
+    // Elegir hoja: prioridad -> sheet (si provisto y existe), else primera hoja
+    let hoja_seleccionada = if let Some(s) = sheet {
+        if sheet_names.iter().any(|n| n == s) { s.to_string() } else { sheet_names[0].clone() }
+    } else {
+        sheet_names[0].clone()
+    };
+
+    let range = workbook.worksheet_range(&hoja_seleccionada)?;
 
     for (row_idx, row) in range.rows().enumerate() {
         if row_idx == 0 { continue; }
@@ -57,6 +65,11 @@ pub fn leer_malla_excel(nombre_archivo: &str) -> Result<HashMap<String, RamoDisp
     }
 
     Ok(ramos_disponibles)
+}
+
+/// Compat wrapper existente que conserva el nombre original y usa la primera hoja
+pub fn leer_malla_excel(nombre_archivo: &str) -> Result<HashMap<String, RamoDisponible>, Box<dyn std::error::Error>> {
+    leer_malla_excel_with_sheet(nombre_archivo, None)
 }
 
 /// Lee hojas adicionales de la malla para extraer prerequisitos.

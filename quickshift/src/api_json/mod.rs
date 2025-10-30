@@ -10,6 +10,8 @@ pub struct InputParams {
 	pub horarios_preferidos: Vec<String>,
 	// Required: which curricular map to use. Example values: "MallaCurricular2010.xlsx", "MallaCurricular2018.xlsx", "MallaCurricular2020.xlsx"
 	pub malla: String,
+	// Optional: which internal sheet to use inside the workbook (e.g., "Malla 2020")
+	pub sheet: Option<String>,
 
 	// Optional: ranking académico del alumno expresado como percentil (0.0 - 1.0)
 	pub student_ranking: Option<f64>,

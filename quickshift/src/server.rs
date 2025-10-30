@@ -249,8 +249,11 @@ async fn datafiles_content_handler(query: web::Query<std::collections::HashMap<S
         None => return HttpResponse::BadRequest().json(json!({"error": "malla query parameter is required"})),
     };
 
+    // Optional 'sheet' query parameter lets client request a specific internal sheet
+    let sheet_opt: Option<String> = qm.get("sheet").and_then(|s| if s.trim().is_empty() { None } else { Some(s.clone()) });
+
     // Resolve paths via excel module (so only excel reads src/datafiles)
-    match summarize_datafiles(&malla) {
+    match summarize_datafiles(&malla, sheet_opt.as_deref()) {
         Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent)) => {
             // Preparar resúmenes para enviar (no volcar todo si es grande)
             let mut malla_sample: Vec<serde_json::Value> = Vec::new();
@@ -264,7 +267,20 @@ async fn datafiles_content_handler(query: web::Query<std::collections::HashMap<S
                 porcent_sample.push(json!({"codigo": k, "porcentaje": v.0, "total": v.1}));
             }
 
-            HttpResponse::Ok().json(json!({"malla_path": malla_path.to_string_lossy(), "oferta_path": oferta_path.to_string_lossy(), "porcent_path": porcent_path.to_string_lossy(), "malla_sample": malla_sample, "oferta_sample": oferta_sample, "porcent_sample": porcent_sample}))
+            // Intentar listar hojas internas de la malla (si el workbook contiene varias tablas)
+            let malla_sheets = match crate::excel::listar_hojas_malla(&malla_path) {
+                Ok(s) => s,
+                Err(_) => Vec::new(),
+            };
+            HttpResponse::Ok().json(json!({
+                "malla_path": malla_path.to_string_lossy(),
+                "oferta_path": oferta_path.to_string_lossy(),
+                "porcent_path": porcent_path.to_string_lossy(),
+                "malla_sheets": malla_sheets,
+                "malla_sample": malla_sample,
+                "oferta_sample": oferta_sample,
+                "porcent_sample": porcent_sample
+            }))
         }
         Err(e) => HttpResponse::BadRequest().json(json!({"error": format!("failed to resolve paths for malla '{}': {}", malla, e)})),
     }

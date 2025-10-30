@@ -41,9 +41,9 @@ pub fn list_datafiles() -> Result<(Vec<String>, Vec<String>, Vec<String>), Box<d
 
 /// Resumen práctico de contenidos para una malla dada. Devuelve las rutas
 /// resueltas y los objetos de alto nivel leídos (malla map, oferta vec, porcentajes map).
-pub fn summarize_datafiles(malla_name: &str) -> Result<(PathBuf, PathBuf, PathBuf, HashMap<String, RamoDisponible>, Vec<Seccion>, HashMap<String, (f64,f64)>), Box<dyn Error>> {
+pub fn summarize_datafiles(malla_name: &str, sheet: Option<&str>) -> Result<(PathBuf, PathBuf, PathBuf, HashMap<String, RamoDisponible>, Vec<Seccion>, HashMap<String, (f64,f64)>), Box<dyn Error>> {
 	let (malla_path, oferta_path, porcent_path) = crate::excel::resolve_datafile_paths(malla_name)?;
-	let malla_map = crate::excel::leer_malla_excel(malla_path.to_str().ok_or("malla path invalid UTF-8")?)?;
+	let malla_map = crate::excel::leer_malla_excel_with_sheet(malla_path.to_str().ok_or("malla path invalid UTF-8")?, sheet)?;
 	let oferta = crate::excel::leer_oferta_academica_excel(oferta_path.to_str().ok_or("oferta path invalid UTF-8")?)?;
 	let porcent = crate::excel::leer_porcentajes_aprobados(porcent_path.to_str().ok_or("porcent path invalid UTF-8")?)?;
 	Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent))

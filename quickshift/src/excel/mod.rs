@@ -26,6 +26,7 @@ mod asignatura;
 // helpers internos — no exportarlos públicamente
 // funciones de alto nivel que sí usa `algorithm`
 pub use malla::leer_malla_excel;
+pub use malla::leer_malla_excel_with_sheet;
 pub use malla::leer_prerequisitos;
 pub use porcentajes::leer_porcentajes_aprobados;
 pub use oferta::leer_oferta_academica_excel;
@@ -140,6 +141,16 @@ pub fn list_available_datafiles() -> Result<(Vec<String>, Vec<String>, Vec<Strin
     }
 
     Ok((mallas, ofertas, porcentajes))
+}
+
+/// Lista las hojas (sheet names) internas de un workbook de malla.
+/// Devuelve los nombres de las hojas en el orden que reporta la librería.
+pub fn listar_hojas_malla<P: AsRef<Path>>(path: P) -> Result<Vec<String>, Box<dyn Error>> {
+    // Usar calamine para abrir el workbook de forma genérica (xlsx/xls/xlsb)
+    use calamine::{open_workbook_auto, Reader};
+    let mut workbook = open_workbook_auto(path)?;
+    let names = workbook.sheet_names().to_owned();
+    Ok(names)
 }
 
 
