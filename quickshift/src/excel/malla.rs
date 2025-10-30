@@ -204,7 +204,9 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
     let (_porcent_by_code, porcent_by_name) = leer_porcentajes_aprobados_con_nombres(porcentajes_archivo)?;
     
     // 2. Intentar leer OA2024 para obtener mapeo nombre→código
-    // Esto es importante para cursos regulares: Malla (nombre) → OA2024 (código) → PA2025-1 (porcentaje)
+    // IMPORTANTE: Los códigos pueden cambiar entre años (ej: CIG1002 en 2024 vs CIG1013 en 2025)
+    // Por eso usamos el NOMBRE como clave universal, no el código
+    // Estructura de OA2024: Columna 1=Código, Columna 2=Nombre, Columna 3=Sección
     let oa_nombre_to_codigo: HashMap<String, String> = {
         let mut map = HashMap::new();
         // Resolver ruta de OA2024
@@ -215,8 +217,9 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
                     if let Ok(range) = workbook.worksheet_range(sheet) {
                         for (row_idx, row) in range.rows().enumerate() {
                             if row_idx == 0 { continue; }  // skip header
-                            let codigo = data_to_string(row.get(0).unwrap_or(&Data::Empty)).trim().to_string();
-                            let nombre = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
+                            // Columnas correctas en OA2024: Col 1 = Código, Col 2 = Nombre
+                            let codigo = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
+                            let nombre = data_to_string(row.get(2).unwrap_or(&Data::Empty)).trim().to_string();
                             if !codigo.is_empty() && !nombre.is_empty() {
                                 let nombre_norm = normalize_name(&nombre);
                                 // Solo insertar si no existe aún (primera ocurrencia)
@@ -325,14 +328,14 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
             // Estrategia: Malla (nombre) → OA2024 (código) → PA2025-1 (porcentaje)
             let nombre_norm = normalize_name(&nombre);
             
-            // Paso 1: Intentar obtener código de OA2024
+            // Paso 1: Intentar obtener código de OA2024 (exacto, sin búsqueda aproximada para evitar slowness)
             let codigo_de_oa = oa_nombre_to_codigo.get(&nombre_norm).cloned();
             
             // Paso 2: Buscar porcentaje en PA2025-1 usando el código de OA2024 (o fallback por nombre)
             let (codigo, dificultad, es_elec_porcent) = if let Some(cod_oa) = codigo_de_oa {
                 // Primero intentar buscar en PA2025-1 por el código de OA2024
                 let mut resultado = (cod_oa.clone(), None, false);
-                for (nom_pa, (codigo_pa, porcentaje, _total, es_electivo_en_porcent)) in porcent_by_name.iter() {
+                for (_, (codigo_pa, porcentaje, _total, es_electivo_en_porcent)) in porcent_by_name.iter() {
                     if codigo_pa == &cod_oa {
                         resultado = (cod_oa.clone(), Some(*porcentaje), *es_electivo_en_porcent);
                         break;
@@ -340,7 +343,7 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
                 }
                 resultado
             } else {
-                // Si no hay código en OA2024, buscar por nombre en PA2025-1
+                // Si no hay código en OA2024, buscar por nombre en PA2025-1 (exacto)
                 if let Some((codigo_encontrado, porcentaje, _total, es_electivo_en_porcent)) = porcent_by_name.get(&nombre_norm) {
                     (codigo_encontrado.clone(), Some(*porcentaje), *es_electivo_en_porcent)
                 } else {

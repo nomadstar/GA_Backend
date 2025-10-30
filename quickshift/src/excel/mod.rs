@@ -6,12 +6,16 @@
 //! - `porcentajes`: lectura de porcentajes/aprobados
 //! - `oferta`: lectura de oferta académica
 //! - `asignatura`: búsqueda de "Asignatura" por "Nombre Asignado"
+//! - `mapeo`: mapeo universal entre los 3 sistemas de códigos (Malla, OA2024, PA2025-1)
 
 /// Helpers de IO y utilidades para parsing de Excel
 mod io;
 
 /// Lectura de malla curricular: `leer_malla_excel`
 mod malla;
+
+/// Mapeo universal entre sistemas de códigos
+pub mod mapeo;
 
 /// Lectura de porcentajes/aprobados: `leer_porcentajes_aprobados`
 mod porcentajes;
