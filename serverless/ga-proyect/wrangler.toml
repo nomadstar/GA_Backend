@@ -1,6 +1,0 @@
-name = "ga-proyect"
-main = "build/index.js"
-compatibility_date = "2025-10-30"
-
-[build]
-command = "cargo install -q worker-build && worker-build --release"
