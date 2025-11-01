@@ -1,0 +1,10 @@
+name = "quickshift-wasm"
+main = "./build/worker/shim.mjs"
+compatibility_date = "2025-11-01"
+
+[build]
+command = "cargo build --release --target wasm32-unknown-unknown && worker-build"
+
+[env.production]
+# Add KV, DO, secrets bindings here
+

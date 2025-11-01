@@ -1,5 +1,10 @@
-use calamine::{open_workbook_auto, Data};
 use std::path::Path;
+use calamine::Data;
+// buffer-based parsing is optional behind the "excel" feature
+#[cfg(feature = "excel")]
+use std::io::Cursor;
+#[cfg(feature = "excel")]
+use calamine::{open_workbook_auto, Xlsx, Reader};
 
 /// Convierte un `Data` de calamine a String (versión genérica para celdas)
 pub fn cell_to_string(c: &Data) -> String {
@@ -120,4 +125,44 @@ pub fn read_sheet_via_zip<P: AsRef<Path>>(path: P, sheet_name: &str) -> Result<V
         }
         Err(_) => Ok(Vec::new()),
     }
+}
+
+// Nueva API: leer desde un buffer en memoria (bytes de un .xlsx)
+// Disponible solo si la feature "excel" está activada.
+#[cfg(feature = "excel")]
+pub fn read_sheet_from_buffer(bytes: &[u8], sheet_name: &str) -> Result<Vec<Vec<String>>, Box<dyn std::error::Error>> {
+    let cur = Cursor::new(bytes);
+    let mut workbook: Xlsx<Cursor<&[u8]>> = Xlsx::new(cur)?;
+
+    let names = workbook.sheet_names().to_owned();
+    let sheet_to_use = if sheet_name.is_empty() {
+        names.get(0).cloned().unwrap_or_default()
+    } else {
+        names.iter().find(|s| *s == sheet_name).cloned().unwrap_or_else(|| names.get(0).cloned().unwrap_or_default())
+    };
+
+    if sheet_to_use.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    match workbook.worksheet_range(&sheet_to_use) {
+        Ok(range) => {
+            let mut rows: Vec<Vec<String>> = Vec::new();
+            for r in range.rows() {
+                let mut row_vec: Vec<String> = Vec::new();
+                for cell in r.iter() {
+                    row_vec.push(cell_to_string(cell));
+                }
+                rows.push(row_vec);
+            }
+            Ok(rows)
+        }
+        Err(e) => Err(Box::new(e)),
+    }
+}
+
+// Si la feature "excel" no está activa, ofrecemos un stub que devuelve error claro.
+#[cfg(not(feature = "excel"))]
+pub fn read_sheet_from_buffer(_bytes: &[u8], _sheet_name: &str) -> Result<Vec<Vec<String>>, Box<dyn std::error::Error>> {
+    Err("feature \"excel\" not enabled: read_sheet_from_buffer unavailable".into())
 }

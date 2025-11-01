@@ -1,0 +1,28 @@
+[package]
+name = "quickshift_wasm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = { version = "0.6", features = ["http"] }
+worker-macros = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+calamine = { version = "0.30", optional = true }
+rusqlite = { version = "0.30", features = ["bundled"], optional = true }
+base64 = "0.21"
+
+[profile.release]
+opt-level = "s" # optimize for size
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+
+[features]
+default = []
+excel = ["calamine"]
+sql = ["rusqlite"]
