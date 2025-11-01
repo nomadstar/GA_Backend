@@ -209,22 +209,6 @@ pub fn listar_hojas_malla<P: AsRef<Path>>(path: P) -> Result<Vec<String>, Box<dy
     Ok(names)
 }
 
-/// Versión que lista las hojas desde un buffer en memoria (bytes de .xlsx).
-/// Disponible sólo si la feature `excel` está activada.
-#[cfg(feature = "excel")]
-pub fn listar_hojas_malla_from_buffer(bytes: &[u8]) -> Result<Vec<String>, Box<dyn Error>> {
-    use calamine::{Xlsx, Reader};
-    use std::io::Cursor;
-    let cur = Cursor::new(bytes);
-    let workbook: Xlsx<Cursor<&[u8]>> = Xlsx::new(cur)?;
-    Ok(workbook.sheet_names().to_owned())
-}
-
-#[cfg(not(feature = "excel"))]
-pub fn listar_hojas_malla_from_buffer(_bytes: &[u8]) -> Result<Vec<String>, Box<dyn Error>> {
-    Err("feature \"excel\" not enabled: listar_hojas_malla_from_buffer unavailable".into())
-}
-
 
 #[cfg(test)]
 mod tests {
