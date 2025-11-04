@@ -1,20 +1,26 @@
+# Usa Rust nightly oficial
 FROM rustlang/rust:nightly
 
-# Dependencias del sistema
+# Instala dependencias del sistema necesarias
 RUN apt-get update && apt-get install -y \
     build-essential libssl-dev pkg-config zlib1g-dev libzstd-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Directorio de trabajo
+# Configura el directorio de trabajo
 WORKDIR /app/quickshift
 
-# Copia todo el contenido del proyecto
-COPY quickshift/ ./
+# Copia solo los archivos de dependencias primero
+COPY quickshift/Cargo.toml quickshift/Cargo.lock ./
 
-# Opcional: precarga dependencias
-RUN cargo +nightly fetch
+# Precompila todas las dependencias (incluyendo Polars)
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo +nightly build --release
+RUN rm -rf src  # eliminamos el main dummy
 
-# Limita los jobs de compilación (opcional)
+# Copia el resto del código
+COPY quickshift ./quickshift
+
+# Limita jobs de compilación (opcional)
 ENV CARGO_BUILD_JOBS=2
 
 # Exponer puerto
