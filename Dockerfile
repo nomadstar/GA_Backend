@@ -13,7 +13,7 @@ WORKDIR /app/quickshift
 # Copy the application and its dependencies from the host into the
 
 # Fetch dependencies without building
-RUN cargo fetch
+RUN cargo build
 
 # Expose the application port
 EXPOSE 8080
