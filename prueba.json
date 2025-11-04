@@ -19,7 +19,7 @@
   "filtros": {
     "dias_horarios_libres": {
       "habilitado": true,
-      "dias_libres_preferidos": ["LU", "MI", "VI"],
+      "dias_libres_preferidos": ["MI", "VI"],
       "minimizar_ventanas": true,
       "ventana_ideal_minutos": 30
     },

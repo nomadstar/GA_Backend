@@ -7,6 +7,10 @@ use crate::api_json::InputParams;
 use std::fs::{OpenOptions, create_dir_all};
 use std::io::Write;
 use std::path::Path;
+use std::sync::OnceLock;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+use num_cpus;
 
 #[derive(Deserialize)]
 struct SolveRequest {
@@ -40,15 +44,47 @@ async fn solve_handler(body: web::Json<serde_json::Value>) -> impl Responder {
         Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to parse input: {}", e)})),
     };
 
-    // Run the existing pipeline using the resolved params to influence selection
-    // Use requested malla and optional sheet from params when extracting data
-    let initial_map: std::collections::HashMap<String, crate::models::RamoDisponible> = std::collections::HashMap::new();
-    let sheet_opt = params.sheet.as_deref();
-    let (lista_secciones, ramos_actualizados) = match extract_data(initial_map, &params.malla, sheet_opt) {
-        Ok((ls, ra)) => (ls, ra),
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("extract failed: {}", e)})),
+    // Run the existing pipeline using a blocking task so we don't block the async worker.
+    // We limit concurrency with a global semaphore so multiple heavy requests don't exhaust CPU.
+    static GLOBAL_SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    let sem = GLOBAL_SEM.get_or_init(|| {
+        // Use number of logical CPUs as concurrency limit (can be tuned)
+        let procs = num_cpus::get();
+        Arc::new(Semaphore::new(std::cmp::max(1, procs)))
+    }).clone();
+
+    // Acquire an owned permit asynchronously (this will wait without blocking the worker)
+    let permit = match sem.clone().acquire_owned().await {
+        Ok(p) => p,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({"error": "failed to acquire semaphore"})),
     };
-    let soluciones = get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params);
+
+    // Move params into blocking task (we don't need it after this)
+    let params_block = params;
+
+    let blocking_handle = tokio::task::spawn_blocking(move || {
+        // Hold the permit in this scope so it is released only after computation finishes
+        let _permit = permit;
+
+        let initial_map: std::collections::HashMap<String, crate::models::RamoDisponible> = std::collections::HashMap::new();
+        let sheet_opt = params_block.sheet.as_deref();
+        let (lista_secciones, ramos_actualizados) = match extract_data(initial_map, &params_block.malla, sheet_opt) {
+            Ok((ls, ra)) => (ls, ra),
+            Err(e) => return Err(format!("extract failed: {}", e)),
+        };
+        let soluciones = get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params_block);
+        Ok((lista_secciones, ramos_actualizados, soluciones))
+    });
+
+    let blocking_result = match blocking_handle.await {
+        Ok(res) => res,
+        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("task join error: {}", e)})),
+    };
+
+    let (lista_secciones, ramos_actualizados, soluciones) = match blocking_result {
+        Ok(v) => v,
+        Err(err_msg) => return HttpResponse::InternalServerError().json(json!({"error": err_msg})),
+    };
 
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
     for (sol, score) in soluciones.iter().take(10) {
@@ -85,8 +121,24 @@ async fn rutacomoda_best_handler(body: web::Json<serde_json::Value>) -> impl Res
         Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to parse input: {}", e)})),
     };
 
-    match crate::algorithm::ejecutar_ruta_critica_with_params(params) {
-        Ok(soluciones) => {
+    // Use semaphore + spawn_blocking to offload heavy computation and limit concurrency
+    static GLOBAL_SEM2: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    let sem2 = GLOBAL_SEM2.get_or_init(|| Arc::new(Semaphore::new(std::cmp::max(1, num_cpus::get())))).clone();
+    let permit2 = match sem2.clone().acquire_owned().await {
+        Ok(p) => p,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({"error": "failed to acquire semaphore"})),
+    };
+
+    let blocking = tokio::task::spawn_blocking(move || {
+        let _permit2 = permit2;
+        match crate::algorithm::ejecutar_ruta_critica_with_params(params) {
+            Ok(sol) => Ok(sol),
+            Err(e) => Err(format!("{}", e)),
+        }
+    });
+
+    match blocking.await {
+        Ok(Ok(soluciones)) => {
             // soluciones: Vec<(Vec<(Seccion, i32)>, i64)>
             if soluciones.is_empty() {
                 return HttpResponse::Ok().json(json!({"best": []}));
@@ -114,7 +166,8 @@ async fn rutacomoda_best_handler(body: web::Json<serde_json::Value>) -> impl Res
 
             HttpResponse::Ok().json(json!({"best": bests}))
         }
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("algorithm error: {}", e)})),
+        Ok(Err(e)) => HttpResponse::InternalServerError().json(json!({"error": format!("algorithm error: {}", e)})),
+        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("task join error: {}", e)})),
     }
 }
 
