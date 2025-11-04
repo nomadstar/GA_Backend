@@ -48,8 +48,9 @@ pub fn ejecutar_ruta_critica_with_precomputed(
 
     // Intentar leer porcentajes de aprobados desde el archivo garantizado
     // y usarlo para poblar `RamoDisponible.dificultad`.
-    let porcentajes_path = "../datafiles/PA2025-1.xlsx";
-    if let Ok(pmap) = crate::excel::leer_porcentajes_aprobados(porcentajes_path) {
+    let data_dir = crate::excel::get_datafiles_dir();
+    let porcentajes_path = data_dir.join("PA2025-1.xlsx");
+    if let Ok(pmap) = crate::excel::leer_porcentajes_aprobados(porcentajes_path.to_str().unwrap_or("")) {
         // actualizar ramos_actualizados con la dificultad leída
         for (codigo, (porc, _total)) in pmap.into_iter() {
             if let Some(ramo) = ramos_actualizados.get_mut(&codigo) {

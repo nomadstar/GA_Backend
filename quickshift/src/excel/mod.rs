@@ -62,22 +62,76 @@ use std::error::Error;
 pub(crate) const DATAFILES_DIR: &str = "src/datafiles";
 
 /// Función para resolver el directorio de datafiles correctamente
-fn get_datafiles_dir() -> PathBuf {
-    let candidates = [
-        "src/datafiles",
-        "quickshift/src/datafiles",
-        "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles",
-    ];
+pub(crate) fn get_datafiles_dir() -> PathBuf {
+    use std::path::Path;
     
-    for candidate in &candidates {
-        let path = Path::new(candidate);
-        if path.exists() {
-            return path.to_path_buf();
+    // Opción 1: Usar variable de entorno si existe
+    if let Ok(path) = std::env::var("GA_DATAFILES_DIR") {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            eprintln!("✅ Usando GA_DATAFILES_DIR: {:?}", p);
+            return p;
         }
     }
+
+    // Opción 2: Buscar desde el directorio de trabajo actual (CWD)
+    let cwd = match std::env::current_dir() {
+        Ok(c) => c,
+        Err(_) => PathBuf::from("."),
+    };
     
-    // Fallback a la constante por defecto
-    Path::new(DATAFILES_DIR).to_path_buf()
+    eprintln!("🔍 Buscando datafiles desde CWD: {:?}", cwd);
+    
+    let candidates_from_cwd = vec![
+        cwd.join("quickshift/src/datafiles"),
+        cwd.join("src/datafiles"),
+        cwd.join("datafiles"),
+    ];
+
+    for candidate in candidates_from_cwd {
+        if candidate.exists() {
+            eprintln!("✅ Datafiles encontrados en (CWD): {:?}", candidate);
+            return candidate;
+        }
+    }
+
+    // Opción 3: Buscar relativo al ejecutable (para casos donde se ejecuta con ruta absoluta)
+    if let Ok(exe_path) = std::env::current_exe() {
+        eprintln!("🔍 Buscando relativo al ejecutable: {:?}", exe_path);
+        if let Some(exe_dir) = exe_path.parent() {
+            let candidates_from_exe = vec![
+                exe_dir.join("../../../quickshift/src/datafiles"),
+                exe_dir.join("../../quickshift/src/datafiles"),
+                exe_dir.join("../quickshift/src/datafiles"),
+                exe_dir.join("quickshift/src/datafiles"),
+            ];
+            
+            for candidate in candidates_from_exe {
+                if let Ok(canonical) = candidate.canonicalize() {
+                    if canonical.exists() {
+                        eprintln!("✅ Datafiles encontrados en (exe): {:?}", canonical);
+                        return canonical;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: devolver ruta absoluta buscando en el sistema de archivos
+    let home = match std::env::var("HOME") {
+        Ok(h) => PathBuf::from(h),
+        Err(_) => PathBuf::from("/home/ignatus"),
+    };
+    
+    let hardcoded = home.join("GitHub/GA_Backend/quickshift/src/datafiles");
+    if hardcoded.exists() {
+        eprintln!("✅ Datafiles encontrados (hardcoded): {:?}", hardcoded);
+        return hardcoded;
+    }
+    
+    eprintln!("⚠️ No se encontró directorio datafiles en ninguna ubicación");
+    eprintln!("   Último intento: {:?}", hardcoded);
+    hardcoded
 }
 
 use crate::models::RamoDisponible;
@@ -255,8 +309,8 @@ mod tests {
 
         // Si no encontramos por patrón, buscar cualquier fichero en DATAFILES_DIR que contenga el año
         if resolved_malla.is_none() {
-            let data_dir = std::path::Path::new(DATAFILES_DIR);
-            if let Ok(entries) = std::fs::read_dir(data_dir) {
+            let data_dir = get_datafiles_dir();
+            if let Ok(entries) = std::fs::read_dir(&data_dir) {
                 for e in entries.flatten() {
                     if let Some(name) = e.file_name().to_str() {
                         if name.contains(&year.to_string()) {
@@ -270,7 +324,13 @@ mod tests {
 
         let malla_path = match resolved_malla {
             Some(p) => p,
-            None => panic!("No se encontró ninguna malla para el año {} en {}. Archivos disponibles: {:?}", year, DATAFILES_DIR, std::fs::read_dir(DATAFILES_DIR).map(|r| r.filter_map(|e| e.ok().and_then(|ent| ent.file_name().into_string().ok())).collect::<Vec<_>>()).unwrap_or_default()),
+            None => {
+                let data_dir = get_datafiles_dir();
+                let files: Vec<String> = std::fs::read_dir(&data_dir)
+                    .map(|r| r.filter_map(|e| e.ok().and_then(|ent| ent.file_name().into_string().ok())).collect::<Vec<_>>())
+                    .unwrap_or_default();
+                panic!("No se encontró ninguna malla para el año {} en {:?}. Archivos disponibles: {:?}", year, data_dir, files)
+            }
         };
 
         let malla_str = malla_path.to_str().expect("malla path no UTF-8");

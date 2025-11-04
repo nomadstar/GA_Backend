@@ -21,9 +21,18 @@ pub fn extract_data_optimizado(
 
     // Paso 1: Leer Malla enriquecida con porcentajes (VERSIÓN OPTIMIZADA)
     eprintln!("  📖 Paso 1: Leyendo malla con porcentajes (O(n) optimizado)...");
-    let porcent_str = format!("{}/PorcentajeAPROBADOS2025-1.xlsx", excel::DATAFILES_DIR);
+    
+    // Usar get_datafiles_dir() para obtener la ruta correcta en runtime
+    let data_dir = excel::get_datafiles_dir();
+    let malla_path = data_dir.join(nombre_excel_malla).to_string_lossy().to_string();
+    let porcent_str = data_dir.join("PA2025-1.xlsx").to_string_lossy().to_string();
+    
+    eprintln!("  📁 Rutas resueltas:");
+    eprintln!("     - Malla: {}", malla_path);
+    eprintln!("     - Porcentajes: {}", porcent_str);
+    
     let ramos_disponibles = match excel::leer_malla_con_porcentajes_optimizado(
-        nombre_excel_malla,
+        &malla_path,
         &porcent_str,
     ) {
         Ok(ramos_map) => {
@@ -36,7 +45,7 @@ pub fn extract_data_optimizado(
         Err(e) => {
             eprintln!("  ⚠️  Error en leer_malla_con_porcentajes_optimizado: {}", e);
             eprintln!("  🔄 Intentando con fallback (versión antigua)...");
-            match excel::leer_malla_con_porcentajes(nombre_excel_malla, &porcent_str) {
+            match excel::leer_malla_con_porcentajes(&malla_path, &porcent_str) {
                 Ok(ramos_map) => {
                     eprintln!("  ✅ Fallback exitoso: {} ramos cargados", ramos_map.len());
                     ramos_map
@@ -73,9 +82,10 @@ pub fn extract_data_optimizado(
     let secciones_filtradas: Vec<Seccion> = secciones
         .into_iter()
         .filter(|sec| {
-            let nombre_norm = excel::normalize_name(&sec.nombre);
+            // 🆕 Usar excel::normalize_name() en lugar de otra función
+            let nombre_norm = crate::excel::normalize_name(&sec.nombre);
             // Aceptar si existe en ramos_disponibles (de Malla) O si es electivo
-            ramos_disponibles.contains_key(&nombre_norm) || nombre_norm == "electivo profesional"
+            ramos_disponibles.contains_key(&nombre_norm) || nombre_norm.contains("electivo")
         })
         .collect();
 

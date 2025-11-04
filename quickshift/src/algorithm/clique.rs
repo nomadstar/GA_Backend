@@ -445,24 +445,40 @@ pub fn get_clique_max_pond_with_prefs(
     }
 
     let mut prev_solutions = Vec::new();
-    let mut graph_copy = graph.clone();
     let mut solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
 
-    for _solution_num in 1..=5 {
-        let max_clique = find_max_weight_clique(&graph_copy, &priorities);
-        if max_clique.len() <= 2 { break; }
+    eprintln!("\n📊 [get_clique_with_user_prefs] Iniciando búsqueda de múltiples soluciones");
+    eprintln!("   Grafo: {} nodos, {} aristas", graph.node_count(), graph.edge_count());
+
+    let max_iterations = 8;
+
+    for iteration in 1..=max_iterations {
+        let max_clique = find_max_weight_clique(&graph, &priorities);
+        if max_clique.len() <= 2 { 
+            eprintln!("   Iter {}: Clique muy pequeño ({}), deteniendo", iteration, max_clique.len());
+            break; 
+        }
+
+        eprintln!("   Iter {}: Clique de {} nodos encontrado", iteration, max_clique.len());
 
         let mut arr_aux_delete: Vec<(NodeIndex, i32)> = max_clique
             .iter()
             .map(|&idx| (idx, *priorities.get(&idx).unwrap_or(&0)))
             .collect();
 
+        // 🔧 Sort ASCENDING (lowest priority first) like Python version
         arr_aux_delete.sort_by_key(|&(_, prio)| prio);
-        while arr_aux_delete.len() > 6 { arr_aux_delete.remove(0); }
+        while arr_aux_delete.len() > 6 { arr_aux_delete.remove(0); }  // Remove lowest priority nodes
 
         let solution_key: Vec<_> = arr_aux_delete.iter().map(|&(idx, _)| idx).collect();
         if prev_solutions.contains(&solution_key) {
-            if !arr_aux_delete.is_empty() { graph_copy.remove_node(arr_aux_delete[0].0); }
+            eprintln!("      -> Solución duplicada, penalizando nodos");
+            // 🔧 Penalize used nodes instead of removing them
+            for &(node_idx, _) in &arr_aux_delete {
+                if let Some(prio) = priorities.get_mut(&node_idx) {
+                    *prio = (*prio / 2).max(100);  // Reduce priority to half
+                }
+            }
             continue;
         }
 
@@ -470,17 +486,26 @@ pub fn get_clique_max_pond_with_prefs(
         let mut total_score_i64: i64 = 0;
 
         for &(node_idx, prioridad) in &arr_aux_delete {
-            let seccion_idx = graph_copy[node_idx];
+            let seccion_idx = graph[node_idx];
             let seccion = filtered[seccion_idx].clone();
             solution_entries.push((seccion, prioridad));
             total_score_i64 += prioridad as i64;
         }
 
+        eprintln!("      -> Solución {} aceptada ({} cursos, score {})", solutions.len() + 1, arr_aux_delete.len(), total_score_i64);
+
         solutions.push((solution_entries, total_score_i64));
         prev_solutions.push(solution_key);
 
-        if !arr_aux_delete.is_empty() { graph_copy.remove_node(arr_aux_delete[0].0); }
+        // 🔧 Penalize all nodes in the clique for next iteration
+        for &(node_idx, _) in &arr_aux_delete {
+            if let Some(prio) = priorities.get_mut(&node_idx) {
+                *prio = (*prio / 2).max(100);  // Reduce priority to half
+            }
+        }
     }
+
+    eprintln!("   Completado: {} soluciones generadas", solutions.len());
 
     solutions
 }

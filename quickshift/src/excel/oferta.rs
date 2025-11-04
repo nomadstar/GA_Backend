@@ -9,8 +9,14 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
     let resolved = if std::path::Path::new(nombre_archivo).exists() {
         nombre_archivo.to_string()
     } else {
-        let candidate = format!("{}/{}", crate::excel::DATAFILES_DIR, nombre_archivo);
-        if std::path::Path::new(&candidate).exists() { candidate } else { nombre_archivo.to_string() }
+        // 🆕 Usar get_datafiles_dir() para runtime path resolution
+        let data_dir = crate::excel::get_datafiles_dir();
+        let candidate = data_dir.join(nombre_archivo);
+        if candidate.exists() {
+            candidate.to_string_lossy().to_string()
+        } else {
+            nombre_archivo.to_string()
+        }
     };
 
     let mut secciones = Vec::new();

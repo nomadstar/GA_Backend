@@ -31,7 +31,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use crate::models::{RamoDisponible, Seccion};
-use crate::excel::normalize_name;
+use crate::excel::{normalize_name, get_datafiles_dir};
 use serde_json::json;
 
 /// Une la malla, la oferta y los porcentajes intentando emparejar por nombre
@@ -197,7 +197,48 @@ pub fn summarize_datafiles(malla_name: &str, sheet: Option<&str>) -> Result<(Pat
 	Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent, porcent_names))
 }
 
+/// Resuelve las rutas de los archivos de datos (malla, oferta, porcentajes)
+/// desde el directorio de datos.
+///
+/// # Argumentos
+///
+/// * `malla_file` - Nombre del archivo de malla.
+/// * `oferta_files` - Lista de nombres de archivos de oferta.
+/// * `porcent_file` - Nombre del archivo de porcentajes.
+///
+/// # Retorna
+///
+/// Una tupla con las rutas de los archivos: (malla_path, oferta_paths, porcent_path).
+pub fn resolve_datafile_paths(
+    malla_file: &str,
+    oferta_files: &[String],
+    porcent_file: &str,
+) -> Result<(PathBuf, Vec<PathBuf>, PathBuf), String> {
+    let data_dir = get_datafiles_dir();
+    
+    println!("📁 Resolviendo rutas desde: {:?}", data_dir);
 
+    let malla_path = data_dir.join(malla_file);
+    let oferta_paths: Vec<PathBuf> = oferta_files.iter().map(|f| data_dir.join(f)).collect();
+    let porcent_path = data_dir.join(porcent_file);
+
+    // Verificar que todos los archivos existen
+    if !malla_path.exists() {
+        return Err(format!("❌ Archivo malla no encontrado: {:?}", malla_path));
+    }
+
+    for (i, oferta) in oferta_paths.iter().enumerate() {
+        if !oferta.exists() {
+            return Err(format!("❌ Archivo oferta[{}] no encontrado: {:?}", i, oferta));
+        }
+    }
+
+    if !porcent_path.exists() {
+        return Err(format!("❌ Archivo porcentajes no encontrado: {:?}", porcent_path));
+    }
+
+    Ok((malla_path, oferta_paths, porcent_path))
+}
 
 // Nota: la API pública principal es `ruta::ejecutar_ruta_critica_with_params` y
 // se reexporta arriba. Eliminamos la función wrapper para evitar lints

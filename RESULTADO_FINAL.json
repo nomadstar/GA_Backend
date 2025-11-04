@@ -1,0 +1,71 @@
+{
+    "documentos_leidos": 2,
+    "soluciones_count": 1,
+    "soluciones": [
+        {
+            "total_score": 93911,
+            "secciones": [
+                {
+                    "codigo": "CBM1002",
+                    "nombre": "\u00c1LGEBRA LINEAL",
+                    "seccion": "Secci\u00f3n 1",
+                    "horario": [
+                        "MA JU VI 08:30 - 09:50"
+                    ],
+                    "profesor": "LOPEZ MARIA GABRIELA",
+                    "codigo_box": "23003985"
+                },
+                {
+                    "codigo": "FIC1000",
+                    "nombre": "COMUNICACI\u00d3N PARA LA INGENIER\u00cdA",
+                    "seccion": "Secci\u00f3n 1",
+                    "horario": [
+                        "LU JU 11:30 - 12:50"
+                    ],
+                    "profesor": "GONZALEZ LORETO SOLANGE",
+                    "codigo_box": "23122409"
+                },
+                {
+                    "codigo": "CIT1000",
+                    "nombre": "PROGRAMACI\u00d3N",
+                    "seccion": "Secci\u00f3n 1",
+                    "horario": [
+                        "LU JU 13:00 - 14:20"
+                    ],
+                    "profesor": "ALVAREZ ESTEBAN AUGUSTO",
+                    "codigo_box": "23056171"
+                },
+                {
+                    "codigo": "CBQ1000",
+                    "nombre": "QU\u00cdMICA",
+                    "seccion": "Secci\u00f3n 1",
+                    "horario": [
+                        "LU JU 10:00 - 11:20"
+                    ],
+                    "profesor": "REYES NORA LILIAN",
+                    "codigo_box": "23012134"
+                },
+                {
+                    "codigo": "CBM1001",
+                    "nombre": "C\u00c1LCULO I",
+                    "seccion": "Secci\u00f3n 1",
+                    "horario": [
+                        "LU MA JU 16:00 - 17:20"
+                    ],
+                    "profesor": "SCHUMACHER SANDY HELKE",
+                    "codigo_box": "23132390"
+                },
+                {
+                    "codigo": "CBM1000",
+                    "nombre": "\u00c1LGEBRA Y GEOMETR\u00cdA",
+                    "seccion": "Secci\u00f3n 1",
+                    "horario": [
+                        "LU MA JU 08:30 - 09:50"
+                    ],
+                    "profesor": "LANDERO CARLOS GABRIEL",
+                    "codigo_box": "23080199"
+                }
+            ]
+        }
+    ]
+}
