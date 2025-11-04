@@ -21,6 +21,19 @@ COPY quickshift/ .
 RUN cargo fetch
 
 # Construir el ejecutable en modo release
+# Instalar dependencias del sistema necesarias para crates que enlazan con
+# libfontconfig / freetype (plotters, fontconfig bindings, etc.).
+# `pkg-config` es requerido por varios build-scripts (yeslogic-fontconfig-sys).
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		build-essential \
+		pkg-config \
+		libfontconfig1-dev \
+		libfreetype6-dev \
+		ca-certificates \
+	&& rm -rf /var/lib/apt/lists/*
+
+# Compilar en release (puede tardar varios minutos dentro del contenedor)
 RUN cargo build --release
 
 # Exponer el puerto de escucha para ejecutar el servidor
