@@ -1,5 +1,5 @@
 # Usa una imagen basada en Rust pero con el canal nightly
-FROM rustlang/rust:nightly-slim
+FROM rustlang/rust:nightly
 
 # Instala dependencias del sistema necesarias para construir tu proyecto
 RUN apt-get update && apt-get install -y \
