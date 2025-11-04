@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Configura el directorio de trabajo
-WORKDIR /app/quickshift
+WORKDIR quickshift
 
 # Copia solo los archivos de dependencias primero
 COPY quickshift/Cargo.toml quickshift/Cargo.lock ./
@@ -18,7 +18,7 @@ RUN cargo +nightly build --release
 RUN rm -rf src  # eliminamos el main dummy
 
 # Copia el resto del código
-COPY quickshift ./quickshift
+COPY quickshift ./quickshift/*
 
 # Limita jobs de compilación (opcional)
 ENV CARGO_BUILD_JOBS=2
