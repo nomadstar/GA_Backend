@@ -1,11 +1,16 @@
 // --- Sistema Generador de Horarios - Archivo principal ---
 
 use quickshift::run_server;
+use std::env;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     println!("=== Sistema Generador de Horarios (API) ===");
-    let bind = "127.0.0.1:8080"; // cambia la dirección por lo que consideres pertinente.
+
+    // Bind a 0.0.0.0 y puerto desde env PORT (Railway la expone)
+    let port: u16 = env::var("PORT").unwrap_or_else(|_| "8080".into()).parse().unwrap_or(8080);
+    let bind = format!("0.0.0.0:{}", port);
+
     println!("Iniciando servidor en http://{}", bind);
     println!("");
     println!("Endpoints disponibles:");
@@ -29,5 +34,5 @@ async fn main() -> std::io::Result<()> {
     println!("  GET /help       - Describe la API y muestra ejemplos en JSON");
     println!("");
     println!("Nota: GET /solve es una versión ligera (parametros por query). Para datos privados o estructuras complejas use POST /solve o POST /rutacritica/run con body JSON.");
-    run_server(bind).await
+    run_server(&bind).await
 }
