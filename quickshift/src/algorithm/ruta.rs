@@ -5,7 +5,7 @@ use std::error::Error;
 use crate::models::{Seccion, RamoDisponible};
 // ahora puedes llamar: extract::extract_data(...), clique::get_clique_with_user_prefs(...), conflict::horarios_tienen_conflicto(...), pert::set_values_recursive...
 
-use super::{pert, extract, clique};
+use super::{pert, clique, extract_controller};
 // ahora puedes usar: pert::build_and_run_pert(...), extract::extract_data(...), clique::get_clique_max_pond(...), conflict::horarios_tienen_conflicto...
 
 
@@ -22,7 +22,7 @@ pub fn ejecutar_ruta_critica_with_params(
     // Use the malla and optional sheet provided in params to extract data.
     let initial_map: std::collections::HashMap<String, RamoDisponible> = std::collections::HashMap::new();
     let sheet_opt = params.sheet.as_deref();
-    let (lista_secciones, ramos_actualizados) = match super::extract_data(initial_map, &params.malla, sheet_opt) {
+    let (lista_secciones, ramos_actualizados) = match extract_controller::extract_data(initial_map, &params.malla, sheet_opt) {
         Ok((ls, ra)) => (ls, ra),
         Err(e) => return Err(e),
     };
@@ -48,7 +48,7 @@ pub fn ejecutar_ruta_critica_with_precomputed(
 
     // Intentar leer porcentajes de aprobados desde el archivo garantizado
     // y usarlo para poblar `RamoDisponible.dificultad`.
-    let porcentajes_path = "../RutaCritica/PorcentajeAPROBADOS2025-1.xlsx";
+    let porcentajes_path = "../datafiles/PA2025-1.xlsx";
     if let Ok(pmap) = crate::excel::leer_porcentajes_aprobados(porcentajes_path) {
         // actualizar ramos_actualizados con la dificultad leída
         for (codigo, (porc, _total)) in pmap.into_iter() {
@@ -64,13 +64,24 @@ pub fn ejecutar_ruta_critica_with_precomputed(
     }
 
     // Decidir cuál planner usar: si el usuario NO proporcionó preferencias
-    // adicionales (solo entregó `ramos_pasados`) usamos la versión sin prefs
-    // `get_clique_max_pond`. En caso contrario usamos la variante que respeta
-    // preferencias `get_clique_with_user_prefs`.
+    // adicionales (solo entregó `ramos_pasados`) Y no habilitó filtros opcionales,
+    // usamos la versión sin prefs `get_clique_max_pond`.
+    // En caso contrario usamos la variante que respeta preferencias `get_clique_with_user_prefs`.
+    // Reglas 3-6 (filtros opcionales) se aplican aquí si están habilitadas.
+    let hay_filtros_habilitados = params.filtros.as_ref()
+        .map(|f| {
+            f.dias_horarios_libres.as_ref().map(|d| d.habilitado).unwrap_or(false)
+                || f.ventana_entre_actividades.as_ref().map(|v| v.habilitado).unwrap_or(false)
+                || f.preferencias_profesores.as_ref().map(|p| p.habilitado).unwrap_or(false)
+                || f.balance_lineas.as_ref().map(|b| b.habilitado).unwrap_or(false)
+        })
+        .unwrap_or(false);
+
     let solo_pasados = params.ramos_prioritarios.is_empty()
         && params.horarios_preferidos.is_empty()
         && params.ranking.is_none()
-        && params.student_ranking.is_none();
+        && params.student_ranking.is_none()
+        && !hay_filtros_habilitados;
 
     let soluciones = if solo_pasados {
         clique::get_clique_max_pond(&lista_secciones, &ramos_actualizados)

@@ -8,28 +8,84 @@
 
 # Reglas / Principios generales (ordenadas)
 
-0. — Prerrequisitos obligatorios: un ramo sólo es elegible si sus prerrequisitos ya están aprobados (o se permiten co-requisitos explícitos).
+## Reglas Obligatorias (sin condiciones de usuario)
 
-1. — Límite de créditos por semestre: no exceder el máximo permitido (configurable). Sugerencia inicial: crédito máximo por semestre = 30; crédito “óptimo” para estudiantes con ranking bajo = 18–22; para ranking alto = 24–30.
+**0. — Prerrequisitos obligatorios**: un ramo sólo es elegible si sus prerrequisitos ya están aprobados (o se permiten co-requisitos explícitos).
 
-2. — Ajuste por dificultad: si un ramo tiene alta tasa de reprobación, reducir la carga total del semestre en X créditos (por ejemplo 3–6 créditos) o no poner más de 1 ramo “difícil” (> umbral) en el mismo semestre.
+**1. — Titulación más temprana**: priorizar ramos que acerquen lo antes posible a cumplir requisitos de titulación. Maximizar avance hacia requisitos de titulación (memoria, proyecto, etc.) en los primeros semestres si es posible.
 
-3. — Prioridad por dependencia hacia la titulación: ramos que desbloquean muchos otros (alto out-degree en grafo de dependencia) tienen prioridad mayor para evitar cuellos de botella.
+**2. — Probabilidad de aprobación**: ajustar carga académica según tasa de reprobación del ramo (dificultad) y ranking del estudiante.
 
-4. — Acceso por ranking: si un ramo tiene cupos limitados, asignación por ranking; estudiantes con peor ranking deben planificar alternativas o tomarlo en semestres posteriores. El sistema debe ofrecer “planes alternativos” si no obtienen cupo.
+## Reglas Opcionales del Usuario (filtros configurables)
 
-5. — Compatibilidad horaria: un ramo sólo es seleccionable si al combinar con los ya seleccionados no hay choque horario. Si hay conflicto, escoger la combinación con mayor probabilidad de pasar (según dificultad + ranking).
+**3. — Días/horarios libres** (habilitado: sí/no)
+- Minimizar ventanas entre clases o dejar días completamente libres.
 
-6. — Minimizar riesgo de retraso: priorizar ramos críticos para el avance (prerrequisitos de muchos cursos o requisito para titulación) antes que ramos optativos, salvo que la dificultad los haga demasiado arriesgados para el estudiante actual.
+**4. — Ventana entre actividades** (habilitado: sí/no)
+- Espacios mínimos requeridos entre clases consecutivas.
 
-7. — Política de reprobación/recuperación: si un estudiante reprueba, en el siguiente semestre reducir su carga un 15–25% y priorizar la reposición del ramo reprobado (si es requisito).
+**5. — Preferencias de Profesores** (habilitado: sí/no)
+- Priorizar o descartar secciones según docentes preferidos.
 
-8. — Titulación: reservar los créditos y requisitos de titulación (memoria / proyecto) como semestres finales, evitando sobrecargar el mismo semestre con ramos de alta dificultad más el proceso de titulación.
+**6. — Balance entre líneas de formación** (habilitado: sí/no)
+- Mantener proporción equilibrada entre Informática y Telecomunicaciones.
+
+## Reglas Derivadas (antiguas, reordenadas)
+
+**7. — Prioridad por dependencia hacia la titulación**: ramos que desbloquean muchos otros tienen prioridad mayor.
+
+**8. — Minimizar riesgo de retraso**: priorizar ramos críticos antes que optativos.
+
+**9. — Política de reprobación/recuperación**: si un estudiante reprueba, reducir su carga en el siguiente semestre.
+
+**10. — Titulación en semestres finales**: reservar créditos de titulación para semestres finales.
+
 
 ## Puntos Importantes:
 
-Cada archivo excel debe tener su formato estandarizado en post de que el rpograma funcione.
+Cada archivo excel debe tener su formato estandarizado para que el programa funcione.
 
 - MC = Malla Curricular
-- OA = Oferta Academica
+- OA = Oferta Académica
 - PA = Porcentaje Aprobación
+
+---
+
+## Mapeo JSON de Filtros Opcionales (Request POST)
+
+Cuando el usuario ejecuta `/rutacritica/run`, puede enviar filtros opcionales de la siguiente manera:
+
+```json
+{
+  "email": "estudiante@example.com",
+  "ramos_pasados": ["CBM1000", "CBM1001"],
+  "ramos_prioritarios": [],
+  "malla": "MiMalla.xlsx",
+  
+  "filtros": {
+    "dias_horarios_libres": {
+      "habilitado": false,
+      "dias_libres_preferidos": ["VI"],
+      "minimizar_ventanas": true
+    },
+    "ventana_entre_actividades": {
+      "habilitado": false,
+      "minutos_entre_clases": 15
+    },
+    "preferencias_profesores": {
+      "habilitado": false,
+      "profesores_preferidos": ["Dr. García"],
+      "profesores_evitar": []
+    },
+    "balance_lineas": {
+      "habilitado": false,
+      "lineas": {
+        "informatica": 0.6,
+        "telecomunicaciones": 0.4
+      }
+    }
+  }
+}
+```
+
+Cada filtro es completamente opcional. Si `habilitado: false` o no se envía, el sistema ignora ese filtro.

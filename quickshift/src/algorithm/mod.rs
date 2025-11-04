@@ -9,9 +9,7 @@ mod pert;
 mod ruta;
 
 // Reexportar solo la API pública que quieres exponer desde aquí
-pub use extract::extract_data as extract_data_original;
-pub use extract_optimizado::extract_data_optimizado;
-pub use extract_controller::{extract_data, set_use_optimized, is_using_optimized};
+pub use extract_controller::{extract_data};
 
 // Reexportar funciones del planner (clique) y el orquestador (ruta)
 pub use crate::algorithm::clique::get_clique_with_user_prefs;
@@ -59,16 +57,9 @@ pub fn merge_malla_oferta_porcentajes(
 		let rname_norm = normalize_name(&ramo.nombre);
 		if let Some(matches) = oferta_index.get(&rname_norm) {
 			for s in matches.iter() {
-				// buscar porcentaje por oferta.codigo primero, luego por codigo_box
-				let mut found_pa: Option<(&String, &(f64,f64))> = None;
-				if porcent.contains_key(&s.codigo) {
-					if let Some(v) = porcent.get(&s.codigo) { found_pa = Some((&s.codigo, v)); }
-				}
-				if found_pa.is_none() && porcent.contains_key(&s.codigo_box) {
-					if let Some(v) = porcent.get(&s.codigo_box) { found_pa = Some((&s.codigo_box, v)); }
-				}
-
-				if let Some((pa_code, (pct, tot))) = found_pa {
+				// Buscar porcentaje por nombre normalizado (más confiable que por código_box)
+				if let Some((pa_code, pct, tot, _is_electivo)) = porcent_names.get(&rname_norm) {
+					// Match encontrado en porcent_names por nombre
 					out.push(json!({
 						"malla_codigo": mcode,
 						"malla_nombre": ramo.nombre,
@@ -79,7 +70,20 @@ pub fn merge_malla_oferta_porcentajes(
 						"porcentaje": *pct,
 						"total": *tot
 					}));
+				} else if let Some((pct, tot)) = porcent.get(&s.codigo_box) {
+					// Fallback: intentar por codigo_box si existe en porcent
+					out.push(json!({
+						"malla_codigo": mcode,
+						"malla_nombre": ramo.nombre,
+						"oferta_codigo": s.codigo,
+						"oferta_codigo_box": s.codigo_box,
+						"oferta_nombre": s.nombre,
+						"pa_codigo": s.codigo_box.clone(),
+						"porcentaje": *pct,
+						"total": *tot
+					}));
 				} else {
+					// No se encontró porcentaje
 					out.push(json!({
 						"malla_codigo": mcode,
 						"malla_nombre": ramo.nombre,

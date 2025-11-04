@@ -443,6 +443,7 @@ async fn solve_get_handler(query: web::Query<std::collections::HashMap<String, S
         sheet: None,
         ranking: None,
         student_ranking: None,
+        filtros: None,
     };
 
     // Serializar y reutilizar el resolutor existente (esto permitirá usar la
@@ -498,6 +499,7 @@ async fn help_handler() -> impl Responder {
         sheet: None,
         ranking: None,
         student_ranking: None,
+        filtros: None,
     };
 
     // Also include a short help message

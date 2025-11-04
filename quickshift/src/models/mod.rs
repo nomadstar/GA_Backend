@@ -1,5 +1,51 @@
 // Estructuras de datos principales
 
+/// Filtros opcionales del usuario (Reglas 3-6 en Plan.md)
+/// Todos los campos son opcionales; si no se especifican, se ignoran los filtros
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
+pub struct UserFilters {
+    /// Filtro 3: Días/horarios libres
+    pub dias_horarios_libres: Option<DiaHorariosLibres>,
+    /// Filtro 4: Ventana entre actividades
+    pub ventana_entre_actividades: Option<VentanaEntreActividades>,
+    /// Filtro 5: Preferencias de Profesores
+    pub preferencias_profesores: Option<PreferenciasProfesores>,
+    /// Filtro 6: Balance entre líneas de formación
+    pub balance_lineas: Option<BalanceLineas>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct DiaHorariosLibres {
+    pub habilitado: bool,
+    pub dias_libres_preferidos: Option<Vec<String>>, // ["LU", "MA", ..., "VI"]
+    pub minimizar_ventanas: Option<bool>,
+    pub ventana_ideal_minutos: Option<i32>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct VentanaEntreActividades {
+    pub habilitado: bool,
+    pub minutos_entre_clases: Option<i32>, // default: 15
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct PreferenciasProfesores {
+    pub habilitado: bool,
+    pub profesores_preferidos: Option<Vec<String>>,
+    pub profesores_evitar: Option<Vec<String>>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct BalanceLineas {
+    pub habilitado: bool,
+    pub lineas: Option<std::collections::HashMap<String, f64>>, // {"informatica": 0.6, "telecomunicaciones": 0.4}
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Seccion {
