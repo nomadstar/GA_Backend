@@ -7,11 +7,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory to quickshift module inside the container
+COPY quickshift /app/quickshift
 WORKDIR /app/quickshift
 
-# Copy the application and its dependencies from the host into the image
-COPY quickshift quickshift
-COPY Cargo.toml Cargo.lock ../
+# Copy the application and its dependencies from the host into the
 
 # Fetch dependencies without building
 RUN cargo fetch
