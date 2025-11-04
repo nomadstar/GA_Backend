@@ -1,4 +1,4 @@
-# Usa una imagen basada en Rust pero con el canal nightly
+# Usa una imagen bas# Usa una imagen basada en Rust nightly
 FROM rustlang/rust:nightly
 
 # Instala dependencias del sistema necesarias para construir tu proyecto
@@ -15,8 +15,8 @@ COPY quickshift /app/quickshift
 # Copia los archivos Cargo.toml y Cargo.lock
 COPY quickshift/Cargo.toml quickshift/Cargo.lock ./
 
-# Actualiza las dependencias con el cargo nightly mas reciente
-RUN rustup install nightly && cargo +nightly fetch
+# Solo fetch de dependencias, no reinstales nightly
+RUN cargo +nightly fetch
 
 # Exponer los puertos (ajusta según tu proyecto)
 EXPOSE 8080
