@@ -411,18 +411,85 @@ pub fn get_clique_max_pond_with_prefs(
         let mut ss = seccion.seccion.parse::<i32>().unwrap_or(0);
         if let Some(&prio) = priority_sec.get(&seccion.codigo) { ss = prio + 20; }
 
-        let mut horario_boost = 0;
+        // Horario boost y filtros de usuario (Reglas 3 y 5)
+        use std::collections::HashSet;
+        let mut dias_set: HashSet<String> = HashSet::new();
+        for hstr in seccion.horario.iter() {
+            for token in hstr.split_whitespace() {
+                let t = token.trim();
+                if t.is_empty() { continue; }
+                if t.chars().any(|c| c.is_ascii_digit()) { break; }
+                if t.chars().all(|c| c.is_alphabetic()) && t.len() <= 3 {
+                    dias_set.insert(t.to_uppercase());
+                } else {
+                    break;
+                }
+            }
+        }
+
+        let mut horario_boost: i32 = 0;
+
+        // Boost por rangos horarios preferidos
         for pref in params.horarios_preferidos.iter() {
             for h in seccion.horario.iter() {
                 if h.contains(pref) || pref.contains(h) {
-                    horario_boost = 2000;
+                    horario_boost += 2000;
                     break;
                 }
             }
             if horario_boost > 0 { break; }
         }
 
-        let prioridad = cc * 10000 + uu * 1000 + kk * 100 + ss + horario_boost;
+        // Factor dificultad (DD)
+        let dd = if let Some(dif) = ramo.dificultad { ((100.0 - dif) / 10.0) as i32 } else { 5 };
+
+        // Aplicar filtros opcionales
+        if let Some(filtros) = params.filtros.as_ref() {
+            // Días/horarios libres
+            if let Some(dhl) = &filtros.dias_horarios_libres {
+                if dhl.habilitado {
+                    if let Some(dias_pref) = &dhl.dias_libres_preferidos {
+                        for d in dias_pref.iter() {
+                            if dias_set.contains(&d.to_uppercase()) {
+                                horario_boost -= 2500;
+                                break;
+                            }
+                        }
+                    }
+                    if dhl.minimizar_ventanas.unwrap_or(false) {
+                        let days_count = dias_set.len() as i32;
+                        if days_count > 2 {
+                            horario_boost -= 500 * (days_count - 2);
+                        }
+                    }
+                }
+            }
+
+            // Preferencias de profesores
+            if let Some(prefp) = &filtros.preferencias_profesores {
+                if prefp.habilitado {
+                    let profesor_lower = seccion.profesor.to_lowercase();
+                    if let Some(pref_list) = &prefp.profesores_preferidos {
+                        for p in pref_list.iter() {
+                            if !p.is_empty() && profesor_lower.contains(&p.to_lowercase()) {
+                                horario_boost += 3000;
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(avoid_list) = &prefp.profesores_evitar {
+                        for p in avoid_list.iter() {
+                            if !p.is_empty() && profesor_lower.contains(&p.to_lowercase()) {
+                                horario_boost -= 3000;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let prioridad = cc * 10000 + uu * 1000 + kk * 100 + ss * 10 + dd + horario_boost;
         let node_idx = graph.add_node(idx);
         node_indices.push(node_idx);
         priorities.insert(node_idx, prioridad);
