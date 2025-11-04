@@ -3,7 +3,7 @@
 # edición 2024 declarada en `quickshift/Cargo.toml`. Si prefieres reproducibilidad,
 # podemos fijar una versión concreta compatible (p. ej. 'rust:1.78-slim') en vez de
 # 'latest-slim'.
-FROM rust:latest-slim
+FROM rust:1.91-slim
 
 # Configurar el directorio de trabajo dentro del contenedor
 
