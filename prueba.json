@@ -1,0 +1,44 @@
+{
+  "email": "alumno.test@ejemplo.cl",
+  "malla": "MiMalla.xlsx",
+  "sheet": "MiMalla",
+  "ramos_pasados": [
+    "Cálculo I",
+    "Álgebra y Geometría",
+    "Programación"
+  ],
+  "ramos_prioritarios": [
+    "Calor y Ondas",
+    "Cálculo II",
+    "Estructura de Datos y Algoritmos"
+  ],
+  "horarios_preferidos": [
+    "08:00-10:00",
+    "10:00-12:00"
+  ],
+  "filtros": {
+    "dias_horarios_libres": {
+      "habilitado": true,
+      "dias_libres_preferidos": ["LU", "MI", "VI"],
+      "minimizar_ventanas": true,
+      "ventana_ideal_minutos": 30
+    },
+    "ventana_entre_actividades": {
+      "habilitado": true,
+      "minutos_entre_clases": 15
+    },
+    "preferencias_profesores": {
+      "habilitado": false,
+      "profesores_preferidos": [],
+      "profesores_evitar": []
+    },
+    "balance_lineas": {
+      "habilitado": true,
+      "lineas": {
+        "matematica": 0.3,
+        "programacion": 0.4,
+        "comunicaciones": 0.3
+      }
+    }
+  }
+}

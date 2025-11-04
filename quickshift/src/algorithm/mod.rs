@@ -180,13 +180,19 @@ pub fn summarize_datafiles(malla_name: &str, sheet: Option<&str>) -> Result<(Pat
 	// Intentar leer porcentajes; si falla devolvemos mapa vacío. Usamos
 	// la variante que también intenta extraer nombres para matching por nombre.
 	let porcent_path_str = porcent_path.to_str().ok_or("porcent path invalid UTF-8")?;
-	let (porcent, porcent_names) = match crate::excel::leer_porcentajes_aprobados_con_nombres(porcent_path_str) {
+	let (porcent, mut porcent_names) = match crate::excel::leer_porcentajes_aprobados_con_nombres(porcent_path_str) {
 		Ok((p, pn)) => (p, pn),
 		Err(e) => {
 			eprintln!("WARN: no se pudo leer Porcentajes '{}': {}. Usando fallback vacío.", porcent_path_str, e);
 			(HashMap::new(), std::collections::HashMap::new())
 		}
 	};
+
+	// Si porcent_names está vacío (porque PA no tiene columna "nombre"),
+	// enriquecerlo usando nombres de Malla
+	if porcent_names.is_empty() && !porcent.is_empty() {
+		crate::excel::enrich_porcent_names_from_malla(&mut porcent_names, &porcent, &malla_map);
+	}
 
 	Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent, porcent_names))
 }

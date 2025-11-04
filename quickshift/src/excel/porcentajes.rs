@@ -272,3 +272,77 @@ pub fn leer_porcentajes_aprobados_con_nombres(path: &str) -> Result<(HashMap<Str
         Err(e) => return Err(format!("No se pudo leer porcentajes: {}", e).into()),
     }
 }
+
+/// Enriquecer porcent_names vacío usando nombres de Malla.
+/// Si porcent_names está vacío (porque PA no tiene columna "nombre"),
+/// intentamos matchear PA codes a Malla courses por nombre normalizado.
+/// 
+/// Estrategia:
+/// 1. Primero: tratar de encontrar coincidencias por nombre normalizado (si PA code 
+///    coincide con algún nombre de Malla normalizado)
+/// 2. Fallback: asignación ordenada 1:1 para los que no matchearon
+pub fn enrich_porcent_names_from_malla(
+    porcent_names: &mut std::collections::HashMap<String, (String, f64, f64, bool)>,
+    porcent: &HashMap<String, (f64, f64)>,
+    malla_map: &std::collections::HashMap<String, crate::models::RamoDisponible>,
+) {
+    if porcent_names.is_empty() && !porcent.is_empty() {
+        use crate::excel::io::normalize_name;
+        
+        // Construir índice de nombres de Malla normalizados
+        let mut malla_by_norm: std::collections::HashMap<String, (String, &crate::models::RamoDisponible)> 
+            = std::collections::HashMap::new();
+        for (mcode, ramo) in malla_map.iter() {
+            let rname_norm = normalize_name(&ramo.nombre);
+            malla_by_norm.insert(rname_norm, (mcode.clone(), ramo));
+        }
+        
+        eprintln!("[ENRICH] Building porcent_names from PA data...");
+        eprintln!("[ENRICH] Total PA codes: {}, Total Malla courses: {}", porcent.len(), malla_map.len());
+        
+        let mut matched = 0;
+        let mut unmatched_pa: Vec<(String, f64, f64)> = Vec::new();
+        let mut unmatched_malla: Vec<(String, String)> = Vec::new();
+        
+        // PASO 1: Intentar matchear PA codes a nombres de Malla normalizados
+        for (pa_code, (pct, tot)) in porcent.iter() {
+            let pa_norm = normalize_name(pa_code);
+            
+            if let Some((mcode, _ramo)) = malla_by_norm.get(&pa_norm) {
+                // ¡Encontramos match por nombre normalizado!
+                porcent_names.insert(pa_norm.clone(), (pa_code.clone(), *pct, *tot, false));
+                eprintln!("[ENRICH] MATCHED by name: PA code '{}' -> Malla '{}' (pct={}%, tot={})", 
+                    pa_code, mcode, pct, tot);
+                matched += 1;
+            } else {
+                // No matcheó por nombre, guardar para asignación ordenada
+                unmatched_pa.push((pa_code.clone(), *pct, *tot));
+            }
+        }
+        
+        // PASO 2: Recolectar ramos de Malla que no fueron matcheados
+        let matched_rnames: std::collections::HashSet<String> = porcent_names.keys().cloned().collect();
+        for (rname_norm, (mcode, _ramo)) in &malla_by_norm {
+            if !matched_rnames.contains(rname_norm) {
+                unmatched_malla.push((rname_norm.clone(), mcode.clone()));
+            }
+        }
+        
+        // PASO 3: Asignación 1:1 ordenada para los no matcheados
+        unmatched_pa.sort_by(|a, b| a.0.cmp(&b.0));
+        unmatched_malla.sort_by(|a, b| a.0.cmp(&b.0));
+        
+        for (i, (pa_code, pct, tot)) in unmatched_pa.iter().enumerate() {
+            if i < unmatched_malla.len() {
+                let (rname_norm, mcode) = &unmatched_malla[i];
+                porcent_names.insert(rname_norm.clone(), (pa_code.clone(), *pct, *tot, false));
+                eprintln!("[ENRICH] FALLBACK 1:1: PA code '{}' -> Malla '{}' (pct={}%, tot={})", 
+                    pa_code, mcode, pct, tot);
+            }
+        }
+        
+        eprintln!("[ENRICH] ✅ Complete! Matched: {}, Unmatched PA: {}, Unmatched Malla: {}, Final size: {}", 
+            matched, unmatched_pa.len(), unmatched_malla.len(), porcent_names.len());
+    }
+}
+

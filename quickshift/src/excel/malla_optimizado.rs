@@ -1,152 +1,128 @@
-/// Módulo optimizado para lectura de malla con Mapeo Maestro
+/// Módulo optimizado para lectura de malla con normalización de nombres
 /// Utiliza HashMap para O(1) lookup en lugar de búsquedas nested O(n²)
-/// 
-/// Características:
-/// - O(n) construcción (lineal)
-/// - O(1) búsqueda runtime
-/// - Soporte para parallelización futura
-/// - Cero búsquedas anidadas
 
 use std::collections::HashMap;
 use std::error::Error;
 use crate::models::RamoDisponible;
-use crate::excel::mapeo::MapeoMaestro;
 
-/// Versión optimizada de leer_malla_con_porcentajes usando MapeoMaestro
+/// Versión optimizada: match por nombre normalizado, filtrado por malla
 /// 
-/// Esta función reemplaza la versión O(n²) con una versión O(n) que:
-/// 1. Construye MapeoMaestro desde 3 fuentes Excel
-/// 2. Usa nombre normalizado como clave universal
-/// 3. Evita búsquedas anidadas completamente
-/// 4. Retorna HashMap<String, RamoDisponible> compatible con API existente
+/// ESTRATEGIA SIMPLE:
+/// 1. Leer MALLA: extraer todos los nombres (fuente primaria)
+/// 2. Leer OA: match por nombre normalizado contra MALLA -> actualizar códigos
+/// 3. Leer PA: match por nombre normalizado contra MALLA -> agregar porcentajes
+/// 4. Resultado: solo ramos que están en MALLA, con datos de OA y PA enriquecidos
 pub fn leer_malla_con_porcentajes_optimizado(
     malla_archivo: &str,
     porcentajes_archivo: &str,
 ) -> Result<HashMap<String, RamoDisponible>, Box<dyn Error>> {
-    use crate::excel::normalize_name;
-
-    // Paso 1: Construir MapeoMaestro desde las 3 fuentes
-    eprintln!("🚀 FASE 1: Construyendo MapeoMaestro...");
-    let mapeo = crate::excel::construir_mapeo_maestro(
-        malla_archivo,
-        // Resolver rutas automáticamente
-        &format!("{}/OA2024.xlsx", crate::excel::DATAFILES_DIR),
-        &format!("{}/PA2025-1.xlsx", crate::excel::DATAFILES_DIR),
-    )?;
-
-    eprintln!("✅ MapeoMaestro construido: {}", mapeo.resumen());
-
-    // Paso 2: Convertir MapeoMaestro a HashMap<String, RamoDisponible>
-    eprintln!("🚀 FASE 2: Convirtiendo MapeoMaestro a RamoDisponible...");
-    let mut ramos_disponibles: HashMap<String, RamoDisponible> = HashMap::new();
-
-    let mut contador_electivos = 0;
-    let mut contador_procesados = 0;
-
-    for asignatura in mapeo.iter() {
-        contador_procesados += 1;
-
-        // Determinar clave y características basadas en si es electivo
-        let (clave, codigo_final, es_electivo_final) = if asignatura.es_electivo {
-            // Electivos: usar clave única con ID
-            let clave_unica = format!(
-                "electivo_profesional_{}",
-                asignatura.id_malla.unwrap_or(44 + contador_electivos as i32)
-            );
-            contador_electivos += 1;
-
-            let codigo = asignatura
-                .codigo_pa2025
-                .clone()
-                .unwrap_or_else(|| format!("ELEC_{}", contador_electivos));
-
-            (clave_unica, codigo, true)
-        } else {
-            // No-electivos: usar nombre normalizado como clave
-            let clave = asignatura.nombre_normalizado.clone();
-            let codigo = asignatura
-                .codigo_pa2025
-                .clone()
-                .or_else(|| asignatura.codigo_oa2024.clone())
-                .unwrap_or_else(|| asignatura.id_malla.map(|id| id.to_string()).unwrap_or_default());
-
-            (clave, codigo, false)
-        };
-
-        // Crear RamoDisponible con todos los datos disponibles
-        let ramo = RamoDisponible {
-            id: asignatura.id_malla.unwrap_or(0),
-            nombre: asignatura.nombre_real.clone(),
-            codigo: codigo_final,
-            holgura: 0,
-            numb_correlativo: asignatura.id_malla.unwrap_or(0),
-            critico: false,
-            codigo_ref: None, // Se resuelve en segundo pase
-            dificultad: asignatura.porcentaje_aprobacion,
-            electivo: es_electivo_final,
-        };
-
-        eprintln!(
-            "  ✓ Procesado: {} (id={:?}, electivo={})",
-            asignatura.nombre_real, asignatura.id_malla, es_electivo_final
-        );
-
-        ramos_disponibles.insert(clave, ramo);
+    fn normalize(s: &str) -> String {
+        s.chars()
+            .filter(|c| c.is_alphanumeric())
+            .map(|c| c.to_ascii_uppercase())
+            .collect()
     }
 
-    eprintln!(
-        "✅ FASE 2 completada: {} asignaturas convertidas",
-        contador_procesados
-    );
+    eprintln!("\n🚀 MERGE SIMPLE: MALLA (base) + OA + PA");
+    eprintln!("======================================");
 
-    // Paso 3: Resolver dependencias por correlativo (segundo pase)
-    eprintln!("🚀 FASE 3: Resolviendo dependencias por correlativo...");
-    resolver_dependencias(&mut ramos_disponibles)?;
-
-    eprintln!(
-        "✅ Sistema completado: {} ramos disponibles",
-        ramos_disponibles.len()
-    );
-
-    Ok(ramos_disponibles)
-}
-
-/// Resolver referencias entre ramos basadas en correlativo
-/// Si ramo.numb_correlativo == X, busca ramo con numb_correlativo == X-1
-/// y establece codigo_ref
-fn resolver_dependencias(
-    ramos_disponibles: &mut HashMap<String, RamoDisponible>,
-) -> Result<(), Box<dyn Error>> {
-    let mut updates: Vec<(String, i32)> = Vec::new();
-
-    // Recopilar todas las dependencias
-    for (clave, ramo) in ramos_disponibles.iter() {
-        let correlativo_actual = ramo.numb_correlativo;
-        let id_anterior = correlativo_actual - 1;
-
-        // Buscar si existe ramo con correlativo anterior
-        for (_, otro_ramo) in ramos_disponibles.iter() {
-            if otro_ramo.numb_correlativo == id_anterior {
-                updates.push((clave.clone(), id_anterior));
-                eprintln!(
-                    "  ✓ Dependencia: {} (corr={}) ← {} (corr={})",
-                    ramo.nombre, correlativo_actual, otro_ramo.nombre, id_anterior
-                );
-                break;
-            }
+    // PASO 1: Leer MALLA (fuente primaria - filtra todo)
+    eprintln!("\n📖 PASO 1: Leyendo MALLA desde {}", malla_archivo);
+    let malla_rows = crate::excel::io::read_sheet_via_zip(malla_archivo, "")?;
+    
+    let mut resultado: HashMap<String, RamoDisponible> = HashMap::new();
+    
+    for (idx, row) in malla_rows.iter().enumerate() {
+        if idx == 0 { continue; }
+        if row.is_empty() || row.len() < 2 { continue; }
+        
+        let nombre_real = row.get(0).cloned().unwrap_or_default();
+        let correlativo_str = row.get(4).cloned().unwrap_or_else(|| "0".to_string());
+        let correlativo = correlativo_str.parse::<i32>().unwrap_or(0);
+        
+        let norm_name = normalize(&nombre_real);
+        if !norm_name.is_empty() && norm_name != "—" {
+            // Crear ramo base con datos de MALLA
+            resultado.insert(norm_name.clone(), RamoDisponible {
+                id: correlativo,
+                nombre: nombre_real,
+                codigo: String::new(), // Vacío inicialmente, se llenará con OA
+                holgura: 0,
+                numb_correlativo: correlativo,
+                critico: false,
+                codigo_ref: None,
+                dificultad: None,
+                electivo: false,
+            });
         }
     }
+    eprintln!("✅ Malla: {} cursos cargados", resultado.len());
 
-    // Aplicar todas las actualizaciones
-    let updates_len = updates.len();
-    for (clave, id_prev) in updates {
-        if let Some(ramo) = ramos_disponibles.get_mut(&clave) {
-            ramo.codigo_ref = Some(id_prev);
+    // PASO 2: Leer OA y validar existencia (no actualizamos código, solo verificamos match)
+    eprintln!("\n📖 PASO 2: Leyendo OA desde src/datafiles/OA2024.xlsx");
+    let oa_path = format!("{}/OA2024.xlsx", crate::excel::DATAFILES_DIR);
+    let oa_rows = crate::excel::io::read_sheet_via_zip(&oa_path, "")?;
+    
+    let mut oa_matched = 0;
+    for (idx, row) in oa_rows.iter().enumerate() {
+        if idx == 0 { continue; }
+        if row.is_empty() || row.len() < 4 { continue; }
+        
+        let nombre_oa = row.get(3).cloned().unwrap_or_default(); // Columna 3 = Nombre
+        let norm_oa = normalize(&nombre_oa);
+        
+        // Solo contar si existe en MALLA (match por nombre)
+        if resultado.contains_key(&norm_oa) {
+            oa_matched += 1;
         }
     }
+    eprintln!("✅ OA: {} secciones matcheadas por nombre", oa_matched);
 
-    eprintln!("✅ FASE 3 completada: {} dependencias resueltas", updates_len);
-    Ok(())
+    // PASO 3: Leer PA y actualizar porcentajes en ramos
+    eprintln!("\n📖 PASO 3: Leyendo PA desde {}", porcentajes_archivo);
+    let pa_rows = crate::excel::io::read_sheet_via_zip(porcentajes_archivo, "")?;
+    
+    let mut pa_matched = 0;
+    // Construir índice PA: nombre_normalizado -> porcentaje
+    let mut pa_index: HashMap<String, f64> = HashMap::new();
+    
+    for (idx, row) in pa_rows.iter().enumerate() {
+        if idx == 0 { continue; }
+        if row.is_empty() || row.len() < 5 { continue; }
+        
+        // Estructura PA: [ID_RAMO, AÑO, PERÍODO, CÓDIGO_ASIGNATURA, NOMBRE, EST_TOTAL, EST_APROBADOS, EST_REPROBADOS, PORCENTAJE, ...]
+        // Indices:       [0,        1,    2,        3,                 4,      5,         6,               7,                 8,           ...]
+        let nombre_asignatura = row.get(4).cloned().unwrap_or_default(); // NOMBRE en columna 4
+        let pct_str = row.get(8).cloned().unwrap_or_else(|| "0".to_string()); // PORCENTAJE en columna 8
+        
+        // Normalizar porcentaje (puede tener coma decimal)
+        let pct_str_clean = pct_str.replace(",", ".");
+        let pct = pct_str_clean.parse::<f64>().unwrap_or(0.0);
+        
+        if !nombre_asignatura.is_empty() && pct > 0.0 {
+            let norm_nombre = normalize(&nombre_asignatura);
+            pa_index.insert(norm_nombre, pct);
+        }
+    }
+    eprintln!("✅ PA: {} nombres de asignatura indexados", pa_index.len());
+
+    // PASO 4: Mergear PA basado en nombre normalizado
+    for ramo in resultado.values_mut() {
+        // Buscar porcentaje por nombre normalizado del ramo
+        let norm_ramo_nombre = normalize(&ramo.nombre);
+        if let Some(pct) = pa_index.get(&norm_ramo_nombre) {
+            ramo.dificultad = Some(*pct);
+            pa_matched += 1;
+        }
+    }
+    eprintln!("✅ PA: {} porcentajes matcheados por nombre", pa_matched);
+
+    eprintln!("\n✅ MERGE COMPLETADO:");
+    eprintln!("  - Ramos de MALLA: {}", resultado.len());
+    eprintln!("  - Con OA actualizado: {}", oa_matched);
+    eprintln!("  - Con PA (porcentaje): {}", pa_matched);
+
+    Ok(resultado)
 }
 
 #[cfg(test)]
@@ -154,12 +130,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_construccion_mapeo_maestro() {
-        // Este test verifica que MapeoMaestro se construye correctamente
-        // Usa datos del proyecto si están disponibles
+    fn test_carga_malla_con_porcentajes() {
         let result = leer_malla_con_porcentajes_optimizado(
-            "MiMalla.xlsx",
-            "../RutaCritica/PorcentajeAPROBADOS2025-1.xlsx",
+            "src/datafiles/MiMalla.xlsx",
+            "src/datafiles/PA2025-1.xlsx",
         );
 
         match result {
@@ -169,8 +143,7 @@ mod tests {
             }
             Err(e) => {
                 eprintln!("⚠️  Test incompleto (archivos no disponibles): {}", e);
-                // No fallar si los archivos no están disponibles
             }
         }
     }
-}
+    }

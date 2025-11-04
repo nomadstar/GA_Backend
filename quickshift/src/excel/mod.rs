@@ -43,6 +43,7 @@ pub use malla::leer_malla_con_porcentajes;
 pub use malla_optimizado::leer_malla_con_porcentajes_optimizado;
 pub use porcentajes::leer_porcentajes_aprobados;
 pub use porcentajes::leer_porcentajes_aprobados_con_nombres;
+pub use porcentajes::enrich_porcent_names_from_malla;
 pub use oferta::leer_oferta_academica_excel;
 pub use asignatura::asignatura_from_nombre;
 pub use mapeo_builder::construir_mapeo_maestro;
@@ -57,7 +58,27 @@ use std::fs;
 use std::error::Error;
 
 /// Directorio protegido con los excels (relativo al repo)
+/// Intenta primero la ruta desde quickshift, luego desde la raíz del proyecto
 pub(crate) const DATAFILES_DIR: &str = "src/datafiles";
+
+/// Función para resolver el directorio de datafiles correctamente
+fn get_datafiles_dir() -> PathBuf {
+    let candidates = [
+        "src/datafiles",
+        "quickshift/src/datafiles",
+        "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles",
+    ];
+    
+    for candidate in &candidates {
+        let path = Path::new(candidate);
+        if path.exists() {
+            return path.to_path_buf();
+        }
+    }
+    
+    // Fallback a la constante por defecto
+    Path::new(DATAFILES_DIR).to_path_buf()
+}
 
 use crate::models::RamoDisponible;
 use std::collections::HashMap;
@@ -107,7 +128,7 @@ fn latest_file_matching(dir: &Path, keywords: &[&str]) -> Option<PathBuf> {
 /// - malla_name puede ser nombre de archivo o path absoluto; si no existe, buscar en DATAFILES_DIR.
 /// - Devuelve error si no encuentra alguno de los tres archivos.
 pub fn resolve_datafile_paths(malla_name: &str) -> Result<(PathBuf, PathBuf, PathBuf), Box<dyn Error>> {
-    let data_dir = Path::new(DATAFILES_DIR);
+    let data_dir = get_datafiles_dir();
 
     // 1) Malla: preferir path directo, si no buscar en data_dir
     let malla_path = {
@@ -119,24 +140,24 @@ pub fn resolve_datafile_paths(malla_name: &str) -> Result<(PathBuf, PathBuf, Pat
             if candidate.exists() && candidate.is_file() {
                 candidate
             } else {
-                return Err(format!("malla '{}' no encontrada en cwd ni en {}", malla_name, DATAFILES_DIR).into());
+                return Err(format!("malla '{}' no encontrada en cwd ni en {:?}", malla_name, data_dir).into());
             }
         }
     };
 
     // 2) Oferta académica: elegir el archivo más reciente que parezca OA
     let oferta_keywords = ["oferta", "oa", "oferta académica", "oferta_academica"];
-    let oferta_path = latest_file_matching(data_dir, &oferta_keywords)
+    let oferta_path = latest_file_matching(&data_dir, &oferta_keywords)
         .ok_or(format!("no se encontró archivo de Oferta Académica en {}", DATAFILES_DIR))?;
 
     // 3) Porcentajes: elegir el archivo más reciente que parezca porcentajes de aprobación
     let porcent_keywords = ["porcentaje", "porcentajes", "porcentajeaprob", "porcentaje_aprobados"];
-    let porcent_path = if let Some(p) = latest_file_matching(data_dir, &porcent_keywords) {
+    let porcent_path = if let Some(p) = latest_file_matching(&data_dir, &porcent_keywords) {
         p
     } else {
         // Fallback: aceptar archivos con nombre tipo 'PA2025-1.xlsx' o que comiencen con 'pa' seguido de dígitos
         let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-        if let Ok(read) = fs::read_dir(data_dir) {
+        if let Ok(read) = fs::read_dir(&data_dir) {
             for entry in read.flatten() {
                 let p = entry.path();
                 if !p.is_file() { continue; }
@@ -167,12 +188,12 @@ pub fn resolve_datafile_paths(malla_name: &str) -> Result<(PathBuf, PathBuf, Pat
 /// Lista los ficheros disponibles en `DATAFILES_DIR` categorizados como:
 /// (mallas, ofertas, porcentajes). Devuelve los nombres de archivo (no paths absolutos).
 pub fn list_available_datafiles() -> Result<(Vec<String>, Vec<String>, Vec<String>), Box<dyn Error>> {
-    let data_dir = Path::new(DATAFILES_DIR);
+    let data_dir = get_datafiles_dir();
     let mut mallas: Vec<String> = Vec::new();
     let mut ofertas: Vec<String> = Vec::new();
     let mut porcentajes: Vec<String> = Vec::new();
 
-    let read = fs::read_dir(data_dir)?;
+    let read = fs::read_dir(&data_dir)?;
     for entry in read.flatten() {
         let p = entry.path();
         if !p.is_file() { continue; }
