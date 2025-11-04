@@ -44,6 +44,15 @@ async fn solve_handler(body: web::Json<serde_json::Value>) -> impl Responder {
         Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to parse input: {}", e)})),
     };
 
+    // We will filter solutions using the student's `student_ranking` value
+    // (0.0 - 1.0). For each ramo we compute reprobar_prob = (100.0 - pct_aprob)/100.0
+    // and then adjust it by student ability: reprobar_eff = reprobar_prob * (1.0 - student_ranking).
+    // The product of reprobar_eff across ramos is compared against an internal
+    // DEFAULT_THRESHOLD; solutions with product > DEFAULT_THRESHOLD are discarded.
+    // Missing `dificultad` entries are treated permissively (pct_aprob = 100.0 => reprobar_prob = 0.0).
+    // Capture student ranking now (before we move `params` into the blocking task).
+    let student_rank_outer = params.student_ranking.unwrap_or(0.5);
+
     // Run the existing pipeline using a blocking task so we don't block the async worker.
     // We limit concurrency with a global semaphore so multiple heavy requests don't exhaust CPU.
     static GLOBAL_SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
@@ -86,10 +95,41 @@ async fn solve_handler(body: web::Json<serde_json::Value>) -> impl Responder {
         Err(err_msg) => return HttpResponse::InternalServerError().json(json!({"error": err_msg})),
     };
 
+    // Apply student-ranking based filtering with an internal threshold
+    const DEFAULT_THRESHOLD: f64 = 0.05; // 5% default product threshold
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
-    for (sol, score) in soluciones.iter().take(10) {
-        let secs: Vec<Seccion> = sol.iter().map(|(s, _)| s.clone()).collect();
-        soluciones_serial.push(SolutionEntry { total_score: *score, secciones: secs });
+    let student_rank = student_rank_outer; // captured before moving `params`
+    for (sol, score) in soluciones.iter() {
+        // compute product of adjusted reprobar probabilities
+        let mut prod_reprobar: f64 = 1.0;
+        for (s, _prio) in sol.iter() {
+            let code_l = s.codigo.to_lowercase();
+            if let Some(ramo) = ramos_actualizados.get(&code_l) {
+                if let Some(pct_aprob) = ramo.dificultad {
+                    let repro = (100.0 - pct_aprob) / 100.0;
+                    // adjust by student ability: better students have lower effective reprobar
+                    let repro_eff = repro * (1.0 - student_rank);
+                    prod_reprobar *= repro_eff.max(0.0).min(1.0);
+                } else {
+                    // missing dificultad -> assume very easy (pct_aprob = 100.0)
+                    prod_reprobar *= 0.0;
+                }
+            } else {
+                // If ramo not found in map, treat as unknown -> permissive
+                prod_reprobar *= 0.0;
+            }
+        }
+
+        // discard if product of adjusted reprobar probs exceeds default threshold
+        if prod_reprobar > DEFAULT_THRESHOLD {
+            continue;
+        }
+
+        // keep solution (limit to 10 returned)
+        if soluciones_serial.len() < 10 {
+            let secs: Vec<Seccion> = sol.iter().map(|(s, _)| s.clone()).collect();
+            soluciones_serial.push(SolutionEntry { total_score: *score, secciones: secs });
+        }
     }
 
     // Contamos como leídos: malla + oferta si extract_data fue exitoso

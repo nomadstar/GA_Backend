@@ -70,6 +70,11 @@ pub struct InputParams {
 	// Optional ranking/preferences provided by the user (may be absent)
 	pub ranking: Option<Vec<String>>,
 
+	// Optional: umbral para filtrar soluciones por dificultad.
+	// Si se proporciona, se interpreta como un valor 0.0-1.0. Para cada
+	// solución se calcula el producto de las probabilidades de reprobar
+	// (1 - pct_aprobados/100) para cada ramo; si el producto > umbral,
+	// la solución se descarta.
 	/// Filtros opcionales del usuario (Reglas 3-6 del Plan).
 	/// Cada filtro puede estar habilitado o deshabilitado independientemente.
 	/// Si está deshabilitado, se ignora completamente.
