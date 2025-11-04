@@ -1,22 +1,23 @@
-# Directorio de trabajo
+# Especificar una imagen base oficial para Rust
+FROM rust:1.72-slim
+
+# Configurar el directorio de trabajo dentro del contenedor
 WORKDIR /app/quickshift
 
-# Copia solo los archivos de dependencias primero
+# Copiar los archivos necesarios y configurar dependencias
 COPY quickshift/Cargo.toml quickshift/Cargo.lock ./
 
-# Precompila todas las dependencias (incluyendo Polars)
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo +nightly build --release
-RUN rm -rf src  # eliminamos el main dummy
+# Descarga y guarda las dependencias con `cargo` en caché
+RUN cargo fetch
 
-# Copia todo el contenido del proyecto
-COPY quickshift/ ./   # <- copia el contenido dentro del WORKDIR correctamente
+# Copiar el resto del código fuente
+COPY quickshift/ .
 
-# Limita jobs de compilación (opcional)
-ENV CARGO_BUILD_JOBS=2
+# Construir el ejecutable en modo release
+RUN cargo build --release
 
-# Exponer puerto
+# Exponer el puerto de escucha para ejecutar el servidor
 EXPOSE 8080
 
-# Ejecutar el proyecto
-CMD ["cargo", "+nightly", "run"]
+# Comando para iniciar la aplicación
+CMD ["cargo", "run", "--release"]
