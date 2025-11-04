@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use petgraph::graph::{NodeIndex, UnGraph};
 use crate::models::{Seccion, RamoDisponible};
 use crate::algorithm::conflict::horarios_tienen_conflicto;
+use std::time::Instant;
 
 /// Construir un índice inverso: PA2025-1 código → clave de HashMap (para electivos)
 /// Permite buscar un electivo por su código de PA2025-1
@@ -440,8 +441,13 @@ pub fn get_clique_max_pond_with_prefs(
             if horario_boost > 0 { break; }
         }
 
-        // Factor dificultad (DD)
-        let dd = if let Some(dif) = ramo.dificultad { ((100.0 - dif) / 10.0) as i32 } else { 5 };
+        // Factor dificultad: `ramo.dificultad` = % reprobados (0..100).
+        // Usamos (100 - dificultad) para dar mayor bonus a cursos con más aprobados.
+        let dd = if let Some(dif_reprobados) = ramo.dificultad {
+            ((100.0 - dif_reprobados) / 10.0) as i32
+        } else {
+            5
+        };
 
         // Aplicar filtros opcionales
         if let Some(filtros) = params.filtros.as_ref() {
@@ -519,7 +525,10 @@ pub fn get_clique_max_pond_with_prefs(
 
     let max_iterations = 8;
 
+    let total_start = Instant::now();
+
     for iteration in 1..=max_iterations {
+        let iter_start = Instant::now();
         let max_clique = find_max_weight_clique(&graph, &priorities);
         if max_clique.len() <= 2 { 
             eprintln!("   Iter {}: Clique muy pequeño ({}), deteniendo", iteration, max_clique.len());
@@ -539,7 +548,8 @@ pub fn get_clique_max_pond_with_prefs(
 
         let solution_key: Vec<_> = arr_aux_delete.iter().map(|&(idx, _)| idx).collect();
         if prev_solutions.contains(&solution_key) {
-            eprintln!("      -> Solución duplicada, penalizando nodos");
+            let iter_elapsed = iter_start.elapsed();
+            eprintln!("      -> Solución duplicada, penalizando nodos (iter tiempo: {:.3}s)", iter_elapsed.as_secs_f64());
             // 🔧 Penalize used nodes instead of removing them
             for &(node_idx, _) in &arr_aux_delete {
                 if let Some(prio) = priorities.get_mut(&node_idx) {
@@ -559,7 +569,8 @@ pub fn get_clique_max_pond_with_prefs(
             total_score_i64 += prioridad as i64;
         }
 
-        eprintln!("      -> Solución {} aceptada ({} cursos, score {})", solutions.len() + 1, arr_aux_delete.len(), total_score_i64);
+    let iter_elapsed = iter_start.elapsed();
+    eprintln!("      -> Solución {} aceptada ({} cursos, score {}, tiempo: {:.3}s)", solutions.len() + 1, arr_aux_delete.len(), total_score_i64, iter_elapsed.as_secs_f64());
 
         solutions.push((solution_entries, total_score_i64));
         prev_solutions.push(solution_key);
@@ -572,7 +583,9 @@ pub fn get_clique_max_pond_with_prefs(
         }
     }
 
+    let total_elapsed = total_start.elapsed();
     eprintln!("   Completado: {} soluciones generadas", solutions.len());
+    eprintln!("   Tiempo total búsqueda: {:.3}s", total_elapsed.as_secs_f64());
 
     solutions
 }
