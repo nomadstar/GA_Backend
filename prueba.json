@@ -3,19 +3,12 @@
   "malla": "MiMalla.xlsx",
   "sheet": "MiMalla",
   "ramos_pasados": [
-    "CBM1006",
-    "CBM1003",
-    "CBM1001",
-    "CBF1001",
     "CBM1000",
-    "CIT1000",
+    "CBM1001",
     "CBQ1000",
-    "CBM1005",
-    "CBM1002",
-    "CBF1000",
-    "CIT2100",
-    "CBF1002",
-    "FIC1000"
+    "CIT1000",
+    "FIC1000",
+    "CBM1002"
   ],
   "ramos_prioritarios": [
   ],
