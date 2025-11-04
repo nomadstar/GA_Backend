@@ -1,6 +1,0 @@
-name = "quickshift-wasm"
-main = "build/index.js"
-compatibility_date = "2025-11-01"
-
-[build]
-command = "cargo install -q worker-build && worker-build --release"
