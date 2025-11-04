@@ -3,14 +3,21 @@
   "malla": "MiMalla.xlsx",
   "sheet": "MiMalla",
   "ramos_pasados": [
-    "Cálculo I",
-    "Álgebra y Geometría",
-    "Programación"
+    "CBM1006",
+    "CBM1003",
+    "CBM1001",
+    "CBF1001",
+    "CBM1000",
+    "CIT1000",
+    "CBQ1000",
+    "CBM1005",
+    "CBM1002",
+    "CBF1000",
+    "CIT2100",
+    "CBF1002",
+    "FIC1000"
   ],
   "ramos_prioritarios": [
-    "Calor y Ondas",
-    "Cálculo II",
-    "Estructura de Datos y Algoritmos"
   ],
   "horarios_preferidos": [
     "08:00-10:00",
