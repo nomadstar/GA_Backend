@@ -255,7 +255,7 @@ pub fn list_available_datafiles() -> Result<(Vec<String>, Vec<String>, Vec<Strin
             // ignore hidden or temporary files
             if name_raw.starts_with('.') || name_raw.starts_with('~') || name_raw.ends_with('~') { continue; }
             let name_low = name_raw.to_lowercase();
-            if name_low.contains("malla") || name_low.contains("malla_curricular") {
+            if name_low.contains("malla") || name_low.contains("malla_curricular") || name_low.starts_with("mc") {
                 mallas.push(name_raw.clone());
             } else if name_low.contains("oferta") || name_low.contains("oa") {
                 ofertas.push(name_raw.clone());

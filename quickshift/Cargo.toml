@@ -14,5 +14,6 @@ umya-spreadsheet = "0.6"
 zip = "0.6"
 quick-xml = "0.27"
 actix-web = "4"
+actix-cors = "0.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 num_cpus = "1.17"

@@ -1,0 +1,324 @@
+warning: unused imports: `malla`, `oferta`, and `porcentajes`
+ --> src/excel/mapeo_builder.rs:6:20
+  |
+6 | use crate::excel::{malla, oferta, porcentajes, normalize_name};
+  |                    ^^^^^  ^^^^^^  ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::collections::HashMap`
+ --> src/excel/mapeo_builder.rs:9:5
+  |
+9 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `mapeo_builder::construir_mapeo_maestro`
+  --> src/excel/mod.rs:49:9
+   |
+49 | pub use mapeo_builder::construir_mapeo_maestro;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `MapeoAsignatura` and `MapeoMaestro`
+  --> src/excel/mod.rs:50:17
+   |
+50 | pub use mapeo::{MapeoMaestro, MapeoAsignatura};
+   |                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+
+warning: unused import: `std::path::Path`
+  --> src/excel/mod.rs:66:9
+   |
+66 |     use std::path::Path;
+   |         ^^^^^^^^^^^^^^^
+
+warning: unused variable: `lista_secciones`
+   --> src/server.rs:107:10
+    |
+107 |     let (lista_secciones, ramos_actualizados, soluciones) = match blocking_result {
+    |          ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_lista_secciones`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `malla_path`
+   --> src/excel/malla.rs:213:20
+    |
+213 |         if let Ok((malla_path, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
+    |                    ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_malla_path`
+
+warning: unused variable: `norm_name`
+   --> src/excel/malla.rs:240:10
+    |
+240 |     for (norm_name, (codigo, pct, tot, es_electivo)) in porcent_by_name.iter() {
+    |          ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_norm_name`
+
+warning: unused variable: `id_ramo`
+  --> src/excel/mapeo_builder.rs:56:13
+   |
+56 |         let id_ramo = data_to_string(row.get(0).unwrap_or(&Data::Empty)).trim().to_string();
+   |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_id_ramo`
+
+warning: unused variable: `total`
+   --> src/excel/mod.rs:482:33
+    |
+482 |             if let Some(&(porc, total)) = porcentajes.get(codigo) {
+    |                                 ^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+482 |             if let Some(&(porc, _total)) = porcentajes.get(codigo) {
+    |                                 +
+help: you might have meant to pattern match on the similarly named constant `DEFAULT_THRESHOLD`
+    |
+482 -             if let Some(&(porc, total)) = porcentajes.get(codigo) {
+482 +             if let Some(&(porc, server::solve_handler::{closure#0}::DEFAULT_THRESHOLD)) = porcentajes.get(codigo) {
+    |
+
+warning: unused variable: `total`
+   --> src/excel/mod.rs:484:40
+    |
+484 |             } else if let Some(&(porc, total)) = porcentajes.get(&ramo_norm) {
+    |                                        ^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+484 |             } else if let Some(&(porc, _total)) = porcentajes.get(&ramo_norm) {
+    |                                        +
+help: you might have meant to pattern match on the similarly named constant `DEFAULT_THRESHOLD`
+    |
+484 -             } else if let Some(&(porc, total)) = porcentajes.get(&ramo_norm) {
+484 +             } else if let Some(&(porc, server::solve_handler::{closure#0}::DEFAULT_THRESHOLD)) = porcentajes.get(&ramo_norm) {
+    |
+
+warning: unused variable: `lista_secciones`
+  --> src/algorithm/pert.rs:16:5
+   |
+16 |     lista_secciones: &Vec<Seccion>,
+   |     ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_lista_secciones`
+
+warning: function `get_ramo_critico` is never used
+   --> src/excel/mod.rs:172:8
+    |
+172 | pub fn get_ramo_critico(nombre: &str) -> (HashMap<String, RamoDisponible>, String, bool) {
+    |        ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `find_best_name_match` is never used
+   --> src/excel/mod.rs:390:8
+    |
+390 | pub fn find_best_name_match(
+    |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `enrich_ramos_with_oferta_and_porcent` is never used
+   --> src/excel/mod.rs:414:8
+    |
+414 | pub fn enrich_ramos_with_oferta_and_porcent(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `build_normalized_index` is never used
+   --> src/excel/mod.rs:449:8
+    |
+449 | pub fn build_normalized_index(names: &[String]) -> HashMap<String, String> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `enrich_ramo_with_congruencias` is never used
+   --> src/excel/mod.rs:467:8
+    |
+467 | pub fn enrich_ramo_with_congruencias(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `leer_malla_excel` is never used
+   --> src/excel/malla.rs:130:8
+    |
+130 | pub fn leer_malla_excel(nombre_archivo: &str) -> Result<HashMap<String, RamoDisponible>, Box<dyn std::error::Error>> {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: struct `MapeoAsignatura` is never constructed
+  --> src/excel/mapeo.rs:22:12
+   |
+22 | pub struct MapeoAsignatura {
+   |            ^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> src/excel/mapeo.rs:33:12
+   |
+32 | impl MapeoAsignatura {
+   | -------------------- associated function in this implementation
+33 |     pub fn new(nombre_normalizado: String, nombre_real: String) -> Self {
+   |            ^^^
+
+warning: struct `MapeoMaestro` is never constructed
+  --> src/excel/mapeo.rs:47:12
+   |
+47 | pub struct MapeoMaestro {
+   |            ^^^^^^^^^^^^
+
+warning: multiple associated items are never used
+  --> src/excel/mapeo.rs:54:12
+   |
+53 | impl MapeoMaestro {
+   | ----------------- associated items in this implementation
+54 |     pub fn new() -> Self {
+   |            ^^^
+...
+61 |     pub fn add_asignatura(&mut self, mapeo: MapeoAsignatura) {
+   |            ^^^^^^^^^^^^^^
+...
+66 |     pub fn get(&self, nombre_norm: &str) -> Option<&MapeoAsignatura> {
+   |            ^^^
+...
+71 |     pub fn get_by_codigo_oa(&self, codigo: &str) -> Option<&MapeoAsignatura> {
+   |            ^^^^^^^^^^^^^^^^
+...
+76 |     pub fn get_by_codigo_pa(&self, codigo: &str) -> Option<&MapeoAsignatura> {
+   |            ^^^^^^^^^^^^^^^^
+...
+81 |     pub fn get_by_id_malla(&self, id: i32) -> Option<&MapeoAsignatura> {
+   |            ^^^^^^^^^^^^^^^
+...
+86 |     pub fn iter(&self) -> std::collections::hash_map::Values<String, MapeoAsignatura> {
+   |            ^^^^
+...
+91 |     pub fn len(&self) -> usize {
+   |            ^^^
+...
+96 |     pub fn resumen(&self) -> String {
+   |            ^^^^^^^
+
+warning: function `construir_mapeo_maestro` is never used
+  --> src/excel/mapeo_builder.rs:13:8
+   |
+13 | pub fn construir_mapeo_maestro(
+   |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `leer_pa2025_al_mapeo` is never used
+  --> src/excel/mapeo_builder.rs:37:4
+   |
+37 | fn leer_pa2025_al_mapeo(
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `leer_oa2024_al_mapeo` is never used
+  --> src/excel/mapeo_builder.rs:81:4
+   |
+81 | fn leer_oa2024_al_mapeo(
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `leer_malla2020_al_mapeo` is never used
+   --> src/excel/mapeo_builder.rs:121:4
+    |
+121 | fn leer_malla2020_al_mapeo(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_ramo_critico` is never used
+  --> src/algorithm/mod.rs:21:8
+   |
+21 | pub fn get_ramo_critico() -> (HashMap<String, RamoDisponible>, String, bool) {
+   |        ^^^^^^^^^^^^^^^^
+
+warning: function `resolve_datafile_paths` is never used
+   --> src/algorithm/mod.rs:212:8
+    |
+212 | pub fn resolve_datafile_paths(
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `set_use_optimized` is never used
+  --> src/algorithm/extract_controller.rs:15:8
+   |
+15 | pub fn set_use_optimized(use_opt: bool) {
+   |        ^^^^^^^^^^^^^^^^^
+
+warning: struct `SolveRequest` is never constructed
+  --> src/server.rs:17:8
+   |
+17 | struct SolveRequest {
+   |        ^^^^^^^^^^^^
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> src/excel/mapeo.rs:86:17
+   |
+86 |     pub fn iter(&self) -> std::collections::hash_map::Values<String, MapeoAsignatura> {
+   |                 ^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |                 |
+   |                 the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+86 |     pub fn iter(&self) -> std::collections::hash_map::Values<'_, String, MapeoAsignatura> {
+   |                                                              +++
+
+warning: `quickshift` (lib) generated 31 warnings (run `cargo fix --lib -p quickshift` to apply 8 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+warning: the following packages contain code that will be rejected by a future version of Rust: quick-xml v0.17.2
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running `target/debug/quickshift`
+=== Sistema Generador de Horarios (API) ===
+Iniciando servidor en http://0.0.0.0:8080
+
+Endpoints disponibles:
+  POST /solve    - Body JSON. Ejemplo (use 'malla' y opcional 'sheet' para seleccionar hoja interna):
+{
+    "email": "alumno@ejemplo.cl",
+    "ramos_pasados": ["CIT3313", "CIT3211"],
+    "ramos_prioritarios": ["CIT3313"],
+    "horarios_preferidos": ["08:00-10:00"],
+    "malla": "MallaCurricular2020.xlsx",
+    "sheet": "Malla 2020"
+}
+  GET /solve     - Query params (comma-separated). Ejemplo:
+    /solve?ramos_pasados=CIT3313,CIT3211&ramos_prioritarios=CIT3413&horarios_preferidos=08:00-10:00&malla=MallaCurricular2020.xlsx&sheet=Malla%202020&email=alumno%40ejemplo.cl
+  POST /rutacomoda/best - Body: { "file_path": "/path/to/paths.json" } o incluir 'paths' array
+  POST /rutacritica/run - Ejecuta el orquestador con body JSON (igual que POST /solve)
+  GET /datafiles - Lista archivos disponibles en src/datafiles
+  GET /datafiles/content?malla=MiMalla.xlsx[&sheet=Hoja]
+      - Devuelve resumen de malla/oferta/porcentajes y lista de hojas internas de la malla
+  POST /students  - Guarda un perfil de estudiante (body JSON, se indexa por email)
+  GET /help       - Describe la API y muestra ejemplos en JSON
+
+Nota: GET /solve es una versión ligera (parametros por query). Para datos privados o estructuras complejas use POST /solve o POST /rutacritica/run con body JSON.
+🚀 solve_handler called
+📝 Body received: Object {"email": String("test@example.com"), "horarios_preferidos": Array [], "malla": String("MallaCurricular2020.xlsx"), "ramos_pasados": Array [], "ramos_prioritarios": Array []}
+✅ JSON serialized successfully
+✅ Params parsed successfully: email=test@example.com, malla=MallaCurricular2020.xlsx
+🔄 About to call extract_data with malla: MallaCurricular2020.xlsx
+📊 Usando versión OPTIMIZADA (O(n) - rápida)
+🚀 extract_data_optimizado: Iniciando extracción...
+  📖 Paso 1: Leyendo malla con porcentajes (O(n) optimizado)...
+  🔍 Llamando get_datafiles_dir()...
+🔍 get_datafiles_dir() called
+❌ Variable GA_DATAFILES_DIR no está configurada
+🔍 Probando ruta hardcoded: "/Users/martin/projects/ga/GA_Backend/quickshift/src/datafiles"
+✅ Datafiles encontrados (hardcoded): "/Users/martin/projects/ga/GA_Backend/quickshift/src/datafiles"
+  📂 Directorio de datos obtenido: "/Users/martin/projects/ga/GA_Backend/quickshift/src/datafiles"
+  📁 Rutas resueltas:
+     - Malla: /Users/martin/projects/ga/GA_Backend/quickshift/src/datafiles/MallaCurricular2020.xlsx
+     - Porcentajes: /Users/martin/projects/ga/GA_Backend/quickshift/src/datafiles/PA2025-1.xlsx
+     - Malla existe: false
+     - Porcentajes existe: true
+
+🚀 MERGE SIMPLE: MALLA (base) + OA + PA
+======================================
+
+📖 PASO 1: Leyendo MALLA desde /Users/martin/projects/ga/GA_Backend/quickshift/src/datafiles/MallaCurricular2020.xlsx
+  ⚠️  Error en leer_malla_con_porcentajes_optimizado: Xlsx error: I/O error: No such file or directory (os error 2)
+  🔄 Intentando con fallback (versión antigua)...
+🔍 get_datafiles_dir() called
+❌ Variable GA_DATAFILES_DIR no está configurada
+🔍 Probando ruta hardcoded: "/Users/martin/projects/ga/GA_Backend/quickshift/src/datafiles"
+✅ Datafiles encontrados (hardcoded): "/Users/martin/projects/ga/GA_Backend/quickshift/src/datafiles"
+DEBUG: Mapeo OA2024 nombre→código: 0 entradas cargadas
+DEBUG: 14 electivos disponibles en PA2025-1 (ordenados por dificultad):
+  - 20007011 (100%)
+  - 20002579 (100%)
+  - 20027019 (100%)
+  - 20002556 (100%)
+  - 20025135 (100%)
+  - 20023477 (100%)
+  - 20002591 (100%)
+  - 20027020 (100%)
+  - 20026235 (97.96%)
+  - 20002561 (94.74%)
+  - 20002587 (94.44%)
+  - 20002446 (93.83%)
+  - 20023178 (84.62%)
+  - 20009666 (75%)

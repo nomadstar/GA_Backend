@@ -1,4 +1,5 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_cors::Cors;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use crate::algorithm::{extract_data, get_clique_with_user_prefs, list_datafiles, summarize_datafiles};
@@ -353,7 +354,20 @@ async fn save_student_handler(body: web::Json<serde_json::Value>) -> impl Respon
 
 pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
     HttpServer::new(|| {
+        let cors = Cors::default()
+            .allowed_origin_fn(|origin, _req_head| {
+                origin.as_bytes().starts_with(b"http://localhost")
+            })
+            .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+            .allowed_headers(vec![
+                actix_web::http::header::AUTHORIZATION,
+                actix_web::http::header::ACCEPT,
+                actix_web::http::header::CONTENT_TYPE,
+            ])
+            .max_age(3600);
+
         App::new()
+            .wrap(cors)
             .route("/solve", web::post().to(solve_handler))
             .route("/solve", web::get().to(solve_get_handler))
                 .route("/students", web::post().to(save_student_handler))
