@@ -356,6 +356,8 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
     HttpServer::new(|| {
         let cors = Cors::default()
             .allowed_origin_fn(|origin, _req_head| {
+                let origin_str = origin.to_str().unwrap_or("");
+                origin_str == "https://horarios.lmao.cl" ||
                 origin.as_bytes().starts_with(b"http://localhost")
             })
             .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
