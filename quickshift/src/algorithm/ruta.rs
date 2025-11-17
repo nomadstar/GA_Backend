@@ -35,7 +35,7 @@ pub fn ejecutar_ruta_critica_with_params(
 /// la preparación (llamadas a `extract`) y luego invoque aquí la ejecución
 /// final (lectura de porcentajes + planner que respeta preferencias).
 pub fn ejecutar_ruta_critica_with_precomputed(
-    lista_secciones: Vec<Seccion>,
+    mut lista_secciones: Vec<Seccion>,
     mut ramos_actualizados: HashMap<String, RamoDisponible>,
     params: crate::api_json::InputParams,
 ) -> Result<Vec<(Vec<(Seccion, i32)>, i64)>, Box<dyn Error>> {
@@ -57,6 +57,24 @@ pub fn ejecutar_ruta_critica_with_precomputed(
                 ramo.dificultad = Some(porc);
             }
         }
+    }
+    // Filter out empty/invalid ramos that may appear in some OA files (e.g. blank rows
+    // in Oferta Academica). These ramos should not participate in the critical path
+    // computation. We consider a ramo invalid if its `nombre` or `codigo` are empty
+    // (after trimming). Remove them from `ramos_actualizados` and from `lista_secciones`.
+    let mut invalid_codes: Vec<String> = Vec::new();
+    for (code, ramo) in ramos_actualizados.iter() {
+        if ramo.nombre.trim().is_empty() || ramo.codigo.trim().is_empty() {
+            invalid_codes.push(code.clone());
+        }
+    }
+    if !invalid_codes.is_empty() {
+        eprintln!("INFO: excluding {} empty/invalid ramos from ruta critica: {:?}", invalid_codes.len(), invalid_codes);
+        for c in invalid_codes.iter() {
+            ramos_actualizados.remove(c);
+        }
+        // Remove matching sections from lista_secciones
+        lista_secciones.retain(|s| !invalid_codes.iter().any(|ic| ic.eq_ignore_ascii_case(&s.codigo)));
     }
 
     // Delegar la construcción y ejecución del PERT al módulo `pert`.
