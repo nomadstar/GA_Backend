@@ -1,4 +1,4 @@
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpResponse, HttpServer, Responder, HttpRequest};
 use actix_cors::Cors;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -32,7 +32,7 @@ struct SolutionEntry {
     secciones: Vec<Seccion>,
 }
 
-async fn solve_handler(body: web::Json<serde_json::Value>) -> impl Responder {
+async fn solve_handler(req: HttpRequest, body: web::Json<serde_json::Value>) -> impl Responder {
     // Parse and resolve InputParams from the incoming JSON body (may contain names)
     let body_value = body.into_inner();
     let json_str = match serde_json::to_string(&body_value) {
@@ -44,6 +44,11 @@ async fn solve_handler(body: web::Json<serde_json::Value>) -> impl Responder {
         Ok(p) => p,
         Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to parse input: {}", e)})),
     };
+
+    // capture client ip early
+    let client_ip = req.connection_info().realip_remote_addr().unwrap_or("unknown").to_string();
+    // start timer
+    let start = std::time::Instant::now();
 
     // We will filter solutions using the student's `student_ranking` value
     // (0.0 - 1.0). For each ramo we compute reprobar_prob = (100.0 - pct_aprob)/100.0
@@ -141,6 +146,21 @@ async fn solve_handler(body: web::Json<serde_json::Value>) -> impl Responder {
         soluciones_count: soluciones.len(),
         soluciones: soluciones_serial,
     };
+
+    // measure duration (ms)
+    let duration_ms = start.elapsed().as_millis() as i64;
+
+    // log request/response asynchronously in a blocking task
+    let req_clone = json_str.clone();
+    let resp_ser = match serde_json::to_string(&resp) {
+        Ok(s) => s,
+        Err(_) => String::from("{}"),
+    };
+    let resp_clone = resp_ser.clone();
+    let ip_clone = client_ip.clone();
+    tokio::task::spawn_blocking(move || {
+        let _ = crate::analithics::log_query(&req_clone, &resp_clone, duration_ms, &ip_clone);
+    });
 
     HttpResponse::Ok().json(resp)
 }
@@ -287,6 +307,44 @@ async fn rutacritica_run_dependencies_only_handler(body: web::Json<serde_json::V
     HttpResponse::Ok().json(json!({"status": "ok", "soluciones": out, "note": "DEPENDENCIES ONLY - NO SCHEDULE CONFLICTS CHECKED"}))
 }
 
+// Analytics HTTP handlers
+async fn anal_ramos_pasados_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
+    let limit = query.get("limit").and_then(|s| s.parse::<usize>().ok());
+    match crate::analithics::ramos_mas_pasados(limit) {
+        Ok(v) => HttpResponse::Ok().json(v),
+        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("analytics error: {}", e)})),
+    }
+}
+
+async fn anal_ranking_handler() -> impl Responder {
+    match crate::analithics::ranking_por_estudiante() {
+        Ok(v) => HttpResponse::Ok().json(v),
+        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("analytics error: {}", e)})),
+    }
+}
+
+async fn anal_count_users_handler() -> impl Responder {
+    match crate::analithics::count_users() {
+        Ok(v) => HttpResponse::Ok().json(v),
+        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("analytics error: {}", e)})),
+    }
+}
+
+async fn anal_filtros_handler() -> impl Responder {
+    match crate::analithics::filtros_mas_solicitados() {
+        Ok(v) => HttpResponse::Ok().json(v),
+        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("analytics error: {}", e)})),
+    }
+}
+
+async fn anal_ramos_recomendados_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
+    let limit = query.get("limit").and_then(|s| s.parse::<usize>().ok());
+    match crate::analithics::ramos_mas_recomendados(limit) {
+        Ok(v) => HttpResponse::Ok().json(v),
+        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("analytics error: {}", e)})),
+    }
+}
+
 /// POST /students
 /// Guarda los datos del estudiante en `data/students.json`. Si ya existe un
 /// estudiante con el mismo correo, lo sustituye.
@@ -370,9 +428,23 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
 
         App::new()
             .wrap(cors)
+            // Initialize analytics DB (best-effort)
+            .app_data({
+                // call init_db here in closure side-effect: we call it once when app is built
+                if let Err(e) = crate::analithics::init_db() {
+                    eprintln!("analytics init failed: {}", e);
+                }
+                web::Data::new(())
+            })
             .route("/solve", web::post().to(solve_handler))
             .route("/solve", web::get().to(solve_get_handler))
                 .route("/students", web::post().to(save_student_handler))
+            // Analytics routes
+            .route("/analithics/ramos_pasados", web::get().to(anal_ramos_pasados_handler))
+            .route("/analithics/ranking_por_estudiante", web::get().to(anal_ranking_handler))
+            .route("/analithics/count_users", web::get().to(anal_count_users_handler))
+            .route("/analithics/filtros_mas_solicitados", web::get().to(anal_filtros_handler))
+            .route("/analithics/ramos_mas_recomendados", web::get().to(anal_ramos_recomendados_handler))
             .route("/rutacomoda/best", web::post().to(rutacomoda_best_handler))
             .route("/rutacritica/run", web::post().to(rutacritica_run_handler))
             .route("/rutacritica/run-dependencies-only", web::post().to(rutacritica_run_dependencies_only_handler))

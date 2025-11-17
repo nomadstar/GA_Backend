@@ -6,6 +6,7 @@ mod algorithm;
 mod models;
 mod api_json;
 pub mod server;
+pub mod analithics;
 
 /// Ejecuta el servidor HTTP (reexport para facilitar uso desde `main`)
 pub use server::run_server;

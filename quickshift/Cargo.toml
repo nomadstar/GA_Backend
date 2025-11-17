@@ -17,3 +17,5 @@ actix-web = "4"
 actix-cors = "0.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 num_cpus = "1.17"
+rusqlite = { version = "0.29", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
