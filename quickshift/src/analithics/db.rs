@@ -3,6 +3,25 @@ use std::error::Error;
 use std::fs;
 use chrono::Utc;
 use serde_json::Value as JsonValue;
+use std::env;
+use std::path::PathBuf;
+
+// load .env at module init if present
+fn load_dotenv() {
+    let _ = dotenv::dotenv();
+}
+
+fn analytics_db_path() -> PathBuf {
+    load_dotenv();
+    if let Ok(p) = env::var("ANALITHICS_DB_PATH") {
+        PathBuf::from(p)
+    } else if let Ok(p) = env::var("ANALITHICS_DB_URL") {
+        // allow alternate name
+        PathBuf::from(p)
+    } else {
+        PathBuf::from("analithics/analytics.db")
+    }
+}
 
 // We will try to parse the incoming request JSON into the crate's
 // `InputParams` so we can persist some fields in separate columns for
@@ -12,11 +31,12 @@ use crate::api_json::InputParams;
 
 /// Initialize the analytics DB (create dir + sqlite file + table)
 pub fn init_db() -> Result<(), Box<dyn Error>> {
-    let dir = std::path::Path::new("analithics");
-    if !dir.exists() {
-        fs::create_dir_all(dir)?;
+    let db_path = analytics_db_path();
+    if let Some(dir) = db_path.parent() {
+        if !dir.exists() {
+            fs::create_dir_all(dir)?;
+        }
     }
-    let db_path = dir.join("analytics.db");
     let conn = Connection::open(db_path)?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS queries (
@@ -59,7 +79,7 @@ pub fn init_db() -> Result<(), Box<dyn Error>> {
 /// two ramo lists. If parsing fails the parsed columns will be NULL but the
 /// raw JSON will still be saved.
 pub fn log_query(request_json: &str, response_json: &str, duration_ms: i64, client_ip: &str) -> Result<(), Box<dyn Error>> {
-    let db_path = std::path::Path::new("analithics").join("analytics.db");
+    let db_path = analytics_db_path();
     let conn = Connection::open(db_path)?;
 
     // timestamp
