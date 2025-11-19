@@ -3,10 +3,9 @@
 /// unificado donde cada asignatura se identifica por su NOMBRE NORMALIZADO.
 
 use crate::excel::mapeo::{MapeoMaestro, MapeoAsignatura};
-use crate::excel::{malla, oferta, porcentajes, normalize_name};
+use crate::excel::normalize_name;
 use crate::excel::io::data_to_string;
 use calamine::{open_workbook_auto, Data, Reader};
-use std::collections::HashMap;
 use std::path::Path;
 
 /// Construir mapeo maestro desde los 3 archivos Excel
@@ -52,8 +51,7 @@ fn leer_pa2025_al_mapeo(
     for (row_idx, row) in range.rows().enumerate() {
         if row_idx == 0 { continue; } // Skip header
 
-        // PA2025-1: Columnas = Id.Ramo | Año | Período | Código | Nombre | Est.Total | Est.Aprob | Est.Reprob | Porcentaje | Porcentaje Reprob | Electivo
-        let id_ramo = data_to_string(row.get(0).unwrap_or(&Data::Empty)).trim().to_string();
+    // PA2025-1: Columnas = Id.Ramo | Año | Período | Código | Nombre | Est.Total | Est.Aprob | Est.Reprob | Porcentaje | Porcentaje Reprob | Electivo
         let codigo = data_to_string(row.get(3).unwrap_or(&Data::Empty)).trim().to_string();
         let nombre = data_to_string(row.get(4).unwrap_or(&Data::Empty)).trim().to_string();
         let porcentaje_str = data_to_string(row.get(8).unwrap_or(&Data::Empty)).trim().to_string();
@@ -163,11 +161,12 @@ fn leer_malla2020_al_mapeo(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_construir_mapeo() {
-        // Este test se ejecutaría si tuviéramos acceso a los archivos
-        // Por ahora es solo un placeholder
+        // Verificar que la función pública `construir_mapeo_maestro` está disponible
+        // a través del re-export `crate::excel::construir_mapeo_maestro` y que
+        // maneja correctamente rutas que no existen (retornando Err).
+        let res = crate::excel::construir_mapeo_maestro("no_malla.xlsx", "no_oa.xlsx", "no_pa.xlsx");
+        assert!(res.is_err(), "Esperamos error al pasar rutas inexistentes");
     }
 }

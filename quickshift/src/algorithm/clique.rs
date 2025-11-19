@@ -415,20 +415,95 @@ pub fn get_clique_max_pond_with_prefs(
         // Horario boost y filtros de usuario (Reglas 3 y 5)
         use std::collections::HashSet;
         let mut dias_set: HashSet<String> = HashSet::new();
+        // Mejor extracción de días: buscamos abreviaturas al inicio de cada token
         for hstr in seccion.horario.iter() {
-            for token in hstr.split_whitespace() {
-                let t = token.trim();
-                if t.is_empty() { continue; }
-                if t.chars().any(|c| c.is_ascii_digit()) { break; }
-                if t.chars().all(|c| c.is_alphabetic()) && t.len() <= 3 {
-                    dias_set.insert(t.to_uppercase());
-                } else {
-                    break;
+            // Ejemplos esperados: "LU 08:30-10:00", "MA 10:30-12:00", "LUN 08:30-10:00"
+            let first = hstr.split_whitespace().next().unwrap_or("");
+            let token = first.trim_matches(|c: char| !c.is_alphanumeric()).to_uppercase();
+            if token.len() >= 2 && token.len() <= 4 {
+                // Normalizar LUN->LU, MIE->MI, JUE->JU, vie->VI
+                let day = match &token[..] {
+                    t if t.starts_with("LU") => "LU",
+                    t if t.starts_with("MA") => "MA",
+                    t if t.starts_with("MI") => "MI",
+                    t if t.starts_with("JU") => "JU",
+                    t if t.starts_with("VI") => "VI",
+                    t if t.starts_with("SA") => "SA",
+                    t if t.starts_with("DO") => "DO",
+                    _ => "",
+                };
+                if !day.is_empty() {
+                    dias_set.insert(day.to_string());
                 }
             }
         }
 
         let mut horario_boost: i32 = 0;
+
+        // Referencia a filtros para chequear nuevos filtros añadidos
+        let filtros_opt = params.filtros.as_ref();
+
+        // Si el usuario pidió días libres explícitos, excluimos secciones que ocurran en esos días
+        if let Some(filtros) = filtros_opt {
+            if let Some(dhl) = &filtros.dias_horarios_libres {
+                if dhl.habilitado {
+                    // 1) dias_libres_preferidos: si la sección ocurre en esos días la excluimos
+                    if let Some(dias_pref) = &dhl.dias_libres_preferidos {
+                        let mut intersects = false;
+                        for d in dias_pref.iter() {
+                            let dnorm = d.trim().to_uppercase();
+                            let pref_day = match dnorm.as_str() {
+                                "LUN" | "LU" | "LUNES" => "LU",
+                                "MAR" | "MA" | "MARTES" => "MA",
+                                "MIE" | "MI" | "MIERCOLES" => "MI",
+                                "JUE" | "JU" | "JUEVES" => "JU",
+                                "VIE" | "VI" | "VIERNES" => "VI",
+                                "SAB" | "SA" | "SABADO" => "SA",
+                                "DOM" | "DO" | "DOMINGO" => "DO",
+                                other => other,
+                            };
+                            if dias_set.contains(pref_day) {
+                                intersects = true;
+                                break;
+                            }
+                        }
+                        if intersects { continue; }
+                    }
+
+                    // 2) franjas_prohibidas: si la sección solapa con cualquiera, la excluimos
+                    if let Some(franjas) = &dhl.franjas_prohibidas {
+                        let mut prohibited = false;
+                        for fran in franjas.iter() {
+                            let fran_up = fran.to_uppercase();
+                            for hstr in seccion.horario.iter() {
+                                let h_up = hstr.to_uppercase();
+                                if h_up.contains(&fran_up) || fran_up.contains(&h_up) {
+                                    prohibited = true; break;
+                                }
+                                // Also check simple day token match (e.g., "MI" in "MI 10:00")
+                                let day_token = fran_up.split_whitespace().next().unwrap_or("");
+                                if !day_token.is_empty() && h_up.starts_with(day_token) {
+                                    prohibited = true; break;
+                                }
+                            }
+                            if prohibited { break; }
+                        }
+                        if prohibited { continue; }
+                    }
+
+                    // 3) no_sin_horario: si está marcado, evitamos secciones "Sin horario"
+                    if dhl.no_sin_horario.unwrap_or(false) {
+                        let mut has_sin = false;
+                        for hstr in seccion.horario.iter() {
+                            if hstr.to_lowercase().contains("sin horario") {
+                                has_sin = true; break;
+                            }
+                        }
+                        if has_sin { continue; }
+                    }
+                }
+            }
+        }
 
         // Boost por rangos horarios preferidos
         for pref in params.horarios_preferidos.iter() {
@@ -445,23 +520,13 @@ pub fn get_clique_max_pond_with_prefs(
         // Usamos (100 - dificultad) para dar mayor bonus a cursos con más aprobados.
         let dd = if let Some(dif_reprobados) = ramo.dificultad {
             ((100.0 - dif_reprobados) / 10.0) as i32
-        } else {
-            5
-        };
+        } else { 5 };
 
-        // Aplicar filtros opcionales
+        // Aplicar filtros opcionales restantes
         if let Some(filtros) = params.filtros.as_ref() {
-            // Días/horarios libres
+            // Días/horarios libres (minimizar ventanas)
             if let Some(dhl) = &filtros.dias_horarios_libres {
                 if dhl.habilitado {
-                    if let Some(dias_pref) = &dhl.dias_libres_preferidos {
-                        for d in dias_pref.iter() {
-                            if dias_set.contains(&d.to_uppercase()) {
-                                horario_boost -= 2500;
-                                break;
-                            }
-                        }
-                    }
                     if dhl.minimizar_ventanas.unwrap_or(false) {
                         let days_count = dias_set.len() as i32;
                         if days_count > 2 {
@@ -537,6 +602,9 @@ pub fn get_clique_max_pond_with_prefs(
 
         eprintln!("   Iter {}: Clique de {} nodos encontrado", iteration, max_clique.len());
 
+        // Determinar número máximo de ramos permitidos por solución (cap fijo a 6)
+        let max_ramos: usize = 6;
+
         let mut arr_aux_delete: Vec<(NodeIndex, i32)> = max_clique
             .iter()
             .map(|&idx| (idx, *priorities.get(&idx).unwrap_or(&0)))
@@ -544,7 +612,7 @@ pub fn get_clique_max_pond_with_prefs(
 
         // 🔧 Sort ASCENDING (lowest priority first) like Python version
         arr_aux_delete.sort_by_key(|&(_, prio)| prio);
-        while arr_aux_delete.len() > 6 { arr_aux_delete.remove(0); }  // Remove lowest priority nodes
+        while arr_aux_delete.len() > max_ramos { arr_aux_delete.remove(0); }  // Remove lowest priority nodes
 
         let solution_key: Vec<_> = arr_aux_delete.iter().map(|&(idx, _)| idx).collect();
         if prev_solutions.contains(&solution_key) {

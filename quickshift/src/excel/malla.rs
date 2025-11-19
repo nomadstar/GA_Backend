@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use calamine::{open_workbook_auto, Data, Reader};
 use crate::models::RamoDisponible;
 use crate::excel::io::data_to_string;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Lee un archivo de malla (espera filas: codigo, nombre, correlativo, holgura, critico, ...)
 /// Leer malla desde un archivo Excel, permitiendo opcionalmente elegir la hoja
@@ -207,37 +207,63 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
     // IMPORTANTE: Los códigos pueden cambiar entre años (ej: CIG1002 en 2024 vs CIG1013 en 2025)
     // Por eso usamos el NOMBRE como clave universal, no el código
     // Estructura de OA2024: Columna 1=Código, Columna 2=Nombre, Columna 3=Sección
-    let oa_nombre_to_codigo: HashMap<String, String> = {
-        let mut map = HashMap::new();
-        // Resolver ruta de OA2024
-        if let Ok((malla_path, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
+    // Resolver rutas de datos (malla, oferta, porcentajes) si es posible y reutilizarlas.
+    let mut oa_nombre_to_codigo: HashMap<String, String> = HashMap::new();
+    let mut resolved_malla_path: Option<std::path::PathBuf> = None;
+    if let Ok((malla_path, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
+        // Guardar malla_path para usarlo más abajo al abrir la hoja "Malla2020"
+        resolved_malla_path = Some(malla_path.clone());
+
+        if let Ok(mut workbook) = calamine::open_workbook_auto(oferta_path.to_str().unwrap_or("")) {
+            let sheet_names = workbook.sheet_names().to_owned();
+            if let Some(sheet) = sheet_names.first() {
+                if let Ok(range) = workbook.worksheet_range(sheet) {
+                    for (row_idx, row) in range.rows().enumerate() {
+                        if row_idx == 0 { continue; }  // skip header
+                        // Columnas correctas en OA2024: Col 1 = Código, Col 2 = Nombre
+                        let codigo = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
+                        let nombre = data_to_string(row.get(2).unwrap_or(&Data::Empty)).trim().to_string();
+                        if !codigo.is_empty() && !nombre.is_empty() {
+                            let nombre_norm = normalize_name(&nombre);
+                            // Solo insertar si no existe aún (primera ocurrencia)
+                            oa_nombre_to_codigo.entry(nombre_norm).or_insert_with(|| codigo);
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // Fallback: no pudimos resolver rutas automáticamente; intentamos abrir el archivo
+        // de oferta usando heurística en DATAFILES_DIR como antes (no modificar comportamiento previo).
+        if let Ok((_, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
             if let Ok(mut workbook) = calamine::open_workbook_auto(oferta_path.to_str().unwrap_or("")) {
                 let sheet_names = workbook.sheet_names().to_owned();
                 if let Some(sheet) = sheet_names.first() {
                     if let Ok(range) = workbook.worksheet_range(sheet) {
                         for (row_idx, row) in range.rows().enumerate() {
-                            if row_idx == 0 { continue; }  // skip header
-                            // Columnas correctas en OA2024: Col 1 = Código, Col 2 = Nombre
+                            if row_idx == 0 { continue; }
                             let codigo = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
                             let nombre = data_to_string(row.get(2).unwrap_or(&Data::Empty)).trim().to_string();
                             if !codigo.is_empty() && !nombre.is_empty() {
                                 let nombre_norm = normalize_name(&nombre);
-                                // Solo insertar si no existe aún (primera ocurrencia)
-                                map.entry(nombre_norm).or_insert_with(|| codigo);
+                                oa_nombre_to_codigo.entry(nombre_norm).or_insert_with(|| codigo);
                             }
                         }
                     }
                 }
             }
         }
-        map
-    };
+    }
     
     eprintln!("DEBUG: Mapeo OA2024 nombre→código: {} entradas cargadas", oa_nombre_to_codigo.len());
     
     // 3. Construir índice invertido: si es_electivo en PA2025-1, indexar también por codigo
     let mut porcent_by_code_electivos: HashMap<String, (String, f64, f64, bool)> = HashMap::new();
-    for (norm_name, (codigo, pct, tot, es_electivo)) in porcent_by_name.iter() {
+    // Iteramos sobre los valores del mapa porque la clave (nombre normalizado)
+    // no se utiliza en este paso. De este modo evitamos introducir variables
+    // no usadas y dejamos el código más claro.
+    for entry in porcent_by_name.values() {
+        let (codigo, pct, tot, es_electivo) = entry;
         if *es_electivo {
             porcent_by_code_electivos.insert(codigo.clone(), (codigo.clone(), *pct, *tot, *es_electivo));
         }
@@ -259,14 +285,20 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
     }
     
     // 4. Leer Malla2020
-    let resolved = if Path::new(malla_archivo).exists() {
-        malla_archivo.to_string()
+    // Si previamente resolvimos `malla_path`, úsalo; si no, aplicar la heurística previa.
+    let malla_to_open = if let Some(mp) = resolved_malla_path {
+        mp
     } else {
-        let candidate = format!("{}/{}", crate::excel::DATAFILES_DIR, malla_archivo);
-        if Path::new(&candidate).exists() { candidate } else { malla_archivo.to_string() }
+        let resolved = if Path::new(malla_archivo).exists() {
+            PathBuf::from(malla_archivo.to_string())
+        } else {
+            let candidate = format!("{}/{}", crate::excel::DATAFILES_DIR, malla_archivo);
+            if Path::new(&candidate).exists() { PathBuf::from(candidate) } else { PathBuf::from(malla_archivo.to_string()) }
+        };
+        resolved
     };
-    
-    let mut workbook = open_workbook_auto(resolved)?;
+
+    let mut workbook = open_workbook_auto(malla_to_open.to_str().unwrap_or(""))?;
     let mut ramos_disponibles = HashMap::new();
     
     // Contador para asignación secuencial de electivos sin repetir

@@ -2,7 +2,7 @@
 // Reexporta los módulos principales y proporciona una función de conveniencia
 // `run_ruta_critica` que orquesta el flujo principal.
 mod excel;
-mod algorithm;
+pub mod algorithm;
 mod models;
 mod api_json;
 pub mod server;

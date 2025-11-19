@@ -20,7 +20,21 @@ pub fn build_and_run_pert(
     let mut pert_graph: DiGraph<PertNode, ()> = DiGraph::new();
     let mut node_map: HashMap<i32, NodeIndex> = HashMap::new();  // id (i32) -> NodeIndex
 
-    for (_nombre_norm, ramo) in ramos_actualizados.iter() {
+    // Construir conjunto de códigos presentes en `lista_secciones` para
+    // excluir ramos que no tienen secciones (filtrado de filas vacías OA).
+    use std::collections::HashSet;
+    let present_codes: HashSet<String> = lista_secciones.iter()
+        .map(|s| s.codigo.trim().to_ascii_uppercase())
+        .collect();
+
+    for (code_key, ramo) in ramos_actualizados.iter() {
+        // `code_key` corresponde a la clave usada en `ramos_actualizados` y
+        // normalmente coincide con `Seccion.codigo`. Si no está presente en
+        // `lista_secciones`, saltamos el ramo.
+        if !present_codes.contains(&code_key.trim().to_ascii_uppercase()) {
+            continue;
+        }
+
         let node = PertNode {
             codigo: ramo.id.to_string(),  // Usar ID como identificador en PERT
             nombre: ramo.nombre.clone(),

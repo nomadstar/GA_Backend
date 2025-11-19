@@ -13,6 +13,7 @@ pub struct UserFilters {
     pub preferencias_profesores: Option<PreferenciasProfesores>,
     /// Filtro 6: Balance entre líneas de formación
     pub balance_lineas: Option<BalanceLineas>,
+
 }
 
 #[allow(dead_code)]
@@ -22,6 +23,11 @@ pub struct DiaHorariosLibres {
     pub dias_libres_preferidos: Option<Vec<String>>, // ["LU", "MA", ..., "VI"]
     pub minimizar_ventanas: Option<bool>,
     pub ventana_ideal_minutos: Option<i32>,
+    /// Franjas explícitas prohibidas, por ejemplo: ["LU 08:30-10:00", "VI 14:00-18:00"].
+    /// Si se especifican, se tratan como bloques prohibidos y se excluirán secciones que solapen.
+    pub franjas_prohibidas: Option<Vec<String>>,
+    /// Si true, evitar secciones marcadas como "Sin horario".
+    pub no_sin_horario: Option<bool>,
 }
 
 #[allow(dead_code)]
@@ -45,6 +51,8 @@ pub struct BalanceLineas {
     pub habilitado: bool,
     pub lineas: Option<std::collections::HashMap<String, f64>>, // {"informatica": 0.6, "telecomunicaciones": 0.4}
 }
+
+// Note: carga (max ramos) is enforced as a fixed cap of 6 per semester in the algorithm.
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, serde::Serialize)]
