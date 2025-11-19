@@ -2,6 +2,7 @@
 
 use quickshift::run_server;
 use std::env;
+use quickshift::algorithm::extract_controller; // <-- agregado
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
