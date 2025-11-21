@@ -1,6 +1,5 @@
 use rusqlite::Connection;
 use std::error::Error;
-use serde_json::Value as JsonValue;
 use chrono::Utc;
 
 /// Return a JSON array with the most passed courses across all recorded queries.

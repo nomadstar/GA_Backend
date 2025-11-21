@@ -60,10 +60,20 @@ pub fn build_and_run_pert(
     }
 
     // Añadir aristas por correlativo (i -> j si j = i+1)
-    for (_norm_i, a) in ramos_actualizados.iter() {
-        for (_norm_j, b) in ramos_actualizados.iter() {
-            if b.numb_correlativo == a.numb_correlativo + 1 {
-                if let (Some(&from), Some(&to)) = (node_map.get(&a.id), node_map.get(&b.id)) {
+    // Agrupamos por `numb_correlativo` y conectamos elementos consecutivos
+    {
+        use std::collections::BTreeMap;
+        let mut by_correl: BTreeMap<i32, Vec<i32>> = BTreeMap::new();
+        for (_k, r) in ramos_actualizados.iter() {
+            by_correl.entry(r.numb_correlativo).or_default().push(r.id);
+        }
+        for (_cor, mut ids) in by_correl.into_iter() {
+            if ids.len() <= 1 { continue; }
+            ids.sort_unstable();
+            for win in ids.windows(2) {
+                let a = win[0];
+                let b = win[1];
+                if let (Some(&from), Some(&to)) = (node_map.get(&a), node_map.get(&b)) {
                     if pert_graph.find_edge(from, to).is_none() {
                         let _ = pert_graph.add_edge(from, to, ());
                     }
@@ -102,7 +112,10 @@ pub fn build_and_run_pert(
 
     let malla_path = malla_pathbuf.to_str().unwrap_or(malla_name).to_string();
 
-    if let Ok(pr_map) = crate::excel::leer_prerequisitos(&malla_path) {
+    // Intentar obtener prerequisitos desde el caché en memoria; si falla,
+    // el error se propaga y no añadimos aristas por prereqs.
+    if let Ok(pr_map_arc) = crate::excel::get_prereqs_cached(&malla_path) {
+        let pr_map: &std::collections::HashMap<String, Vec<String>> = &*pr_map_arc;
         // construir índice: ID (i32) -> NodeIndex
         let mut id_to_node: HashMap<i32, NodeIndex> = HashMap::new();
         for (id, idx) in node_map.iter() {
@@ -114,8 +127,7 @@ pub fn build_and_run_pert(
         for (_norm_name, ramo) in ramos_actualizados.iter() {
             name_norm_to_id.insert(normalize(&ramo.nombre), ramo.id);
         }
-
-        for (codigo_str, prereqs) in pr_map.into_iter() {
+        for (codigo_str, prereqs) in pr_map.iter() {
             // Intentar parsear codigo_str como ID (i32) para identificar el ramo destino
             let to_id_opt = codigo_str.parse::<i32>().ok()
                 .and_then(|id| node_map.contains_key(&id).then_some(id))
@@ -126,7 +138,7 @@ pub fn build_and_run_pert(
 
             if let Some(to_id) = to_id_opt {
                 if let Some(&to_idx) = node_map.get(&to_id) {
-                    for prereq in prereqs.into_iter() {
+                    for prereq in prereqs.iter() {
                         let mut matched_from_id: Option<i32> = None;
 
                         // 1) Intentar parsear como ID directo
@@ -154,13 +166,85 @@ pub fn build_and_run_pert(
         }
     }
 
-    // Ejecutar cálculo PERT para cada nodo (versión simplificada sin recursión profunda)
-    // Usar una aproximación iterativa para evitar stack overflow
-    let node_count = pert_graph.node_count();
-    for _ in 0..node_count {
-        for node_idx in pert_graph.node_indices() {
-            let len_dag = node_count as i32;
-            set_values_simple(&mut pert_graph, node_idx, len_dag);
+    // Ejecutar cálculo PERT usando orden topológico (forward/backward) -> O(N + E)
+    use petgraph::algo::toposort;
+    let topo = match toposort(&pert_graph, None) {
+        Ok(order) => order,
+        Err(_) => {
+            // En caso de ciclo, hacer fallback limitado (evitamos bucles infinitos)
+            eprintln!("WARNING: PERT graph contains a cycle; using limited iterative fallback");
+            let node_count = pert_graph.node_count();
+            for _ in 0..3 {
+                for node_idx in pert_graph.node_indices() {
+                    let len_dag = node_count as i32;
+                    set_values_simple(&mut pert_graph, node_idx, len_dag);
+                }
+            }
+            // Propagar resultado PERT (igual que abajo) y volver
+            for (id, idx) in node_map.iter() {
+                if let Some(pn) = pert_graph.node_weight(*idx) {
+                    if let Some(h) = pn.h {
+                        for (_norm_name, ramo) in ramos_actualizados.iter_mut() {
+                            if ramo.id == *id {
+                                if h == 0 {
+                                    ramo.critico = true;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+    };
+
+    // Forward pass: calcular ES / EF (usar DP sobre el orden topológico)
+    // Inicializar ES a 1
+    for &node_idx in topo.iter() {
+        if let Some(node) = pert_graph.node_weight_mut(node_idx) {
+            node.es = Some(1);
+            node.ef = Some(2); // es + dur (dur=1)
+        }
+    }
+    // Propagar longitudes máximas a lo largo del DAG: for each u in topo, for each v in out(u): es[v] = max(es[v], ef[u])
+    for &u in topo.iter() {
+        let u_ef = pert_graph.node_weight(u).and_then(|n| n.ef).unwrap_or(1);
+        // recoger vecinos salientes primero para evitar préstamos simultáneos
+        let outs: Vec<_> = pert_graph.neighbors_directed(u, Direction::Outgoing).collect();
+        for v in outs {
+            if let Some(vnode) = pert_graph.node_weight_mut(v) {
+                if vnode.es.unwrap_or(1) < u_ef {
+                    vnode.es = Some(u_ef);
+                    vnode.ef = Some(u_ef + 1);
+                }
+            }
+        }
+    }
+
+    // Backward pass: calcular LF / LS / h (usar reverse topo)
+    let max_ef = topo.iter().filter_map(|&n| pert_graph.node_weight(n).and_then(|nn| nn.ef)).max().unwrap_or(1);
+    for &node_idx in topo.iter().rev() {
+        let mut lf = max_ef;
+        let mut has_succ = false;
+        for succ in pert_graph.neighbors_directed(node_idx, Direction::Outgoing) {
+            if let Some(succ_node) = pert_graph.node_weight(succ) {
+                if let Some(succ_ls) = succ_node.ls {
+                    lf = std::cmp::min(lf, succ_ls);
+                } else if let Some(succ_es) = succ_node.es {
+                    lf = std::cmp::min(lf, succ_es + 1);
+                }
+                has_succ = true;
+            }
+        }
+        if !has_succ {
+            lf = max_ef;
+        }
+        if let Some(node) = pert_graph.node_weight_mut(node_idx) {
+            node.lf = Some(lf);
+            node.ls = Some(lf - 1);
+            let h = node.lf.unwrap() - node.ef.unwrap_or(node.lf.unwrap());
+            node.h = Some(if h > 0 { h } else { 0 });
         }
     }
 
@@ -168,7 +252,6 @@ pub fn build_and_run_pert(
     for (id, idx) in node_map.iter() {
         if let Some(pn) = pert_graph.node_weight(*idx) {
             if let Some(h) = pn.h {
-                // Buscar el ramo por ID
                 for (_norm_name, ramo) in ramos_actualizados.iter_mut() {
                     if ramo.id == *id {
                         if h == 0 {
