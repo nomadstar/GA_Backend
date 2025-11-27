@@ -5,14 +5,14 @@
 ///
 /// Clave universal: NOMBRE NORMALIZADO (único para cada asignatura)
 ///
-/// Estructura:
-/// ```
+/// Estructura (ejemplo):
+/// ```text
 /// NOMBRE_NORMALIZADO
-///   ├─ ID Malla (ej: 7)
-///   ├─ Código OA2024 (ej: CBM1003)
-///   ├─ Código PA2025-1 (ej: CBM1003)
-///   ├─ Porcentaje (ej: 53.13%)
-///   └─ Es Electivo (true/false)
+///   - ID Malla (ej: 7)
+///   - Código OA2024 (ej: CBM1003)
+///   - Código PA2025-1 (ej: CBM1003)
+///   - Porcentaje (ej: 53.13%)
+///   - Es Electivo (true/false)
 /// ```
 
 use std::collections::HashMap;

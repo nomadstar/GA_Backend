@@ -1,0 +1,409 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "QuickShift API",
+    "version": "1.0.0",
+    "description": "API para generar y evaluar rutas académicas y perfiles de estudiantes."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development server (matches quickshift default PORT=8080)"
+    }
+  ],
+  "paths": {
+    "/solve": {
+      "get": {
+        "summary": "Resolver horario (versión ligera por query params)",
+        "description": "Parámetros por query (coma-separados). Use POST /rutacritica/run o POST /solve para payloads privados o complejos.",
+        "parameters": [
+          {
+            "name": "email",
+            "in": "query",
+            "schema": { "type": "string", "format": "email" },
+            "required": false
+          },
+          {
+            "name": "ramos_pasados",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Lista de ramos aprobados, separada por comas. Ej: CIT3313,CIT3211"
+          },
+          {
+            "name": "ramos_prioritarios",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Lista de ramos prioritarios, separada por comas."
+          },
+          {
+            "name": "horarios_preferidos",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Lista de franjas horarias preferidas, separadas por comas. Ej: 08:00-10:00"
+          },
+          {
+            "name": "malla",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Nombre de archivo de malla (ej: MallaCurricular2020.xlsx)"
+          },
+          {
+            "name": "sheet",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Nombre de hoja dentro de la malla (ej: Malla 2020)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resultado del solver",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" },
+                "example": {
+                  "status": "ok",
+                  "solutions_count": 3,
+                  "best": { "id": 1, "description": "Horario sugerido" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rutacomoda/best": {
+      "post": {
+        "summary": "Obtener mejor ruta acomodada",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file_path": { "type": "string" },
+                  "paths": {
+                    "type": "array",
+                    "items": { "type": "object" }
+                  }
+                }
+              },
+              "examples": {
+                "byPath": {
+                  "value": { "file_path": "/path/to/paths.json" }
+                },
+                "byArray": {
+                  "value": { "paths": [] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Ruta óptima devuelta", "content": { "application/json": { "schema": { "type": "object" } } } }
+        }
+      }
+    },
+    "/rutacritica/run": {
+      "post": {
+        "summary": "Ejecuta el orquestador con body JSON (igual que POST /solve)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/StudentProfile" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Orquestador ejecutado", "content": { "application/json": { "schema": { "type": "object" } } } }
+        }
+      }
+    },
+    "/datafiles": {
+      "get": {
+        "summary": "Lista archivos disponibles en src/datafiles",
+        "responses": {
+          "200": {
+            "description": "Lista de archivos",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "string" } },
+                "example": ["MallaCurricular2020.xlsx", "Oferta2025.xlsx"]
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Eliminar un archivo de src/datafiles por nombre",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Nombre del archivo a eliminar (ej: MiMalla.xlsx)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Archivo eliminado",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" },
+                "example": { "status": "ok", "deleted": "MiMalla.xlsx" }
+              }
+            }
+          },
+          "404": { "description": "Archivo no encontrado" }
+        }
+      }
+    },
+    "/datafiles/upload": {
+      "post": {
+        "summary": "Subir uno o varios archivos a src/datafiles",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "files": {
+                    "type": "array",
+                    "items": { "type": "string", "format": "binary" },
+                    "description": "Uno o varios archivos (campo 'files')"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Archivos subidos correctamente",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" },
+                "example": { "status": "ok", "uploaded": ["MiMalla.xlsx"] }
+              }
+            }
+          },
+          "400": { "description": "Error en upload" }
+        }
+      }
+    },
+    "/datafiles/download": {
+      "get": {
+        "summary": "Descargar archivo desde src/datafiles",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Nombre del archivo a descargar (ej: MiMalla.xlsx)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Archivo devuelto (binary stream)",
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "format": "binary" }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "404": { "description": "Archivo no encontrado" }
+        }
+      }
+    },
+    "/datafiles/content": {
+      "get": {
+        "summary": "Resumen de malla/oferta/porcentajes y lista de hojas internas",
+        "parameters": [
+          {
+            "name": "malla",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "sheet",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contenido de malla",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" },
+                "example": { "malla": "MallaCurricular2020.xlsx", "sheets": ["Malla 2020", "Electivos"], "summary": {} }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/students": {
+      "post": {
+        "summary": "Guarda un perfil de estudiante (se indexa por email)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/StudentProfile" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Perfil guardado" }
+        }
+      }
+    },
+    "/help": {
+      "get": {
+        "summary": "Describe la API y muestra ejemplos en JSON",
+        "responses": {
+          "200": {
+            "description": "Ayuda",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" },
+                "example": { "endpoints": ["/solve", "/rutacomoda/best", "/rutacritica/run", "/datafiles", "/students", "/help"] }
+              }
+            }
+          }
+        }
+      }
+    }
+    ,
+    "/analithics/count_users": {
+      "get": {
+        "summary": "Cuenta de usuarios indexados",
+        "description": "Devuelve el número de perfiles de estudiantes indexados en la base de datos de analíticas.",
+        "responses": {
+          "200": {
+            "description": "Conteo de usuarios",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "count_users": { "type": "integer" } } },
+                "example": { "count_users": 42 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analithics/ramos_mas_recomendados": {
+      "get": {
+        "summary": "Ramos más recomendados para un estudiante",
+        "parameters": [
+          { "name": "email", "in": "query", "required": true, "schema": { "type": "string", "format": "email" }, "description": "Email del estudiante" },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Máximo de resultados (defecto 10)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de ramos recomendados con conteo",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } },
+                "example": [ { "ramo": "CIT3313", "count": 12 }, { "ramo": "CIT3211", "count": 9 } ]
+              }
+            }
+          },
+          "400": { "description": "Falta parámetro 'email'" }
+        }
+      }
+    },
+    "/analithics/ramos_pasados": {
+      "get": {
+        "summary": "Ramos pasados por un estudiante",
+        "parameters": [
+          { "name": "email", "in": "query", "required": true, "schema": { "type": "string", "format": "email" }, "description": "Email del estudiante" },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Máximo de resultados (defecto 10)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de ramos aprobados y conteo",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } },
+                "example": [ { "ramo": "CBM1001", "count": 2 }, { "ramo": "MAT1010", "count": 1 } ]
+              }
+            }
+          },
+          "400": { "description": "Falta parámetro 'email'" }
+        }
+      }
+    },
+    "/analithics/ranking_por_estudiante": {
+      "get": {
+        "summary": "Ranking de cursos por interacción/solicitudes (global o por estudiante)",
+        "parameters": [
+          { "name": "email", "in": "query", "required": false, "schema": { "type": "string", "format": "email" }, "description": "Email opcional para ranking personalizado" },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Máximo de resultados" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranking devuelto",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } },
+                "example": [ { "ramo": "CIT3313", "score": 98 }, { "ramo": "CIT3211", "score": 86 } ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analithics/filtros_mas_solicitados": {
+      "get": {
+        "summary": "Filtros más solicitados en las consultas de analíticas",
+        "responses": {
+          "200": {
+            "description": "Lista de filtros con conteo",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } },
+                "example": [ { "filtro": "semestre:2025-1", "count": 15 }, { "filtro": "nivel:3", "count": 8 } ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "StudentProfile": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "ramos_pasados": { "type": "array", "items": { "type": "string" } },
+          "ramos_prioritarios": { "type": "array", "items": { "type": "string" } },
+          "horarios_preferidos": { "type": "array", "items": { "type": "string" } },
+          "malla": { "type": "string" },
+          "sheet": { "type": "string" }
+        },
+        "required": ["email"],
+        "example": {
+          "email": "alumno@ejemplo.cl",
+          "ramos_pasados": ["CIT3313", "CIT3211"],
+          "ramos_prioritarios": ["CIT3313"],
+          "horarios_preferidos": ["08:00-10:00"],
+          "malla": "MallaCurricular2020.xlsx",
+          "sheet": "Malla 2020"
+        }
+      }
+    }
+  }
+}
+

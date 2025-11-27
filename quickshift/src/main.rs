@@ -2,6 +2,7 @@
 
 use quickshift::run_server;
 use std::env;
+use quickshift::algorithm::extract_controller; // <-- agregado
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -12,6 +13,10 @@ async fn main() -> std::io::Result<()> {
     let bind = format!("0.0.0.0:{}", port);
 
     println!("Iniciando servidor en http://{}", bind);
+    // Leer variable de entorno USE_OPTIMIZED (true/false). Por defecto true.
+    let use_opt = env::var("USE_OPTIMIZED").unwrap_or_else(|_| "true".into());
+    let use_opt_bool = matches!(use_opt.to_lowercase().as_str(), "1" | "true" | "yes" | "y");
+    extract_controller::set_use_optimized(use_opt_bool);
     println!("");
     println!("Endpoints disponibles:");
     println!("  POST /solve    - Body JSON. Ejemplo (use 'malla' y opcional 'sheet' para seleccionar hoja interna):");

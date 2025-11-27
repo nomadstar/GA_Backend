@@ -48,6 +48,9 @@ pub use oferta::leer_oferta_academica_excel;
 pub use asignatura::asignatura_from_nombre;
 pub use mapeo_builder::construir_mapeo_maestro;
 pub use mapeo::{MapeoMaestro, MapeoAsignatura};
+// Caché para lecturas pesadas de Excel (prerequisitos por malla)
+pub mod cache;
+pub use cache::get_prereqs_cached;
 // Normalizadores expuestos para que otros módulos (algorithm, ruta) los puedan usar
 // Re-exportar los helpers de normalización desde el submódulo `io` para que sean
 // accesibles fuera del módulo `excel` sin exponer el módulo `io` completo.
@@ -430,10 +433,31 @@ pub fn build_normalized_index(names: &[String]) -> HashMap<String, String> {
 /// Intenta encontrar la mejor coincidencia por nombre normalizado.
 /// 
 /// Ejemplo de uso:
-/// ```ignore
-/// let mut ramo = RamoDisponible { nombre: "Mecánica", ... };
-/// enrich_ramo_with_oferta(&mut ramo, &secciones);
-/// // Ahora ramo tiene referencias a las secciones que ofrecen "Mecánica"
+/// ```rust
+/// use std::collections::HashMap;
+/// use quickshift::models::RamoDisponible;
+/// // Construimos un mapa mínimo de ramos y datos de oferta/porcentajes
+/// let mut ramos: HashMap<String, RamoDisponible> = HashMap::new();
+/// ramos.insert(
+///     "CIT2100".to_string(),
+///     RamoDisponible {
+///         id: 1,
+///         nombre: "Mecánica".to_string(),
+///         codigo: "CIT2100".to_string(),
+///         holgura: 0,
+///         numb_correlativo: 0,
+///         critico: false,
+///         codigo_ref: None,
+///         dificultad: None,
+///         electivo: false,
+///     },
+/// );
+/// let oferta = vec!["Mecánica".to_string()];
+/// let mut porcentajes: HashMap<String, (f64, f64)> = HashMap::new();
+/// porcentajes.insert("CIT2100".to_string(), (85.0, 100.0));
+/// // Llamada a la función a documentar
+/// quickshift::excel::enrich_ramo_with_congruencias(&mut ramos, &oferta, &porcentajes);
+/// assert_eq!(ramos.get("CIT2100").unwrap().dificultad, Some(85.0));
 /// ```
 pub fn enrich_ramo_with_congruencias(
     ramos: &mut HashMap<String, RamoDisponible>,
