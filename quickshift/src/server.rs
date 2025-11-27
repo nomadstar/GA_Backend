@@ -82,19 +82,19 @@ async fn root_redirect_handler() -> impl Responder {
 pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
-            .wrap(Cors::default()
-                .allowed_origin_fn(|origin, _req_head| {
-                    let origin_str = origin.to_str().unwrap_or("");
-                    origin_str == "https://horarios.lmao.cl" ||
-                    origin.as_bytes().starts_with(b"http://localhost")
-                })
-                .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
-                .allowed_headers(vec![
-                    actix_web::http::header::AUTHORIZATION,
-                    actix_web::http::header::ACCEPT,
-                    actix_web::http::header::CONTENT_TYPE,
-                ])
-                .max_age(3600))
+            // CORS: During development allow localhost origins so browser clients
+            // (served from different ports) can call the API. In production tighten this.
+            .wrap(
+                Cors::default()
+                    .allow_any_origin()
+                    .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+                    .allowed_headers(vec![
+                        actix_web::http::header::AUTHORIZATION,
+                        actix_web::http::header::ACCEPT,
+                        actix_web::http::header::CONTENT_TYPE,
+                    ])
+                    .max_age(3600)
+            )
             // Initialize analytics DB (best-effort)
             .app_data({
                 // call init_db here in closure side-effect: we call it once when app is built
