@@ -7,8 +7,8 @@
   },
   "servers": [
     {
-      "url": "http://localhost:3000",
-      "description": "Local server"
+      "url": "http://localhost:8080",
+      "description": "Local development server (matches quickshift default PORT=8080)"
     }
   ],
   "paths": {
@@ -278,6 +278,102 @@
               "application/json": {
                 "schema": { "type": "object" },
                 "example": { "endpoints": ["/solve", "/rutacomoda/best", "/rutacritica/run", "/datafiles", "/students", "/help"] }
+              }
+            }
+          }
+        }
+      }
+    }
+    ,
+    "/analithics/count_users": {
+      "get": {
+        "summary": "Cuenta de usuarios indexados",
+        "description": "Devuelve el número de perfiles de estudiantes indexados en la base de datos de analíticas.",
+        "responses": {
+          "200": {
+            "description": "Conteo de usuarios",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "count_users": { "type": "integer" } } },
+                "example": { "count_users": 42 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analithics/ramos_mas_recomendados": {
+      "get": {
+        "summary": "Ramos más recomendados para un estudiante",
+        "parameters": [
+          { "name": "email", "in": "query", "required": true, "schema": { "type": "string", "format": "email" }, "description": "Email del estudiante" },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Máximo de resultados (defecto 10)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de ramos recomendados con conteo",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } },
+                "example": [ { "ramo": "CIT3313", "count": 12 }, { "ramo": "CIT3211", "count": 9 } ]
+              }
+            }
+          },
+          "400": { "description": "Falta parámetro 'email'" }
+        }
+      }
+    },
+    "/analithics/ramos_pasados": {
+      "get": {
+        "summary": "Ramos pasados por un estudiante",
+        "parameters": [
+          { "name": "email", "in": "query", "required": true, "schema": { "type": "string", "format": "email" }, "description": "Email del estudiante" },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Máximo de resultados (defecto 10)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de ramos aprobados y conteo",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } },
+                "example": [ { "ramo": "CBM1001", "count": 2 }, { "ramo": "MAT1010", "count": 1 } ]
+              }
+            }
+          },
+          "400": { "description": "Falta parámetro 'email'" }
+        }
+      }
+    },
+    "/analithics/ranking_por_estudiante": {
+      "get": {
+        "summary": "Ranking de cursos por interacción/solicitudes (global o por estudiante)",
+        "parameters": [
+          { "name": "email", "in": "query", "required": false, "schema": { "type": "string", "format": "email" }, "description": "Email opcional para ranking personalizado" },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Máximo de resultados" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranking devuelto",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } },
+                "example": [ { "ramo": "CIT3313", "score": 98 }, { "ramo": "CIT3211", "score": 86 } ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analithics/filtros_mas_solicitados": {
+      "get": {
+        "summary": "Filtros más solicitados en las consultas de analíticas",
+        "responses": {
+          "200": {
+            "description": "Lista de filtros con conteo",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } },
+                "example": [ { "filtro": "semestre:2025-1", "count": 15 }, { "filtro": "nivel:3", "count": 8 } ]
               }
             }
           }
