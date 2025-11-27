@@ -410,24 +410,50 @@ async fn save_student_handler(body: web::Json<serde_json::Value>) -> impl Respon
     HttpResponse::Ok().json(json!({"status": "ok", "count": students.len()}))
 }
 
-pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
-    HttpServer::new(|| {
-        let cors = Cors::default()
-            .allowed_origin_fn(|origin, _req_head| {
-                let origin_str = origin.to_str().unwrap_or("");
-                origin_str == "https://horarios.lmao.cl" ||
-                origin.as_bytes().starts_with(b"http://localhost")
-            })
-            .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
-            .allowed_headers(vec![
-                actix_web::http::header::AUTHORIZATION,
-                actix_web::http::header::ACCEPT,
-                actix_web::http::header::CONTENT_TYPE,
-            ])
-            .max_age(3600);
+// Use external OpenAPI file located at `src/openapi.json` so the spec can be
+// edited independently. This embeds the file at compile time; if you prefer
+// runtime reads, we can switch to `std::fs::read_to_string` in the handler.
+const OPENAPI_JSON: &str = include_str!("openapi.json");
 
+const SWAGGER_HTML: &str = include_str!("swagger.html");
+
+// Nuevo handler para servir el OpenAPI JSON
+async fn openapi_json_handler() -> impl Responder {
+    HttpResponse::Ok()
+        .content_type("application/json; charset=utf-8")
+        .body(OPENAPI_JSON)
+}
+
+// Nuevo handler para servir la página Swagger UI (carga JSON desde /api-doc/openapi.json)
+async fn swagger_ui_handler() -> impl Responder {
+    HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(SWAGGER_HTML)
+}
+
+// Redirige `/` a la UI de documentación (`/api-docs`)
+async fn root_redirect_handler() -> impl Responder {
+    HttpResponse::Found()
+        .append_header((actix_web::http::header::LOCATION, "/api-docs"))
+        .finish()
+}
+
+pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
+    HttpServer::new(move || {
         App::new()
-            .wrap(cors)
+            .wrap(Cors::default()
+                .allowed_origin_fn(|origin, _req_head| {
+                    let origin_str = origin.to_str().unwrap_or("");
+                    origin_str == "https://horarios.lmao.cl" ||
+                    origin.as_bytes().starts_with(b"http://localhost")
+                })
+                .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+                .allowed_headers(vec![
+                    actix_web::http::header::AUTHORIZATION,
+                    actix_web::http::header::ACCEPT,
+                    actix_web::http::header::CONTENT_TYPE,
+                ])
+                .max_age(3600))
             // Initialize analytics DB (best-effort)
             .app_data({
                 // call init_db here in closure side-effect: we call it once when app is built
@@ -436,6 +462,7 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
                 }
                 web::Data::new(())
             })
+            .route("/", web::get().to(root_redirect_handler))
             .route("/solve", web::post().to(solve_handler))
             .route("/solve", web::get().to(solve_get_handler))
                 .route("/students", web::post().to(save_student_handler))
@@ -452,6 +479,9 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
             .route("/datafiles/content", web::get().to(datafiles_content_handler))
             .route("/datafiles/debug/pa-names", web::get().to(debug_pa_names_handler))
             .route("/help", web::get().to(help_handler))
+            // Registrar rutas de documentación SWAGGER
+            .route("/api-doc/openapi.json", web::get().to(openapi_json_handler))
+            .route("/api-docs", web::get().to(swagger_ui_handler))
     })
     .bind(bind_addr)?
     .run()
