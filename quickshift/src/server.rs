@@ -1,5 +1,9 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder, HttpRequest};
 use actix_cors::Cors;
+use actix_multipart::Multipart;
+use futures_util::StreamExt as FutStreamExt;
+use tokio::io::AsyncWriteExt;
+use std::ffi::OsStr;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use crate::algorithm::{extract_data, get_clique_with_user_prefs, list_datafiles, summarize_datafiles};
@@ -309,133 +313,47 @@ async fn rutacritica_run_dependencies_only_handler(body: web::Json<serde_json::V
 
 // Analytics HTTP handlers
 async fn anal_ramos_pasados_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
-    let limit = query.get("limit").and_then(|s| s.parse::<usize>().ok());
-    match crate::analithics::ramos_mas_pasados(limit) {
-        Ok(v) => HttpResponse::Ok().json(v),
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("analytics error: {}", e)})),
-    }
+    crate::api_json::handlers::analytics::anal_ramos_pasados_handler(query).await
 }
 
 async fn anal_ranking_handler() -> impl Responder {
-    match crate::analithics::ranking_por_estudiante() {
-        Ok(v) => HttpResponse::Ok().json(v),
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("analytics error: {}", e)})),
-    }
+    crate::api_json::handlers::analytics::anal_ranking_handler().await
 }
 
 async fn anal_count_users_handler() -> impl Responder {
-    match crate::analithics::count_users() {
-        Ok(v) => HttpResponse::Ok().json(v),
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("analytics error: {}", e)})),
-    }
+    crate::api_json::handlers::analytics::anal_count_users_handler().await
 }
 
 async fn anal_filtros_handler() -> impl Responder {
-    match crate::analithics::filtros_mas_solicitados() {
-        Ok(v) => HttpResponse::Ok().json(v),
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("analytics error: {}", e)})),
-    }
+    crate::api_json::handlers::analytics::anal_filtros_handler().await
 }
 
 async fn anal_ramos_recomendados_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
-    let limit = query.get("limit").and_then(|s| s.parse::<usize>().ok());
-    match crate::analithics::ramos_mas_recomendados(limit) {
-        Ok(v) => HttpResponse::Ok().json(v),
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("analytics error: {}", e)})),
-    }
+    crate::api_json::handlers::analytics::anal_ramos_recomendados_handler(query).await
 }
 
 /// POST /students
 /// Guarda los datos del estudiante en `data/students.json`. Si ya existe un
 /// estudiante con el mismo correo, lo sustituye.
 async fn save_student_handler(body: web::Json<serde_json::Value>) -> impl Responder {
-    // Normalizar y resolver nombres usando la función existente
-    let body_value = body.into_inner();
-    let json_str = match serde_json::to_string(&body_value) {
-        Ok(s) => s,
-        Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("invalid JSON body: {}", e)})),
-    };
-
-    let student = match crate::api_json::parse_and_resolve_ramos(&json_str, Some(".")) {
-        Ok(s) => s,
-        Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to parse input: {}", e)})),
-    };
-
-    if student.email.trim().is_empty() {
-        return HttpResponse::BadRequest().json(json!({"error": "email is required"}));
-    }
-
-    // Asegurar directorio
-    let data_dir = "data";
-    if let Err(e) = create_dir_all(data_dir) {
-        return HttpResponse::InternalServerError().json(json!({"error": format!("failed to create data dir: {}", e)}));
-    }
-
-    let file_path = format!("{}/students.json", data_dir);
-    let mut students: Vec<InputParams> = Vec::new();
-    if Path::new(&file_path).exists() {
-        match std::fs::read_to_string(&file_path) {
-            Ok(contents) if !contents.trim().is_empty() => {
-                match serde_json::from_str::<Vec<InputParams>>(&contents) {
-                    Ok(mut v) => students.append(&mut v),
-                    Err(_) => {
-                        // If file exists but is invalid, overwrite it (start fresh)
-                        students = Vec::new();
-                    }
-                }
-            }
-            _ => { /* empty file or read error -> start fresh */ }
-        }
-    }
-
-    // Remove existing with same email
-    students.retain(|s| s.email.to_lowercase() != student.email.to_lowercase());
-    students.push(student);
-
-    // Write back
-    match OpenOptions::new().write(true).create(true).truncate(true).open(&file_path) {
-        Ok(mut f) => {
-            match serde_json::to_string_pretty(&students) {
-                Ok(text) => {
-                    if let Err(e) = f.write_all(text.as_bytes()) {
-                        return HttpResponse::InternalServerError().json(json!({"error": format!("failed to write file: {}", e)}));
-                    }
-                }
-                Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("failed to serialize students: {}", e)})),
-            }
-        }
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("failed to open file: {}", e)})),
-    }
-
-    HttpResponse::Ok().json(json!({"status": "ok", "count": students.len()}))
+    crate::api_json::handlers::students::save_student_handler(body).await
 }
 
-// Use external OpenAPI file located at `src/openapi.json` so the spec can be
-// edited independently. This embeds the file at compile time; if you prefer
-// runtime reads, we can switch to `std::fs::read_to_string` in the handler.
-const OPENAPI_JSON: &str = include_str!("openapi.json");
-
-const SWAGGER_HTML: &str = include_str!("swagger.html");
+// OpenAPI and Swagger UI are served from the `api_json::handlers::docs` module.
 
 // Nuevo handler para servir el OpenAPI JSON
 async fn openapi_json_handler() -> impl Responder {
-    HttpResponse::Ok()
-        .content_type("application/json; charset=utf-8")
-        .body(OPENAPI_JSON)
+    crate::api_json::handlers::openapi_json_handler().await
 }
 
 // Nuevo handler para servir la página Swagger UI (carga JSON desde /api-doc/openapi.json)
 async fn swagger_ui_handler() -> impl Responder {
-    HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(SWAGGER_HTML)
+    crate::api_json::handlers::swagger_ui_handler().await
 }
 
 // Redirige `/` a la UI de documentación (`/api-docs`)
 async fn root_redirect_handler() -> impl Responder {
-    HttpResponse::Found()
-        .append_header((actix_web::http::header::LOCATION, "/api-docs"))
-        .finish()
+    crate::api_json::handlers::root_redirect_handler().await
 }
 
 pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
@@ -476,6 +394,9 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
             .route("/rutacritica/run", web::post().to(rutacritica_run_handler))
             .route("/rutacritica/run-dependencies-only", web::post().to(rutacritica_run_dependencies_only_handler))
             .route("/datafiles", web::get().to(datafiles_list_handler))
+            .route("/datafiles", web::delete().to(datafiles_delete_handler))
+            .route("/datafiles/upload", web::post().to(datafiles_upload_handler))
+            .route("/datafiles/download", web::get().to(datafiles_download_handler))
             .route("/datafiles/content", web::get().to(datafiles_content_handler))
             .route("/datafiles/debug/pa-names", web::get().to(debug_pa_names_handler))
             .route("/help", web::get().to(help_handler))
@@ -491,130 +412,29 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
 /// GET /datafiles
 /// Lista los nombres de archivos MC, OA y PA disponibles en `src/datafiles`.
 async fn datafiles_list_handler() -> impl Responder {
-    match list_datafiles() {
-        Ok((mallas, ofertas, porcentajes)) => HttpResponse::Ok().json(json!({"mallas": mallas, "ofertas": ofertas, "porcentajes": porcentajes})),
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("failed to list datafiles: {}", e)})),
-    }
+    crate::api_json::handlers::datafiles::datafiles_list_handler().await
+}
+
+/// POST /datafiles/upload
+/// multipart/form-data upload; field(s) with files will be written to `src/datafiles/<filename>`
+async fn datafiles_upload_handler(mut payload: Multipart) -> impl Responder {
+    crate::api_json::handlers::datafiles::datafiles_upload_handler(payload).await
+}
+
+/// GET /datafiles/download?name=archivo.xlsx
+async fn datafiles_download_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
+    crate::api_json::handlers::datafiles::datafiles_download_handler(query).await
+}
+
+/// DELETE /datafiles?name=archivo.xlsx
+async fn datafiles_delete_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
+    crate::api_json::handlers::datafiles::datafiles_delete_handler(query).await
 }
 
 /// GET /datafiles/content?malla=MiMalla.xlsx
 /// Devuelve un resumen de los contenidos (primeros elementos) de MALLA, OA y PA
 async fn datafiles_content_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
-    let qm = query.into_inner();
-    // Accept `malla` either as plain filename or with an inline sheet in brackets,
-    // e.g. `MiMalla.xlsx[Malla 2020]` or `MiMalla.xlsx[&sheet=Malla 2020]`.
-    let raw_malla = match qm.get("malla").and_then(|s| if s.trim().is_empty() { None } else { Some(s.clone()) }) {
-        Some(m) => m,
-        None => return HttpResponse::BadRequest().json(json!({"error": "malla query parameter is required"})),
-    };
-
-    // Extract optional sheet if provided inline in `malla` using brackets.
-    let mut malla = raw_malla.clone();
-    let mut sheet_from_brackets: Option<String> = None;
-    if let Some(start) = raw_malla.find('[') {
-        if let Some(end) = raw_malla.rfind(']') {
-            if end > start {
-                let inner = raw_malla[start+1..end].trim();
-                if !inner.is_empty() {
-                    // support forms: "sheet=Name" or "&sheet=Name" or just "Name"
-                    let inner = inner.trim_start_matches('&');
-                    let sheet_val = if inner.to_lowercase().starts_with("sheet=") {
-                        inner[6..].trim().to_string()
-                    } else {
-                        inner.to_string()
-                    };
-                    if !sheet_val.is_empty() {
-                        sheet_from_brackets = Some(sheet_val);
-                    }
-                }
-                // remove the bracketed part from malla
-                malla = raw_malla[..start].trim().to_string();
-            }
-        }
-    }
-
-    // Optional 'sheet' query parameter lets client request a specific internal sheet
-    let sheet_qparam: Option<String> = qm.get("sheet").and_then(|s| if s.trim().is_empty() { None } else { Some(s.clone()) });
-    // precedence: explicit ?sheet=... overrides inline bracket; otherwise use inline
-    let sheet_opt: Option<String> = match (sheet_qparam, sheet_from_brackets) {
-        (Some(q), _) => Some(q),
-        (None, Some(b)) => Some(b),
-        _ => None,
-    };
-
-    // Ensure the requested malla exists among available datafiles to avoid
-    // accidental fallthrough or fuzzy resolution returning a different file.
-    if let Ok((available_mallas, _ofertas, _porc)) = list_datafiles() {
-        if !available_mallas.iter().any(|name| name == &malla) {
-            return HttpResponse::BadRequest().json(json!({"error": format!("malla '{}' not found; available: {:?}", malla, available_mallas)}));
-        }
-    }
-
-    // Resolve paths via excel module (so only excel reads src/datafiles)
-    match summarize_datafiles(&malla, sheet_opt.as_deref()) {
-        Ok((malla_path, oferta_path, porcent_path, malla_map, oferta, porcent, porcent_names)) => {
-            // Preparar resúmenes para enviar. Por defecto retornamos muestras (para evitar payloads enormes).
-            // Si el cliente solicita `full=true` en la query, devolvemos todas las filas.
-            let full = qm.get("full").map(|s| { let sl = s.to_lowercase(); sl == "1" || sl == "true" }).unwrap_or(false);
-
-            let malla_sample: Vec<serde_json::Value> = if full {
-                malla_map.iter().map(|(code, ramo)| json!({"codigo": code, "nombre": ramo.nombre, "numb_correlativo": ramo.numb_correlativo, "dificultad": ramo.dificultad, "codigo_ref": ramo.codigo_ref})).collect()
-            } else {
-                malla_map.iter().take(200).map(|(code, ramo)| json!({"codigo": code, "nombre": ramo.nombre, "numb_correlativo": ramo.numb_correlativo, "dificultad": ramo.dificultad, "codigo_ref": ramo.codigo_ref})).collect()
-            };
-
-            // Build oferta_sample without consuming `oferta` so we can reuse it
-            // later to compute merged mappings (malla <-> oferta <-> porcentajes).
-            let oferta_sample: Vec<serde_json::Value> = if full {
-                oferta.iter().map(|s| json!(s)).collect()
-            } else {
-                oferta.iter().take(200).map(|s| json!(s)).collect()
-            };
-
-            let mut porcent_sample: Vec<serde_json::Value> = Vec::new();
-            if full {
-                for (k, v) in porcent.iter() {
-                    porcent_sample.push(json!({"codigo": k, "porcentaje": v.0, "total": v.1}));
-                }
-            } else {
-                for (k, v) in porcent.iter().take(200) {
-                    porcent_sample.push(json!({"codigo": k, "porcentaje": v.0, "total": v.1}));
-                }
-            }
-
-            // Construir un sample combinado (malla <-> oferta <-> porcentajes)
-            // usando el helper del módulo `algorithm`. Limitamos la salida a 200
-            // filas para evitar payloads enormes en respuestas por defecto.
-            let merged_full = crate::algorithm::merge_malla_oferta_porcentajes(&malla_map, &oferta, &porcent, &porcent_names);
-            let merged_sample: Vec<serde_json::Value> = if full {
-                merged_full.into_iter().collect()
-            } else {
-                merged_full.into_iter().take(200).collect()
-            };
-
-            // Intentar listar hojas internas de la malla y de la oferta (si los workbooks contienen varias tablas)
-            let malla_sheets = match crate::excel::listar_hojas_malla(&malla_path) {
-                Ok(s) => s,
-                Err(_) => Vec::new(),
-            };
-            let oferta_sheets = match crate::excel::listar_hojas_malla(&oferta_path) {
-                Ok(s) => s,
-                Err(_) => Vec::new(),
-            };
-            HttpResponse::Ok().json(json!({
-                "malla_path": malla_path.to_string_lossy(),
-                "oferta_path": oferta_path.to_string_lossy(),
-                "porcent_path": porcent_path.to_string_lossy(),
-                "malla_sheets": malla_sheets,
-                "oferta_sheets": oferta_sheets,
-                "malla_sample": malla_sample,
-                "oferta_sample": oferta_sample,
-                "porcent_sample": porcent_sample
-                ,"merged_sample": merged_sample
-            }))
-        }
-        Err(e) => HttpResponse::BadRequest().json(json!({"error": format!("failed to resolve paths for malla '{}': {}", malla, e)})),
-    }
+    crate::api_json::handlers::datafiles::datafiles_content_handler(query).await
 }
 
 /// GET /solve handler: acepta parámetros simples en query string.
@@ -729,27 +549,5 @@ async fn help_handler() -> impl Responder {
 /// DEBUG: GET /datafiles/debug/pa-names
 /// Muestra un sample del índice de nombres normalizados extraídos del PA para diagnóstico
 async fn debug_pa_names_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
-    let qm = query.into_inner();
-    let porcent_file = match qm.get("porcent").and_then(|s| if s.trim().is_empty() { None } else { Some(s.clone()) }) {
-        Some(f) => f,
-        None => "src/datafiles/PA2025-1.xlsx".to_string(),
-    };
-
-    match crate::excel::leer_porcentajes_aprobados_con_nombres(&porcent_file) {
-        Ok((_porcent_map, porcent_names)) => {
-            // Show first 50 entries from the name index
-            let mut sample: Vec<serde_json::Value> = Vec::new();
-            for (norm_name, (codigo, pct, total, es_electivo)) in porcent_names.iter().take(50) {
-                sample.push(json!({
-                    "normalized_name": norm_name,
-                    "codigo": codigo,
-                    "porcentaje": pct,
-                    "total": total,
-                    "es_electivo": es_electivo
-                }));
-            }
-            HttpResponse::Ok().json(json!({"total_names": porcent_names.len(), "sample": sample}))
-        }
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("failed to read PA: {}", e)})),
-    }
+    crate::api_json::handlers::debug::debug_pa_names_handler(query).await
 }

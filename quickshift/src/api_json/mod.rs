@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use crate::excel::asignatura_from_nombre;
 use crate::models::UserFilters;
+pub mod handlers;
 
 /// Parámetros de entrada para la ejecución de Ruta Crítica
 ///
