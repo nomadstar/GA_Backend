@@ -380,6 +380,42 @@
         }
       }
     }
+    ,
+    "/analithics/cache_stats/latest": {
+      "get": {
+        "summary": "Última instantánea de estadísticas de la caché de prerequisitos",
+        "responses": {
+          "200": {
+            "description": "Última fila de cache_stats",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" },
+                "example": { "id": 123, "ts": "2025-11-28T12:34:56Z", "hits": 120, "misses": 5, "entries": 4 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analithics/cache_stats/recent": {
+      "get": {
+        "summary": "Últimas N filas de estadísticas de caché",
+        "parameters": [
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Máximo de filas a devolver (por defecto 10)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de recientes registros cache_stats",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } },
+                "example": [ { "id": 123, "ts": "2025-11-28T12:34:56Z", "hits": 120, "misses": 5, "entries": 4 } ]
+              }
+            }
+          }
+        }
+      }
+    }
   },
   "components": {
     "schemas": {
