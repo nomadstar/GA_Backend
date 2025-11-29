@@ -705,11 +705,116 @@ pub fn get_clique_max_pond_with_prefs(
             solution_entries.push((seccion, prioridad));
             total_score_i64 += prioridad as i64;
         }
+        // Antes de aceptar la solución, aplicar comprobaciones estrictas para filtros
+        // Si `balance_lineas` está habilitado, verificar que la composición de ramos
+        // en `solution_entries` cumple exactamente con las proporciones solicitadas.
+        let mut accept_solution = true;
+        if let Some(filtros) = params.filtros.as_ref() {
+            if let Some(balance) = filtros.balance_lineas.as_ref() {
+                if balance.habilitado {
+                    if let Some(ref lineas_map) = balance.lineas {
+                        // Construir mapa de conteos reales por línea para la solución
+                        use std::collections::HashMap as Map;
+                        let mut reales: Map<String, usize> = Map::new();
+                        let mut total_selected: usize = 0;
+
+                        for (sec, _prio) in solution_entries.iter() {
+                            // Resolver RamoDisponible a partir de la sección (mismo heurístico usado antes)
+                            let nombre_norm = crate::excel::normalize_name(&sec.nombre);
+                            let ramo_opt = if let Some(r) = ramos_disponibles.get(&nombre_norm) {
+                                Some(r)
+                            } else if nombre_norm == "electivo profesional" {
+                                // buscar por código entre electivos
+                                // usamos el mismo builder como heurística: buscar clave exacta
+                                // Si no encontramos, marcamos como sin línea y esto causará rechazo
+                                None
+                            } else {
+                                None
+                            };
+
+                            if let Some(ramo) = ramo_opt {
+                                // mapear ramo.nombre a alguna línea provista en `lineas_map` por substring
+                                let rname = ramo.nombre.to_lowercase();
+                                let mut matched = false;
+                                for key in lineas_map.keys() {
+                                    if rname.contains(&key.to_lowercase()) {
+                                        *reales.entry(key.clone()).or_insert(0) += 1;
+                                        matched = true;
+                                        break;
+                                    }
+                                }
+                                // si no matchea ninguna línea, considerarlo incumplimiento estricto
+                                if !matched {
+                                    accept_solution = false;
+                                    break;
+                                }
+                                total_selected += 1;
+                            } else {
+                                // No pude mapear la sección al ramo; tratar como incumplimiento
+                                accept_solution = false;
+                                break;
+                            }
+                        }
+
+                        if accept_solution {
+                            // Si no hay ramos seleccionados (ej: 0), entonces no cumple
+                            if total_selected == 0 {
+                                accept_solution = false;
+                            } else {
+                                // Calcular expected counts a partir de porcentajes y total_selected
+                                // Algoritmo: asignar floor(p * total), luego distribuir residuos por mayor fracción
+                                use std::cmp::Ordering;
+                                let mut expected: Map<String, usize> = Map::new();
+                                let mut frac_parts: Vec<(_, f64)> = Vec::new();
+                                let mut assigned: usize = 0;
+                                for (k, v) in lineas_map.iter() {
+                                    let exact = v * (total_selected as f64);
+                                    let base = exact.floor() as usize;
+                                    expected.insert(k.clone(), base);
+                                    assigned += base;
+                                    frac_parts.push((k.clone(), exact - (base as f64)));
+                                }
+                                let mut remaining = total_selected.saturating_sub(assigned);
+                                // ordenar por parte fraccional descendente
+                                frac_parts.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+                                let mut idx = 0;
+                                while remaining > 0 && !frac_parts.is_empty() {
+                                    let key = &frac_parts[idx % frac_parts.len()].0;
+                                    *expected.entry(key.clone()).or_insert(0) += 1;
+                                    remaining -= 1;
+                                    idx += 1;
+                                }
+
+                                // Ahora comparar expected con reales exactamente
+                                for (k, &exp_count) in expected.iter() {
+                                    let real_count = *reales.get(k).unwrap_or(&0);
+                                    if real_count != exp_count {
+                                        accept_solution = false;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
     let iter_elapsed = iter_start.elapsed();
-    eprintln!("      -> Solución {} aceptada ({} cursos, score {}, tiempo: {:.3}s)", solutions.len() + 1, arr_aux_delete.len(), total_score_i64, iter_elapsed.as_secs_f64());
+    if accept_solution {
+        eprintln!("      -> Solución {} aceptada ({} cursos, score {}, tiempo: {:.3}s)", solutions.len() + 1, arr_aux_delete.len(), total_score_i64, iter_elapsed.as_secs_f64());
 
         solutions.push((solution_entries, total_score_i64));
+    } else {
+        eprintln!("      -> Solución descartada por filtros estrictos (balance_lineas u otros) (tiempo: {:.3}s)", iter_elapsed.as_secs_f64());
+        // Penalizar nodos usados para evitar elegir la misma composición repetidamente
+        for &(node_idx, _) in &arr_aux_delete {
+            if let Some(prio) = priorities.get_mut(&node_idx) {
+                *prio = (*prio / 2).max(100);
+            }
+        }
+        // No push; continuar buscando otras soluciones
+    }
         prev_solutions.push(solution_key);
 
         // 🔧 Penalize all nodes in the clique for next iteration

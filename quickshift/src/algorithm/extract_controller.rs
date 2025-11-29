@@ -13,12 +13,12 @@ static USE_OPTIMIZED: AtomicBool = AtomicBool::new(true);
 
 /// Establecer si usar versión optimizada
 pub fn set_use_optimized(use_opt: bool) {
-    USE_OPTIMIZED.store(use_opt, Ordering::Relaxed);
+    USE_OPTIMIZED.store(use_opt, Ordering::SeqCst);
 }
 
 /// Obtener estado actual
 pub fn is_using_optimized() -> bool {
-    USE_OPTIMIZED.load(Ordering::Relaxed)
+    USE_OPTIMIZED.load(Ordering::SeqCst)
 }
 
 /// Wrapper que elige automáticamente entre versión vieja y optimizada

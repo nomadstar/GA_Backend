@@ -323,6 +323,63 @@
         }
       }
     },
+    "/analithics/profesores_cursos": {
+      "get": {
+        "summary": "Mapeo de profesores a cursos",
+        "description": "Devuelve una lista de profesores y los códigos/nombres de los cursos que imparten (derivado de las consultas almacenadas).",
+        "responses": {
+          "200": {
+            "description": "Lista de profesores con cursos",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } },
+                "example": [ { "profesor": "Dr. Pérez", "cursos": ["CIT3313", "CIT3314"] } ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analithics/cursos_por_malla": {
+      "get": {
+        "summary": "Listado de cursos disponibles en una malla",
+        "parameters": [
+          { "name": "malla", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Nombre del archivo de malla (ej: MallaCurricular2020.xlsx)" },
+          { "name": "sheet", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Nombre de la hoja dentro del workbook (opcional)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de cursos encontrados en la malla",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "string" } },
+                "example": ["CIT3313", "CIT3211", "MAT1010"]
+              }
+            }
+          },
+          "400": { "description": "Parámetro 'malla' faltante o inválido" }
+        }
+      }
+    },
+    "/analithics/horarios_mas_recomendados": {
+      "get": {
+        "summary": "Horarios más recomendados ponderados por puntaje",
+        "parameters": [
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Máximo de resultados (defecto 10)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de franjas horarias con puntaje agregado",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } },
+                "example": [ { "horario": "LU 08:30-10:20", "score": 12345 }, { "horario": "MA 10:30-12:20", "score": 9876 } ]
+              }
+            }
+          }
+        }
+      }
+    },
     "/analithics/ramos_pasados": {
       "get": {
         "summary": "Ramos pasados por un estudiante",

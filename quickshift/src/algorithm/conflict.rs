@@ -4,7 +4,6 @@ use crate::models::Seccion;
 fn to_min_opt(t: &str) -> Option<i32> {
     let mut tok = t.trim().to_uppercase().replace('.', ":");
     // quitar AM/PM si viene
-    let had_am = tok.contains("AM") || tok.contains("PM");
     tok = tok.replace("AM", "").replace("PM", "").trim().to_string();
     if tok.len() == 4 && !tok.contains(':') { tok = format!("0{}", tok); }
     let parts: Vec<&str> = tok.split(':').collect();

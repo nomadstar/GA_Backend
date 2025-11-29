@@ -137,15 +137,100 @@ pub fn ramos_mas_recomendados(limit: Option<usize>) -> Result<serde_json::Value,
     Ok(result)
 }
 
+fn looks_like_course_token(s: &str) -> bool {
+    let up = s.trim().to_uppercase();
+    // Excluir tokens claramente asociados a secciones o franjas horarias
+    let forbidden = ["SECCION", "SECCIÓN", "SIN HORARIO", ":", "-", "LU", "MA", "MI", "JU", "VI", "SA", "DO"];
+    for f in forbidden.iter() {
+        if up.contains(f) { return false; }
+    }
+    // Considerar como curso si tiene letras+digitos (ej. CIT1010) o es un número largo (ej. 23007799)
+    let has_digit = s.chars().any(|c| c.is_ascii_digit());
+    let has_alpha = s.chars().any(|c| c.is_ascii_alphabetic());
+    if has_alpha && has_digit { return true; }
+    if has_digit { let nd = s.chars().filter(|c| c.is_ascii_digit()).count(); return nd >= 6; }
+    false
+}
+
 fn extract_codes_from_value(v: &serde_json::Value, counts: &mut std::collections::HashMap<String, usize>) {
     match v {
         serde_json::Value::String(s) => {
-            if s.chars().any(|c| c.is_ascii_digit()) && s.len() > 2 { *counts.entry(s.clone()).or_default() += 1; }
+            if looks_like_course_token(s) {
+                let tok = s.trim().to_string();
+                *counts.entry(tok).or_default() += 1;
+            }
         }
         serde_json::Value::Array(arr) => { for it in arr { extract_codes_from_value(it, counts); } }
         serde_json::Value::Object(map) => { for (_k, val) in map { extract_codes_from_value(val, counts); } }
         _ => {}
     }
+}
+
+/// Extrae profesores y los cursos que imparten desde los `response_json` guardados.
+pub fn profesores_y_cursos() -> Result<serde_json::Value, Box<dyn Error>> {
+    use std::collections::{HashMap, HashSet};
+    let db_path = std::path::Path::new("analithics").join("analytics.db");
+    let conn = Connection::open(db_path)?;
+    let mut stmt = conn.prepare("SELECT response_json FROM queries WHERE response_json IS NOT NULL")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    let mut map: HashMap<String, HashSet<String>> = HashMap::new();
+    for r in rows {
+        if let Ok(s) = r {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
+                extract_professor_courses(&v, &mut map);
+            }
+        }
+    }
+    let mut arr: Vec<serde_json::Value> = Vec::new();
+    for (prof, cursos) in map.into_iter() {
+        let mut list: Vec<String> = cursos.into_iter().collect();
+        list.sort();
+        arr.push(serde_json::json!({"profesor": prof, "cursos": list}));
+    }
+    arr.sort_by(|a, b| a.get("profesor").and_then(|x| x.as_str()).cmp(&b.get("profesor").and_then(|x| x.as_str())));
+    let result = serde_json::Value::Array(arr);
+    let _ = crate::analithics::save_report("profesores_y_cursos", "{}", &result.to_string());
+    Ok(result)
+}
+
+fn extract_professor_courses(v: &serde_json::Value, map: &mut std::collections::HashMap<String, std::collections::HashSet<String>>) {
+    match v {
+        serde_json::Value::Object(m) => {
+            // Si este objeto contiene campos profesor + codigo/nombre, extraer pareja
+            if let Some(serde_json::Value::String(prof)) = m.get("profesor") {
+                let mut curso_opt: Option<String> = None;
+                if let Some(serde_json::Value::String(c)) = m.get("codigo") { curso_opt = Some(c.clone()); }
+                else if let Some(serde_json::Value::String(c)) = m.get("codigo_box") { curso_opt = Some(c.clone()); }
+                else if let Some(serde_json::Value::String(n)) = m.get("nombre") { curso_opt = Some(n.clone()); }
+                if let Some(curso) = curso_opt {
+                    let prof_trim = prof.trim().to_string();
+                    map.entry(prof_trim).or_default().insert(curso.trim().to_string());
+                }
+            }
+            for (_k, val) in m.iter() { extract_professor_courses(val, map); }
+        }
+        serde_json::Value::Array(arr) => { for it in arr { extract_professor_courses(it, map); } }
+        _ => {}
+    }
+}
+
+/// Lista los cursos disponibles en una malla (archivo Excel) leyendo la oferta.
+pub fn cursos_por_malla(malla: &str) -> Result<serde_json::Value, Box<dyn Error>> {
+    use std::collections::HashSet;
+    // Intentar leer oferta académica desde excel
+    let secciones = crate::excel::leer_oferta_academica_excel(malla)?;
+    let mut set: HashSet<String> = HashSet::new();
+    for s in secciones.into_iter() {
+        if !s.codigo.is_empty() { set.insert(s.codigo); }
+        else if !s.nombre.is_empty() { set.insert(s.nombre); }
+    }
+    let mut vec: Vec<String> = set.into_iter().collect();
+    vec.sort();
+    let arr: Vec<serde_json::Value> = vec.into_iter().map(|c| serde_json::json!({"curso": c})).collect();
+    let result = serde_json::Value::Array(arr);
+    let params = serde_json::json!({"malla": malla});
+    let _ = crate::analithics::save_report("cursos_por_malla", &params.to_string(), &result.to_string());
+    Ok(result)
 }
 
 pub fn tasa_aprobacion_por_ramo(limit: Option<usize>) -> Result<serde_json::Value, Box<dyn Error>> {
@@ -255,6 +340,60 @@ fn extract_horarios_from_value(v: &serde_json::Value, counts: &mut std::collecti
             for (_k, val) in map { extract_horarios_from_value(val, counts); }
         }
         serde_json::Value::Array(arr) => { for it in arr { extract_horarios_from_value(it, counts); } }
+        _ => {}
+    }
+}
+
+/// Horarios más recomendados ponderando por el `total_score` de cada solución
+pub fn horarios_mas_recomendados(limit: Option<usize>) -> Result<serde_json::Value, Box<dyn Error>> {
+    use std::collections::HashMap;
+    let db_path = std::path::Path::new("analithics").join("analytics.db");
+    let conn = Connection::open(db_path)?;
+    let mut stmt = conn.prepare("SELECT response_json FROM queries WHERE response_json IS NOT NULL")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    let mut scores: HashMap<String, i64> = HashMap::new();
+    for r in rows {
+        if let Ok(s) = r {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
+                extract_horarios_weighted_from_value(&v, &mut scores);
+            }
+        }
+    }
+    let mut vec: Vec<(String, i64)> = scores.into_iter().collect();
+    vec.sort_by(|a, b| b.1.cmp(&a.1));
+    let lim = limit.unwrap_or(20);
+    let arr: Vec<serde_json::Value> = vec.into_iter().take(lim).map(|(h, sc)| serde_json::json!({"horario": h, "score": sc})).collect();
+    let result = serde_json::Value::Array(arr);
+    let params = serde_json::json!({"limit": limit});
+    let _ = crate::analithics::save_report("horarios_mas_recomendados", &params.to_string(), &result.to_string());
+    Ok(result)
+}
+
+fn extract_horarios_weighted_from_value(v: &serde_json::Value, scores: &mut std::collections::HashMap<String, i64>) {
+    match v {
+        serde_json::Value::Object(map) => {
+            // Si representa una solución con total_score y secciones
+            if let Some(serde_json::Value::Number(n)) = map.get("total_score") {
+                if let Some(tscore) = n.as_i64() {
+                    if let Some(serde_json::Value::Array(secs)) = map.get("secciones") {
+                        for sec in secs.iter() {
+                            if let serde_json::Value::Object(sobj) = sec {
+                                if let Some(serde_json::Value::String(h)) = sobj.get("seccion").and_then(|x| x.get("horario")).and_then(|hv| match hv { serde_json::Value::String(s) => Some(serde_json::Value::String(s.clone())), serde_json::Value::Array(_) => None, _ => None }) {
+                                    // If horario is a string
+                                    *scores.entry(h.clone()).or_default() += tscore;
+                                } else if let Some(serde_json::Value::Array(harr)) = sobj.get("seccion").and_then(|x| x.get("horario")) {
+                                    for hv in harr.iter() {
+                                        if let serde_json::Value::String(hs) = hv { *scores.entry(hs.clone()).or_default() += tscore; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for (_k, val) in map { extract_horarios_weighted_from_value(val, scores); }
+        }
+        serde_json::Value::Array(arr) => { for it in arr { extract_horarios_weighted_from_value(it, scores); } }
         _ => {}
     }
 }
