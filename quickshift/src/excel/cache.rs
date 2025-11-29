@@ -80,9 +80,9 @@ pub fn persist_cache_stats_to_db() {
     let (hits, misses, entries) = get_prereq_cache_stats();
     let ts = Utc::now().to_rfc3339();
     match crate::analithics::db::open_analytics_connection() {
-        Ok(mut conn) => {
+        Ok(conn) => {
             // convertir a i64
-            let _ = crate::analithics::db::record_cache_stats(&mut conn, &ts, hits as i64, misses as i64, entries as i64);
+            let _ = crate::analithics::db::record_cache_stats(&conn, &ts, hits as i64, misses as i64, entries as i64);
         }
         Err(e) => {
             eprintln!("WARN: no se pudo abrir analytics DB para persistir cache stats: {}", e);
