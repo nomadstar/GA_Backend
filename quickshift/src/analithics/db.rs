@@ -200,3 +200,61 @@ pub fn record_cache_stats(conn: &mut AnalyticsConn, ts: &str, hits: i64, misses:
         }
     }
 }
+
+/// Fetch the latest cache_stats row (by id desc)
+pub fn fetch_latest_cache_stats(conn: &mut AnalyticsConn) -> Result<Option<(i64, String, i64, i64, i64)>, Box<dyn Error>> {
+    match conn {
+        AnalyticsConn::Sqlite(c) => {
+            let mut stmt = c.prepare("SELECT id, ts, hits, misses, entries FROM cache_stats ORDER BY id DESC LIMIT 1")?;
+            let mut rows = stmt.query([])?;
+            if let Some(row) = rows.next()? {
+                let id: i64 = row.get(0)?;
+                let ts: String = row.get(1)?;
+                let hits: i64 = row.get(2)?;
+                let misses: i64 = row.get(3)?;
+                let entries: i64 = row.get(4)?;
+                Ok(Some((id, ts, hits, misses, entries)))
+            } else {
+                Ok(None)
+            }
+        }
+        AnalyticsConn::Postgres(client) => {
+            let rows = client.query("SELECT id, ts, hits, misses, entries FROM cache_stats ORDER BY id DESC LIMIT 1", &[])?;
+            if let Some(r) = rows.get(0) {
+                let id: i64 = r.get(0);
+                let ts: String = r.get(1);
+                let hits: i64 = r.get(2);
+                let misses: i64 = r.get(3);
+                let entries: i64 = r.get(4);
+                Ok(Some((id, ts, hits, misses, entries)))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
+
+/// Fetch recent cache_stats rows (limit)
+pub fn fetch_recent_cache_stats(conn: &mut AnalyticsConn, limit: i64) -> Result<Vec<(i64, String, i64, i64, i64)>, Box<dyn Error>> {
+    match conn {
+        AnalyticsConn::Sqlite(c) => {
+            let mut stmt = c.prepare("SELECT id, ts, hits, misses, entries FROM cache_stats ORDER BY id DESC LIMIT ?1")?;
+            let mut rows_iter = stmt.query_map(params![limit], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+            })?;
+            let mut out = Vec::new();
+            for r in rows_iter {
+                out.push(r?);
+            }
+            Ok(out)
+        }
+        AnalyticsConn::Postgres(client) => {
+            let rows = client.query("SELECT id, ts, hits, misses, entries FROM cache_stats ORDER BY id DESC LIMIT $1", &[&limit])?;
+            let mut out = Vec::new();
+            for r in rows.iter() {
+                out.push((r.get(0), r.get(1), r.get(2), r.get(3), r.get(4)));
+            }
+            Ok(out)
+        }
+    }
+}
