@@ -159,14 +159,4 @@ fn leer_malla2020_al_mapeo(
 // Esto requiere cambiar MapeoMaestro para tener un método `get_mut` o similar
 // Para ahora, vamos a usar una estructura temporal interna
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_construir_mapeo() {
-        // Verificar que la función pública `construir_mapeo_maestro` está disponible
-        // a través del re-export `crate::excel::construir_mapeo_maestro` y que
-        // maneja correctamente rutas que no existen (retornando Err).
-        let res = crate::excel::construir_mapeo_maestro("no_malla.xlsx", "no_oa.xlsx", "no_pa.xlsx");
-        assert!(res.is_err(), "Esperamos error al pasar rutas inexistentes");
-    }
-}
+ 

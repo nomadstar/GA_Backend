@@ -40,6 +40,7 @@ pub use malla::leer_malla_excel;
 pub use malla::leer_malla_excel_with_sheet;
 pub use malla::leer_prerequisitos;
 pub use malla::leer_malla_con_porcentajes;
+pub use malla::normalize_codigo_nombre;
 pub use malla_optimizado::leer_malla_con_porcentajes_optimizado;
 pub use porcentajes::leer_porcentajes_aprobados;
 pub use porcentajes::leer_porcentajes_aprobados_con_nombres;
@@ -51,6 +52,7 @@ pub use mapeo::{MapeoMaestro, MapeoAsignatura};
 // Caché para lecturas pesadas de Excel (prerequisitos por malla)
 pub mod cache;
 pub use cache::get_prereqs_cached;
+pub use cache::get_prereq_cache_stats;
 // Normalizadores expuestos para que otros módulos (algorithm, ruta) los puedan usar
 // Re-exportar los helpers de normalización desde el submódulo `io` para que sean
 // accesibles fuera del módulo `excel` sin exponer el módulo `io` completo.
@@ -62,10 +64,10 @@ use std::error::Error;
 
 /// Directorio protegido con los excels (relativo al repo)
 /// Intenta primero la ruta desde quickshift, luego desde la raíz del proyecto
-pub(crate) const DATAFILES_DIR: &str = "src/datafiles";
+pub const DATAFILES_DIR: &str = "src/datafiles";
 
 /// Función para resolver el directorio de datafiles correctamente
-pub(crate) fn get_datafiles_dir() -> PathBuf {
+pub fn get_datafiles_dir() -> PathBuf {
     use std::path::Path;
     
     // Opción 1: Usar variable de entorno si existe
@@ -288,67 +290,6 @@ pub fn listar_hojas_malla<P: AsRef<Path>>(path: P) -> Result<Vec<String>, Box<dy
 }
 
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Test helper: dado un año (p.ej. 2020) intenta resolver la malla y la imprime.
-    #[test]
-    fn test_print_malla_by_year() {
-        // Cambia este valor para probar distinto año desde el test
-        let year = 2020i32;
-        // Intentamos varios patrones comunes (MallaCurricular{year}, MiMalla{year}, MiMalla)
-        let candidate1 = format!("MallaCurricular{}.xlsx", year);
-        let candidate2 = format!("MiMalla{}.xlsx", year);
-        let candidate3 = "MiMalla.xlsx".to_string();
-
-        let mut resolved_malla: Option<std::path::PathBuf> = None;
-        for cand in &[candidate1.clone(), candidate2.clone(), candidate3.clone()] {
-            if let Ok((m, _o, _p)) = resolve_datafile_paths(cand) {
-                resolved_malla = Some(m);
-                break;
-            }
-        }
-
-        // Si no encontramos por patrón, buscar cualquier fichero en DATAFILES_DIR que contenga el año
-        if resolved_malla.is_none() {
-            let data_dir = get_datafiles_dir();
-            if let Ok(entries) = std::fs::read_dir(&data_dir) {
-                for e in entries.flatten() {
-                    if let Some(name) = e.file_name().to_str() {
-                        if name.contains(&year.to_string()) {
-                            resolved_malla = Some(e.path());
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        let malla_path = match resolved_malla {
-            Some(p) => p,
-            None => {
-                let data_dir = get_datafiles_dir();
-                let files: Vec<String> = std::fs::read_dir(&data_dir)
-                    .map(|r| r.filter_map(|e| e.ok().and_then(|ent| ent.file_name().into_string().ok())).collect::<Vec<_>>())
-                    .unwrap_or_default();
-                panic!("No se encontró ninguna malla para el año {} en {:?}. Archivos disponibles: {:?}", year, data_dir, files)
-            }
-        };
-
-        let malla_str = malla_path.to_str().expect("malla path no UTF-8");
-        let map = leer_malla_excel(malla_str).expect("falló leer_malla_excel");
-
-        // Aserción mínima: la malla no debe estar vacía
-        assert!(!map.is_empty(), "La malla leída está vacía para {}", malla_str);
-
-        // Imprimir las primeras entradas para inspección humana
-        println!("Malla leída desde: {} -> {} ramos", malla_str, map.len());
-        for (codigo, ramo) in map.iter().take(50) {
-            println!("{} => {}", codigo, ramo.nombre);
-        }
-    }
-}
 
 /// ============================================================================
 /// MATCHING INTELIGENTE ENTRE TABLAS

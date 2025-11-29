@@ -92,7 +92,7 @@ pub fn leer_malla_excel_with_sheet(nombre_archivo: &str, sheet: Option<&str>) ->
 /// Si detecta que la primera columna contiene letras y la segunda contiene
 /// dígitos (por ejemplo: "Nombre" | "ID"), invierte el orden para que el
 /// resultado sea siempre (ID, Nombre).
-fn normalize_codigo_nombre(col0: &str, col1: &str) -> (String, String) {
+pub fn normalize_codigo_nombre(col0: &str, col1: &str) -> (String, String) {
     let mut codigo = col0.to_string();
     let mut nombre = col1.to_string();
     let first_has_alpha = codigo.chars().any(|c| c.is_alphabetic());
@@ -103,28 +103,7 @@ fn normalize_codigo_nombre(col0: &str, col1: &str) -> (String, String) {
     (codigo, nombre)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::normalize_codigo_nombre;
 
-    #[test]
-    fn detect_swap_nombre_id() {
-        let nombre = "Álgebra y Geometría";
-        let id = "1";
-        let (codigo, nombre_out) = normalize_codigo_nombre(nombre, id);
-        assert_eq!(codigo, "1");
-        assert_eq!(nombre_out, "Álgebra y Geometría");
-    }
-
-    #[test]
-    fn keep_id_nombre() {
-        let id = "7";
-        let nombre = "Cálculo II";
-        let (codigo, nombre_out) = normalize_codigo_nombre(id, nombre);
-        assert_eq!(codigo, "7");
-        assert_eq!(nombre_out, "Cálculo II");
-    }
-}
 
 /// Compat wrapper existente que conserva el nombre original y usa la primera hoja
 pub fn leer_malla_excel(nombre_archivo: &str) -> Result<HashMap<String, RamoDisponible>, Box<dyn std::error::Error>> {

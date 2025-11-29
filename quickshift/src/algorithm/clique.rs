@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use petgraph::graph::{NodeIndex, UnGraph};
 use crate::models::{Seccion, RamoDisponible};
-use crate::algorithm::conflict::horarios_tienen_conflicto;
+use crate::algorithm::conflict::{horarios_tienen_conflicto, horarios_violate_min_gap};
 use std::time::Instant;
 
 /// Construir un índice inverso: PA2025-1 código → clave de HashMap (para electivos)
@@ -473,21 +473,26 @@ pub fn get_clique_max_pond_with_prefs(
                     // 2) franjas_prohibidas: si la sección solapa con cualquiera, la excluimos
                     if let Some(franjas) = &dhl.franjas_prohibidas {
                         let mut prohibited = false;
-                        for fran in franjas.iter() {
-                            let fran_up = fran.to_uppercase();
-                            for hstr in seccion.horario.iter() {
-                                let h_up = hstr.to_uppercase();
-                                if h_up.contains(&fran_up) || fran_up.contains(&h_up) {
-                                    prohibited = true; break;
+                            for fran in franjas.iter() {
+                                // Usar el parser robusto: tratamos la franja prohibida como un horario
+                                // y preguntamos si la sección solapa con ella.
+                                let fran_vec = vec![fran.clone()];
+                                if horarios_tienen_conflicto(&seccion.horario, &fran_vec) {
+                                    prohibited = true;
+                                    break;
                                 }
-                                // Also check simple day token match (e.g., "MI" in "MI 10:00")
+                                // Fallback: comprobar token de día como heurística rápida
+                                let fran_up = fran.to_uppercase();
                                 let day_token = fran_up.split_whitespace().next().unwrap_or("");
-                                if !day_token.is_empty() && h_up.starts_with(day_token) {
-                                    prohibited = true; break;
+                                if !day_token.is_empty() {
+                                    for hstr in seccion.horario.iter() {
+                                        if hstr.to_uppercase().starts_with(day_token) {
+                                            prohibited = true; break;
+                                        }
+                                    }
                                 }
+                                if prohibited { break; }
                             }
-                            if prohibited { break; }
-                        }
                         if prohibited { continue; }
                     }
 
@@ -575,7 +580,24 @@ pub fn get_clique_max_pond_with_prefs(
                sec_i.codigo[..std::cmp::min(7, sec_i.codigo.len())] != 
                sec_j.codigo[..std::cmp::min(7, sec_j.codigo.len())] {
 
-                if !horarios_tienen_conflicto(&sec_i.horario, &sec_j.horario) {
+                // 1) conflicto básico: solapamiento real
+                let mut conflict = horarios_tienen_conflicto(&sec_i.horario, &sec_j.horario);
+
+                // 2) aplicar ventana entre clases (si está habilitado en filtros)
+                if !conflict {
+                    if let Some(filtros) = params.filtros.as_ref() {
+                        if let Some(vent) = &filtros.ventana_entre_actividades {
+                            if vent.habilitado {
+                                let min_gap = vent.minutos_entre_clases.unwrap_or(15);
+                                if horarios_violate_min_gap(&sec_i.horario, &sec_j.horario, min_gap) {
+                                    conflict = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !conflict {
                     graph.add_edge(node_indices[i], node_indices[j], ());
                 }
             }

@@ -158,25 +158,3 @@ pub fn leer_malla_con_porcentajes_optimizado(
     Ok(resultado)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_carga_malla_con_porcentajes() {
-        let result = leer_malla_con_porcentajes_optimizado(
-            "src/datafiles/MiMalla.xlsx",
-            "src/datafiles/PA2025-1.xlsx",
-        );
-
-        match result {
-            Ok(ramos) => {
-                assert!(ramos.len() > 0, "Debe haber al menos un ramo");
-                eprintln!("✅ Test exitoso: {} ramos cargados", ramos.len());
-            }
-            Err(e) => {
-                eprintln!("⚠️  Test incompleto (archivos no disponibles): {}", e);
-            }
-        }
-    }
-    }

@@ -6,12 +6,17 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Tipo concreto esperado por `leer_prerequisitos`
 type PrMap = HashMap<String, Vec<String>>;
 
 // Caché global: mapa malla_path -> Arc<PrMap>
 static PREREQ_CACHE: OnceLock<Mutex<HashMap<String, Arc<PrMap>>>> = OnceLock::new();
+
+// Estadísticas simples de caché (hits / misses)
+static PREREQ_CACHE_HITS: OnceLock<AtomicUsize> = OnceLock::new();
+static PREREQ_CACHE_MISSES: OnceLock<AtomicUsize> = OnceLock::new();
 
 /// Devuelve los prerequisitos de la malla solicitada, usando el caché en memoria
 /// si está disponible; en caso contrario lee y almacena el resultado.
@@ -25,6 +30,8 @@ static PREREQ_CACHE: OnceLock<Mutex<HashMap<String, Arc<PrMap>>>> = OnceLock::ne
 ///   sin clonaciones costosas.
 pub fn get_prereqs_cached(malla_name: &str) -> Result<Arc<PrMap>, Box<dyn Error>> {
     let cache = PREREQ_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let hits = PREREQ_CACHE_HITS.get_or_init(|| AtomicUsize::new(0));
+    let misses = PREREQ_CACHE_MISSES.get_or_init(|| AtomicUsize::new(0));
     // Resolve path (intento práctico: usar resolve_datafile_paths si funciona)
     let malla_pathbuf = match crate::excel::resolve_datafile_paths(malla_name) {
         Ok((m, _, _)) => m,
@@ -36,6 +43,7 @@ pub fn get_prereqs_cached(malla_name: &str) -> Result<Arc<PrMap>, Box<dyn Error>
     {
         let guard = cache.lock().expect("prereq cache mutex poisoned");
         if let Some(existing) = guard.get(&key) {
+            hits.fetch_add(1, Ordering::SeqCst);
             return Ok(Arc::clone(existing));
         }
     }
@@ -44,6 +52,7 @@ pub fn get_prereqs_cached(malla_name: &str) -> Result<Arc<PrMap>, Box<dyn Error>
     let path_str = key.clone();
     match crate::excel::leer_prerequisitos(&path_str) {
         Ok(map) => {
+            misses.fetch_add(1, Ordering::SeqCst);
             let arc = Arc::new(map);
             let mut guard = cache.lock().expect("prereq cache mutex poisoned");
             // Guardar con la clave "key"
@@ -52,4 +61,13 @@ pub fn get_prereqs_cached(malla_name: &str) -> Result<Arc<PrMap>, Box<dyn Error>
         }
         Err(e) => Err(e),
     }
+}
+
+/// Devuelve estadísticas simples de la caché: (hits, misses, entries)
+pub fn get_prereq_cache_stats() -> (usize, usize, usize) {
+    let cache = PREREQ_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let hits = PREREQ_CACHE_HITS.get_or_init(|| AtomicUsize::new(0));
+    let misses = PREREQ_CACHE_MISSES.get_or_init(|| AtomicUsize::new(0));
+    let guard = cache.lock().expect("prereq cache mutex poisoned");
+    (hits.load(Ordering::SeqCst), misses.load(Ordering::SeqCst), guard.len())
 }

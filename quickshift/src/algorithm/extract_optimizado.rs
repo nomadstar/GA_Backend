@@ -100,24 +100,4 @@ pub fn extract_data_optimizado(
     Ok((secciones_filtradas, ramos_disponibles))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_data_optimizado() {
-        let initial_map = HashMap::new();
-        let result = extract_data_optimizado(initial_map, "MiMalla.xlsx", None);
-
-        match result {
-            Ok((secciones, ramos)) => {
-                eprintln!("✅ Test exitoso:");
-                eprintln!("   - {} secciones", secciones.len());
-                eprintln!("   - {} ramos disponibles", ramos.len());
-            }
-            Err(e) => {
-                eprintln!("⚠️  Test incompleto (archivos no disponibles): {}", e);
-            }
-        }
-    }
-}
+ 
