@@ -53,6 +53,7 @@ pub use mapeo::{MapeoMaestro, MapeoAsignatura};
 pub mod cache;
 pub use cache::get_prereqs_cached;
 pub use cache::get_prereq_cache_stats;
+pub use cache::persist_cache_stats_to_db;
 // Normalizadores expuestos para que otros módulos (algorithm, ruta) los puedan usar
 // Re-exportar los helpers de normalización desde el submódulo `io` para que sean
 // accesibles fuera del módulo `excel` sin exponer el módulo `io` completo.

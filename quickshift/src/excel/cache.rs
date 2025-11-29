@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use chrono::Utc;
 
 // Tipo concreto esperado por `leer_prerequisitos`
 type PrMap = HashMap<String, Vec<String>>;
@@ -70,4 +71,21 @@ pub fn get_prereq_cache_stats() -> (usize, usize, usize) {
     let misses = PREREQ_CACHE_MISSES.get_or_init(|| AtomicUsize::new(0));
     let guard = cache.lock().expect("prereq cache mutex poisoned");
     (hits.load(Ordering::SeqCst), misses.load(Ordering::SeqCst), guard.len())
+}
+
+/// Persiste las estadísticas actuales de la caché en la tabla `cache_stats` de
+/// la base de datos de analytics. No devuelve error si la operación falla; se
+/// registra internamente para no romper el flujo principal.
+pub fn persist_cache_stats_to_db() {
+    let (hits, misses, entries) = get_prereq_cache_stats();
+    let ts = Utc::now().to_rfc3339();
+    match crate::analithics::db::open_analytics_connection() {
+        Ok(mut conn) => {
+            // convertir a i64
+            let _ = crate::analithics::db::record_cache_stats(&mut conn, &ts, hits as i64, misses as i64, entries as i64);
+        }
+        Err(e) => {
+            eprintln!("WARN: no se pudo abrir analytics DB para persistir cache stats: {}", e);
+        }
+    }
 }
