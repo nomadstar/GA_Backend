@@ -184,6 +184,62 @@ fn latest_file_matching(dir: &Path, keywords: &[&str]) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
+/// Exponer un helper público que devuelve el fichero más reciente que coincida con
+/// una lista de keywords dentro del directorio `datafiles`.
+pub fn latest_file_for_keywords(keywords: &[&str]) -> Option<PathBuf> {
+    let data_dir = get_datafiles_dir();
+    latest_file_matching(&data_dir, keywords)
+}
+
+/// Seleccionar la path a la malla usando el año si se proporciona.
+/// - Si `malla_name` es un path existente, se devuelve directamente.
+/// - Si `anio` está presente, intenta encontrar en `datafiles` un archivo que
+///   contenga ambas cadenas: "malla" y el año (por ejemplo "Malla2020.xlsx").
+///   Si encuentra varios, devuelve el más reciente.
+/// - Si no hay `anio` o no encuentra ninguno, intenta usar `malla_name` tal cual
+///   en `datafiles` (fallback). Devuelve error si no puede resolver.
+pub fn select_malla_path_for_year(malla_name: &str, anio: Option<i32>) -> Result<PathBuf, Box<dyn Error>> {
+    let data_dir = get_datafiles_dir();
+    let malla_candidate = Path::new(malla_name);
+    if malla_candidate.exists() && malla_candidate.is_file() {
+        return Ok(malla_candidate.to_path_buf());
+    }
+
+    // Si se indicó año, buscar un archivo que incluya "malla" y el año
+    if let Some(y) = anio {
+        let year_s = y.to_string();
+        if let Ok(read) = fs::read_dir(&data_dir) {
+            let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+            for entry in read.flatten() {
+                let p = entry.path();
+                if !p.is_file() { continue; }
+                if let Some(name_raw) = p.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()) {
+                    let name_low = name_raw.to_lowercase();
+                    if (name_low.contains("malla") || name_low.contains("mc")) && name_low.contains(&year_s) {
+                        if let Ok(meta) = entry.metadata() {
+                            if let Ok(modified) = meta.modified() {
+                                match &best {
+                                    Some((best_time, _)) if *best_time >= modified => (),
+                                    _ => best = Some((modified, p.clone())),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some((_, p)) = best { return Ok(p); }
+        }
+    }
+
+    // Fallback: intentar usar data_dir / malla_name
+    let candidate = data_dir.join(malla_name);
+    if candidate.exists() && candidate.is_file() {
+        return Ok(candidate);
+    }
+
+    Err(format!("malla '{}' no encontrada (anio: {:?}) en {:?}", malla_name, anio, data_dir).into())
+}
+
 /// Resuelve las rutas de datos: (malla_path, oferta_path, porcentajes_path)
 /// - malla_name puede ser nombre de archivo o path absoluto; si no existe, buscar en DATAFILES_DIR.
 /// - Devuelve error si no encuentra alguno de los tres archivos.

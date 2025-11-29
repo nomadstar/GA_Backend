@@ -24,16 +24,28 @@ pub fn extract_data_optimizado(
     
     // Usar get_datafiles_dir() para obtener la ruta correcta en runtime
     let data_dir = excel::get_datafiles_dir();
-    let malla_path = data_dir.join(nombre_excel_malla).to_string_lossy().to_string();
-    let porcent_str = data_dir.join("PA2025-1.xlsx").to_string_lossy().to_string();
+    // Si `nombre_excel_malla` es una ruta existente la usamos; si no, la buscamos en data_dir
+    let malla_path = if std::path::Path::new(nombre_excel_malla).exists() {
+        nombre_excel_malla.to_string()
+    } else {
+        data_dir.join(nombre_excel_malla).to_string_lossy().to_string()
+    };
+
+    // Porcentajes (PA) = usar el archivo más reciente que parezca un PA (porcentajes)
+    let porcent_path = if let Some(p) = excel::latest_file_for_keywords(&["porcentaje", "porcentajes", "pa"]) {
+        p.to_string_lossy().to_string()
+    } else {
+        // Fallback conservador
+        data_dir.join("PA2025-1.xlsx").to_string_lossy().to_string()
+    };
     
     eprintln!("  📁 Rutas resueltas:");
     eprintln!("     - Malla: {}", malla_path);
-    eprintln!("     - Porcentajes: {}", porcent_str);
+    eprintln!("     - Porcentajes: {}", porcent_path);
     
     let ramos_disponibles = match excel::leer_malla_con_porcentajes_optimizado(
         &malla_path,
-        &porcent_str,
+        &porcent_path,
     ) {
         Ok(ramos_map) => {
             eprintln!(
@@ -45,7 +57,7 @@ pub fn extract_data_optimizado(
         Err(e) => {
             eprintln!("  ⚠️  Error en leer_malla_con_porcentajes_optimizado: {}", e);
             eprintln!("  🔄 Intentando con fallback (versión antigua)...");
-            match excel::leer_malla_con_porcentajes(&malla_path, &porcent_str) {
+            match excel::leer_malla_con_porcentajes(&malla_path, &porcent_path) {
                 Ok(ramos_map) => {
                     eprintln!("  ✅ Fallback exitoso: {} ramos cargados", ramos_map.len());
                     ramos_map
@@ -62,18 +74,22 @@ pub fn extract_data_optimizado(
 
     // Paso 2: Leer oferta académica -> obtener secciones (UNA SOLA PASADA)
     eprintln!("  📖 Paso 2: Leyendo oferta académica (O(n) una pasada)...");
-    let secciones: Vec<Seccion> = match excel::leer_oferta_academica_excel("OA2024.xlsx") {
-        Ok(s) => {
-            eprintln!("  ✅ Oferta académica cargada: {} secciones totales", s.len());
-            s
+    let oferta_path_opt = excel::latest_file_for_keywords(&["oferta", "oa"]);
+    let secciones: Vec<Seccion> = if let Some(opath) = oferta_path_opt {
+        let opath_s = opath.to_string_lossy().to_string();
+        match excel::leer_oferta_academica_excel(&opath_s) {
+            Ok(s) => {
+                eprintln!("  ✅ Oferta académica cargada: {} secciones totales", s.len());
+                s
+            }
+            Err(e) => {
+                eprintln!("  ⚠️  Error al leer oferta ({}) : {}. Usando lista vacía.", opath_s, e);
+                Vec::new()
+            }
         }
-        Err(e) => {
-            eprintln!(
-                "  ⚠️  Error al leer oferta: {}. Usando lista vacía.",
-                e
-            );
-            Vec::new()
-        }
+    } else {
+        eprintln!("  ⚠️  No se encontró archivo de oferta (OA) reciente. Usando lista vacía.");
+        Vec::new()
     };
 
     // Paso 3: Filtrar secciones por Malla (una sola pasada O(n))

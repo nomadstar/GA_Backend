@@ -152,7 +152,7 @@ pub async fn solve_get_handler(query: web::Query<std::collections::HashMap<Strin
 
     let email = qm.get("email").cloned().unwrap_or_else(|| "".to_string());
 
-    let input = InputParams {
+        let input = InputParams {
         email,
         ramos_pasados,
         ramos_prioritarios,
@@ -161,6 +161,7 @@ pub async fn solve_get_handler(query: web::Query<std::collections::HashMap<Strin
         sheet: None,
         ranking: None,
         student_ranking: None,
+            anio: None,
         filtros: None,
     };
 

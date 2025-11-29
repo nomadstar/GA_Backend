@@ -62,6 +62,10 @@ pub struct InputParams {
 	pub horarios_preferidos: Vec<String>,
 	// Required: which curricular map to use. Example values: "MallaCurricular2010.xlsx", "MallaCurricular2018.xlsx", "MallaCurricular2020.xlsx"
 	pub malla: String,
+    /// Año objetivo: si se especifica, se intentará seleccionar la Malla/MC del año dado.
+    /// Si se omite, se usará la `malla` tal cual (nombre de archivo) y se buscará OA/PA más recientes.
+    #[serde(default)]
+    pub anio: Option<i32>,
 	// Optional: which internal sheet to use inside the workbook (e.g., "Malla 2020")
 	pub sheet: Option<String>,
 
