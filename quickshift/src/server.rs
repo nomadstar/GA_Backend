@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 use num_cpus;
 use crate::server_handlers;
+// Note: periodic persistence was removed for now to avoid runtime complexity.
 
 // Lightweight wrappers delegate heavy logic to `server_handlers` modules.
 
@@ -101,6 +102,7 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
                 if let Err(e) = crate::analithics::init_db() {
                     eprintln!("analytics init failed: {}", e);
                 }
+                // analytics initialization only (no background persistence started here)
                 web::Data::new(())
             })
             .route("/", web::get().to(root_redirect_handler))

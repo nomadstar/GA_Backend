@@ -348,12 +348,29 @@ pub fn get_clique_max_pond_with_prefs(
     params: &crate::api_json::InputParams,
 ) -> Vec<(Vec<(Seccion, i32)>, i64)> {
     let mut filtered: Vec<Seccion> = Vec::new();
+    // Si el usuario especificó `horarios_preferidos` a nivel de params, aplicamos
+    // un filtrado estricto: sólo se permiten secciones que estén completamente
+    // contenidas en alguna de las franjas preferidas.
+    let prefs = &params.horarios_preferidos;
     for s in lista_secciones.iter() {
         let mut is_taken = false;
         for rp in params.ramos_pasados.iter() {
             if rp == &s.codigo_box || s.codigo.starts_with(rp) { is_taken = true; break; }
         }
-        if !is_taken { filtered.push(s.clone()); }
+        if is_taken { continue; }
+
+        if !prefs.is_empty() {
+            let mut any_pref_match = false;
+            for pref in prefs.iter() {
+                if crate::algorithm::conflict::seccion_contenida_en_rango(s, pref) {
+                    any_pref_match = true;
+                    break;
+                }
+            }
+            if !any_pref_match { continue; }
+        }
+
+        filtered.push(s.clone());
     }
 
     // Construir índice inverso PA2025-1 código → clave del HashMap (para TODOS los ramos)
@@ -545,6 +562,36 @@ pub fn get_clique_max_pond_with_prefs(
             if let Some(prefp) = &filtros.preferencias_profesores {
                 if prefp.habilitado {
                     let profesor_lower = seccion.profesor.to_lowercase();
+
+                    // Si el usuario proporcionó una lista explícita de profesores preferidos,
+                    // la semántica estricta es: sólo permitir secciones cuyo profesor esté en esa lista.
+                    if let Some(pref_list) = &prefp.profesores_preferidos {
+                        if !pref_list.is_empty() {
+                            let mut matched = false;
+                            for p in pref_list.iter() {
+                                if !p.is_empty() && profesor_lower.contains(&p.to_lowercase()) {
+                                    matched = true;
+                                    break;
+                                }
+                            }
+                            if !matched { continue; } // excluir sección si no coincide con preferred list
+                        }
+                    }
+
+                    // Si el usuario proporcionó profesores a evitar, excluimos secciones cuyo profesor coincida
+                    if let Some(avoid_list) = &prefp.profesores_evitar {
+                        if !avoid_list.is_empty() {
+                            let mut avoid = false;
+                            for p in avoid_list.iter() {
+                                if !p.is_empty() && profesor_lower.contains(&p.to_lowercase()) {
+                                    avoid = true; break;
+                                }
+                            }
+                            if avoid { continue; }
+                        }
+                    }
+
+                    // Si llegamos aquí, no se excluyó: aplicar boosts/penalizaciones suaves como antes
                     if let Some(pref_list) = &prefp.profesores_preferidos {
                         for p in pref_list.iter() {
                             if !p.is_empty() && profesor_lower.contains(&p.to_lowercase()) {
