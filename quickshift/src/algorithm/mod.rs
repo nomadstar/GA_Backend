@@ -5,6 +5,7 @@ pub mod extract_optimizado;
 pub mod extract_controller;
 mod clique;
 pub mod conflict;
+pub mod section_selector;
 mod pert;
 mod ruta;
 
@@ -21,6 +22,7 @@ pub use crate::algorithm::ruta::ejecutar_ruta_critica_with_params;
 pub use crate::algorithm::conflict::horarios_tienen_conflicto;
 pub use crate::algorithm::conflict::horarios_violate_min_gap;
 pub use crate::algorithm::conflict::seccion_contiene_hora;
+pub use crate::algorithm::section_selector::select_non_conflicting_sections;
 
 // Compat wrapper: invoca la versión de `excel` usando un nombre por defecto
 // para no romper llamadas existentes que esperan `get_ramo_critico()` sin args.

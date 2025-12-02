@@ -1,7 +1,7 @@
 use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use serde_json::json;
 use crate::api_json::InputParams;
-use crate::algorithm::{extract_data, get_clique_with_user_prefs};
+use crate::algorithm::{extract_data, get_clique_with_user_prefs, select_non_conflicting_sections};
 use crate::models::Seccion;
 use std::sync::OnceLock;
 use std::sync::Arc;
@@ -74,7 +74,7 @@ pub async fn solve_handler(req: HttpRequest, body: web::Json<serde_json::Value>)
         Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("task join error: {}", e)})),
     };
 
-    let (_lista_secciones, ramos_actualizados, soluciones) = match blocking_result {
+    let (lista_secciones, ramos_actualizados, soluciones) = match blocking_result {
         Ok(v) => v,
         Err(err_msg) => return HttpResponse::InternalServerError().json(json!({"error": err_msg})),
     };
@@ -104,8 +104,39 @@ pub async fn solve_handler(req: HttpRequest, body: web::Json<serde_json::Value>)
         }
 
         if soluciones_serial.len() < 10 {
-            let secs: Vec<Seccion> = sol.iter().map(|(s, _)| s.clone()).collect();
-            soluciones_serial.push(SolutionEntry { total_score: *score, secciones: secs });
+            // Intentar seleccionar una sección por ramo sin conflicto entre todas las opciones
+            // disponibles en `lista_secciones` para los ramos incluidos en `sol`.
+            // Construir lista ordenada de claves de ramo (normalize_name) en el mismo orden
+            let mut ramo_keys: Vec<String> = Vec::new();
+            for (s, _p) in sol.iter() {
+                ramo_keys.push(crate::excel::normalize_name(&s.nombre));
+            }
+
+            // Construir grupos de candidatos: para cada clave, todas las secciones en lista_secciones
+            // cuyo nombre normalizado coincide.
+            let mut candidate_groups: Vec<Vec<Seccion>> = Vec::new();
+            for rk in ramo_keys.iter() {
+                let mut group: Vec<Seccion> = lista_secciones.iter()
+                    .filter(|ss| crate::excel::normalize_name(&ss.nombre) == *rk)
+                    .cloned()
+                    .collect();
+                // Si no hay candidatas por nombre, intentar fallback por codigo_box que aparezca en sol
+                if group.is_empty() {
+                    // Buscar código_box en la solución para este ramo
+                    if let Some((first_sec, _)) = sol.iter().find(|(s, _)| crate::excel::normalize_name(&s.nombre) == *rk) {
+                        let cb = first_sec.codigo_box.clone();
+                        group = lista_secciones.iter().filter(|ss| ss.codigo_box == cb).cloned().collect();
+                    }
+                }
+                candidate_groups.push(group);
+            }
+
+            let final_secs: Vec<Seccion> = match select_non_conflicting_sections(&candidate_groups) {
+                Some(sel) => sel,
+                None => sol.iter().map(|(s, _)| s.clone()).collect(),
+            };
+
+            soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
         }
     }
 
@@ -185,8 +216,34 @@ pub async fn solve_get_handler(query: web::Query<std::collections::HashMap<Strin
 
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
     for (sol, score) in soluciones.iter().take(10) {
-        let secs: Vec<Seccion> = sol.iter().map(|(s, _)| s.clone()).collect();
-        soluciones_serial.push(SolutionEntry { total_score: *score, secciones: secs });
+        // Para la ruta GET simplificada, aplicamos la misma selección de secciones
+        // usando `lista_secciones` como fuente de candidatas.
+        let mut ramo_keys: Vec<String> = Vec::new();
+        for (s, _p) in sol.iter() {
+            ramo_keys.push(crate::excel::normalize_name(&s.nombre));
+        }
+
+        let mut candidate_groups: Vec<Vec<Seccion>> = Vec::new();
+        for rk in ramo_keys.iter() {
+            let mut group: Vec<Seccion> = lista_secciones.iter()
+                .filter(|ss| crate::excel::normalize_name(&ss.nombre) == *rk)
+                .cloned()
+                .collect();
+            if group.is_empty() {
+                if let Some((first_sec, _)) = sol.iter().find(|(s, _)| crate::excel::normalize_name(&s.nombre) == *rk) {
+                    let cb = first_sec.codigo_box.clone();
+                    group = lista_secciones.iter().filter(|ss| ss.codigo_box == cb).cloned().collect();
+                }
+            }
+            candidate_groups.push(group);
+        }
+
+        let final_secs: Vec<Seccion> = match select_non_conflicting_sections(&candidate_groups) {
+            Some(sel) => sel,
+            None => sol.iter().map(|(s, _)| s.clone()).collect(),
+        };
+
+        soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
     }
 
     let documentos = 2usize;

@@ -184,10 +184,27 @@ pub fn leer_prerequisitos(nombre_archivo: &str) -> Result<HashMap<String, Vec<St
     // Iterar sobre las hojas seleccionadas y extraer pares (codigo -> [prereqs])
     for sheet in sheets_to_iterate.iter() {
         if let Ok(range) = workbook.worksheet_range(sheet) {
+            // Detectar índices de columnas en la hoja de prereqs (si existe header)
+            let mut codigo_col: usize = 0;
+            let mut prereq_col: usize = 1; // fallback histórico
+            let rows: Vec<_> = range.rows().collect();
+            if !rows.is_empty() {
+                let header = rows[0];
+                for (i, cell) in header.iter().enumerate() {
+                    let s = data_to_string(cell).to_lowercase();
+                    if s.contains("código") || s.contains("codigo") || s.contains("id") {
+                        codigo_col = i;
+                    }
+                    if s.contains("requisito") || s.contains("requisitos") || s.contains("requerimiento") {
+                        prereq_col = i;
+                    }
+                }
+            }
+
             for (row_idx, row) in range.rows().enumerate() {
                 if row_idx == 0 { continue; }
-                let codigo = data_to_string(row.get(0).unwrap_or(&Data::Empty));
-                let raw_pr = data_to_string(row.get(1).unwrap_or(&Data::Empty));
+                let codigo = data_to_string(row.get(codigo_col).unwrap_or(&Data::Empty));
+                let raw_pr = data_to_string(row.get(prereq_col).unwrap_or(&Data::Empty));
                 if codigo.is_empty() || raw_pr.is_empty() { continue; }
                 // separar por comas o punto y coma
                 let mut list: Vec<String> = raw_pr.split(|c| c==',' || c==';')

@@ -3,6 +3,22 @@ use petgraph::graph::{NodeIndex, UnGraph};
 use crate::models::{Seccion, RamoDisponible};
 use crate::algorithm::conflict::{horarios_tienen_conflicto, horarios_violate_min_gap};
 use std::time::Instant;
+use calamine::Reader;
+
+// Helper local: convertir calamine::Data a String (similar a excel::io::data_to_string)
+fn excel_data_to_string(d: &calamine::Data) -> String {
+    match d {
+        calamine::Data::String(s) => s.trim().to_string(),
+        calamine::Data::Float(f) => f.to_string(),
+        calamine::Data::Int(i) => i.to_string(),
+        calamine::Data::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
+        calamine::Data::Empty => String::new(),
+        calamine::Data::Error(_) => String::new(),
+        calamine::Data::DateTime(s) => s.to_string(),
+        calamine::Data::DateTimeIso(s) => s.clone(),
+        calamine::Data::DurationIso(s) => s.clone(),
+    }
+}
 
 /// Construir un índice inverso: PA2025-1 código → clave de HashMap (para electivos)
 /// Permite buscar un electivo por su código de PA2025-1
@@ -526,10 +542,18 @@ pub fn get_clique_max_pond_with_prefs(
         by_numb.insert(ramo.numb_correlativo, key.clone());
     }
 
+    eprintln!("DEBUG: ramos_disponibles.len = {}", ramos_disponibles.len());
+
     // Intentar leer prerequisitos desde las hojas adicionales de la malla (preferencia B)
     // La función devuelve: codigo_str -> Vec<codigo_prereq_str>
     let mut prereq_map: HashMap<String, Vec<String>> = HashMap::new();
-    match crate::excel::leer_prerequisitos(&params.malla) {
+    let prereq_result = crate::excel::leer_prerequisitos(&params.malla);
+    match &prereq_result {
+        Ok(m) => eprintln!("DEBUG: leer_prerequisitos OK, sheets_count={}", m.len()),
+        Err(e) => eprintln!("DEBUG: leer_prerequisitos ERR: {:?}", e),
+    }
+
+    match prereq_result {
         Ok(sheet_map) if !sheet_map.is_empty() => {
             // Construir índice código_string -> key (considerar campo `codigo` y `numb_correlativo`)
             let mut code_to_key: HashMap<String, String> = HashMap::new();
@@ -537,54 +561,95 @@ pub fn get_clique_max_pond_with_prefs(
                 if !ramo.codigo.is_empty() {
                     code_to_key.insert(ramo.codigo.clone(), k.clone());
                 }
+                // incluir también el nombre normalizado como posible clave de mapeo
+                code_to_key.insert(crate::excel::normalize_name(&ramo.nombre), k.clone());
                 code_to_key.insert(ramo.numb_correlativo.to_string(), k.clone());
             }
 
+            // DEBUG: mostrar una muestra de las claves tal como aparecen en la hoja de prereqs
+            let mut show = 0usize;
+            for (codigo_s, prereqs_s) in sheet_map.iter() {
+                if show >= 20 { break; }
+                eprintln!("   sheet_map sample: '{}' -> {:?}", codigo_s, prereqs_s);
+                show += 1;
+            }
+
             for (codigo, prereqs) in sheet_map.into_iter() {
-                // localizar la clave objetivo a partir del codigo
-                if let Some(target_key) = code_to_key.get(&codigo).cloned() {
-                    let mut mapped: Vec<String> = Vec::new();
-                    for p in prereqs.iter() {
-                        if let Some(pk) = code_to_key.get(p) {
-                            mapped.push(pk.clone());
-                        } else {
-                            // intentar mapear por nombre normalizado
-                            let pname = crate::excel::normalize_name(p);
-                            if ramos_disponibles.contains_key(&pname) {
-                                mapped.push(pname);
-                            } else if let Ok(pid) = p.parse::<i32>() {
-                                if let Some(pk2) = by_numb.get(&pid) {
-                                    mapped.push(pk2.clone());
-                                }
-                            }
-                        }
-                    }
-                    prereq_map.insert(target_key, mapped);
-                } else if let Ok(target_id) = codigo.parse::<i32>() {
-                    // fallback: buscar por id numérico
-                    if let Some(tk) = by_numb.get(&target_id) {
-                        let mut mapped: Vec<String> = Vec::new();
-                        for p in prereqs.iter() {
-                            if let Some(pk) = code_to_key.get(p) {
-                                mapped.push(pk.clone());
-                            } else {
-                                let pname = crate::excel::normalize_name(p);
-                                if ramos_disponibles.contains_key(&pname) {
-                                    mapped.push(pname);
-                                } else if let Ok(pid) = p.parse::<i32>() {
-                                    if let Some(pk2) = by_numb.get(&pid) {
-                                        mapped.push(pk2.clone());
-                                    }
-                                }
-                            }
-                        }
-                        prereq_map.insert(tk.clone(), mapped);
+                // localizar la clave objetivo a partir del codigo (variantes robustas)
+                let codigo_trim = codigo.trim();
+                let mut target_key_opt: Option<String> = None;
+                if let Some(k) = code_to_key.get(codigo_trim) { target_key_opt = Some(k.clone()); }
+                if target_key_opt.is_none() {
+                    let c_norm = crate::excel::normalize_name(codigo_trim);
+                    if let Some(k) = code_to_key.get(&c_norm) { target_key_opt = Some(k.clone()); }
+                }
+                if target_key_opt.is_none() {
+                    if let Ok(idn) = codigo_trim.parse::<i32>() {
+                        if let Some(k) = by_numb.get(&idn) { target_key_opt = Some(k.clone()); }
                     }
                 }
-            }
+
+                // Parsear todos los tokens de prereqs; aceptar formatos como "28,34,37" o "6 7" o "6;7"
+                let mut mapped: Vec<String> = Vec::new();
+                // Si la celda viene como varias entradas en `prereqs` las procesamos todas
+                for p in prereqs.iter() {
+                    let token = p.trim();
+                    if token.is_empty() { continue; }
+                    // si solo contiene guiones (—, -, –) tratar como sin prereqs explícito
+                    if token.chars().all(|c| c == '-' || c == '—' || c == '–' || c.is_whitespace()) {
+                        // explicit no prereqs -> leave mapped empty
+                        continue;
+                    }
+                    // intentar extraer IDs numéricos dentro del token (ej: "28,34,37" -> ["28","34","37"])
+                    let parts: Vec<&str> = token.split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).collect();
+                    if !parts.is_empty() {
+                        for seg in parts {
+                            if let Ok(pid) = seg.parse::<i32>() {
+                                if let Some(k) = by_numb.get(&pid) { mapped.push(k.clone()); continue; }
+                            }
+                        }
+                        // si se extrajeron números, pasar al siguiente token
+                        if !mapped.is_empty() { continue; }
+                    }
+                    // intentar mapear por nombre normalizado
+                    let token_norm = crate::excel::normalize_name(token);
+                    if ramos_disponibles.contains_key(&token_norm) { mapped.push(token_norm); continue; }
+                    // intentar mapear por codigo exacto (campo `codigo`)
+                    if let Some(k) = code_to_key.get(token) { mapped.push(k.clone()); continue; }
+                    // fallback: buscar por coincidencia parcial en campo codigo o nombre
+                    let mut found = false;
+                    for (rk, r) in ramos_disponibles.iter() {
+                        if r.codigo == token || crate::excel::normalize_name(&r.nombre) == token_norm {
+                            mapped.push(rk.clone()); found = true; break;
+                        }
+                    }
+                    if !found {
+                        eprintln!("DEBUG: prereq token NO mapeado: '{}' (target '{}')", token, codigo_trim);
+                    }
+                }
+
+                // Insertar entrada target incluso si mapped está vacía (explicit no prereqs)
+                if let Some(tk) = target_key_opt {
+                    prereq_map.insert(tk, mapped);
+                } else {
+                    // intentar parsear target como id numérico y mapear por by_numb
+                    if let Ok(idn) = codigo_trim.parse::<i32>() {
+                        if let Some(tk2) = by_numb.get(&idn) {
+                            prereq_map.insert(tk2.clone(), mapped);
+                        } else {
+                            eprintln!("DEBUG: prereq target NO mapeado: '{}' (id {})", codigo_trim, idn);
+                        }
+                    } else {
+                        eprintln!("DEBUG: prereq target NO mapeado y no numérico: '{}'", codigo_trim);
+                    }
+                }
+             }
         }
         _ => {
             // Fallback: construir prereq_map a partir de `codigo_ref` si no hay hoja de prereqs
+            // Nota: para mantener la semántica estricta pedida por el usuario, NO
+            // insertamos entradas vacías. Si no hay evidencia explícita de
+            // prerrequisitos, dejamos la clave ausente (se tratará como 'desconocido').
             for (key, ramo) in ramos_disponibles.iter() {
                 let mut pvec: Vec<String> = Vec::new();
                 if let Some(prev_id) = ramo.codigo_ref {
@@ -592,31 +657,166 @@ pub fn get_clique_max_pond_with_prefs(
                         pvec.push(prev_key.clone());
                     }
                 }
-                prereq_map.insert(key.clone(), pvec);
+                if !pvec.is_empty() {
+                    prereq_map.insert(key.clone(), pvec);
+                }
             }
         }
     }
 
-    // S1: prereqs ⊆ passed
-    let mut s1: HashSet<String> = HashSet::new();
-    for (key, _) in ramos_disponibles.iter() {
-        let all_passed = match prereq_map.get(key) {
-            Some(prs) => prs.iter().all(|pr| passed_names.contains(pr)),
-            None => true,
-        };
-        if all_passed {
-            s1.insert(key.clone());
+    // DEBUG: Estadísticas del prereq_map construido
+    eprintln!("DEBUG prereq_map: total_entries={}, entries_with_no_prereqs={}, entries_with_prereqs={}",
+              prereq_map.len(),
+              prereq_map.iter().filter(|(_, v)| v.is_empty()).count(),
+              prereq_map.iter().filter(|(_, v)| !v.is_empty()).count());
+    // Mostrar una muestra limitada de entradas para inspección (hasta 20)
+    let mut sample_count = 0usize;
+    for (k, v) in prereq_map.iter() {
+        if sample_count >= 20 { break; }
+        eprintln!("   sample prereq_map: '{}' -> {} prereqs: {:?}", k, v.len(), v);
+        sample_count += 1;
+    }
+
+    // Si no conseguimos construir prereq_map (mapa vacío), intentar parsear la
+    // hoja principal de la malla buscando la columna "Requisitos" como fallback.
+    if prereq_map.is_empty() {
+        eprintln!("DEBUG: prereq_map vacío — intentando fallback: parsear columna 'Requisitos' desde la malla");
+        if let Ok((malla_path, _oferta, _porc)) = crate::excel::resolve_datafile_paths(&params.malla) {
+            if let Ok(mut workbook) = calamine::open_workbook_auto(malla_path.to_str().unwrap_or("")) {
+                let sheet_names = workbook.sheet_names().to_owned();
+                if !sheet_names.is_empty() {
+                    // Preferir la hoja indicada por params.sheet si existe
+                    let hoja = if let Some(sheet_name) = params.sheet.as_ref() {
+                        if sheet_names.iter().any(|s| s == sheet_name) { sheet_name.clone() } else { sheet_names[0].clone() }
+                    } else {
+                        // intentar 'Malla' si existe
+                        if sheet_names.iter().any(|s| s.to_lowercase().contains("malla")) {
+                            sheet_names.iter().find(|s| s.to_lowercase().contains("malla")).unwrap().clone()
+                        } else { sheet_names[0].clone() }
+                    };
+
+                    if let Ok(range) = workbook.worksheet_range(&hoja) {
+                        // detectar columnas: nombre y requisitos
+                        let mut name_col: usize = 0;
+                        let mut req_col: usize = 3; // heurística: suele estar en la columna 3
+                        let rows: Vec<_> = range.rows().collect();
+                        if !rows.is_empty() {
+                            let header = rows[0];
+                            for (i, cell) in header.iter().enumerate() {
+                                let s = excel_data_to_string(cell).to_lowercase();
+                                if s.contains("nombre") || s.contains("asignatura") || s.contains("curso") {
+                                    name_col = i;
+                                }
+                                if s.contains("requisito") || s.contains("requisitos") {
+                                    req_col = i;
+                                }
+                            }
+                        }
+
+                        for (row_idx, row) in range.rows().enumerate() {
+                            if row_idx == 0 { continue; }
+                            let raw_name = excel_data_to_string(row.get(name_col).unwrap_or(&calamine::Data::Empty)).trim().to_string();
+                            let raw_id = excel_data_to_string(row.get(1).unwrap_or(&calamine::Data::Empty)).trim().to_string();
+                            let raw_reqs = excel_data_to_string(row.get(req_col).unwrap_or(&calamine::Data::Empty)).trim().to_string();
+                            if raw_name.is_empty() { continue; }
+                            // determinar clave de target
+                            let target_key = if ramos_disponibles.contains_key(&crate::excel::normalize_name(&raw_name)) {
+                                crate::excel::normalize_name(&raw_name)
+                            } else if let Ok(idn) = raw_id.parse::<i32>() {
+                                if let Some(k) = by_numb.get(&idn) { k.clone() } else { crate::excel::normalize_name(&raw_name) }
+                            } else { crate::excel::normalize_name(&raw_name) };
+
+                            if raw_reqs.is_empty() {
+                                // Campo vacío en la columna 'Requisitos' -> tratar como
+                                // ausencia de información (no insertar mapeo). Esto
+                                // evita interpretar una celda en blanco como "sin
+                                // prerrequisitos".
+                                continue;
+                            }
+                            // split tokens
+                            let mut mapped: Vec<String> = Vec::new();
+                            for token in raw_reqs.split(|c| c==',' || c==';') {
+                                let t = token.trim();
+                                if t.is_empty() { continue; }
+                                // intentar mapear por numb, codigo o nombre normalizado
+                                if let Ok(pid) = t.parse::<i32>() {
+                                    if let Some(k) = by_numb.get(&pid) { mapped.push(k.clone()); continue; }
+                                }
+                                let nrm = crate::excel::normalize_name(t);
+                                if ramos_disponibles.contains_key(&nrm) { mapped.push(nrm); continue; }
+                                // intentar mapear por codigo exacto (campo `codigo` en RamoDisponible)
+                                for (k, r) in ramos_disponibles.iter() {
+                                    if r.codigo == t { mapped.push(k.clone()); break; }
+                                }
+                            }
+                            // Sólo insertar si logramos mapear al menos un prerrequisito
+                            // explícito. Si no hay mapeos, dejamos la entrada ausente
+                            // para indicar 'desconocido'.
+                            if !mapped.is_empty() {
+                                prereq_map.insert(target_key, mapped);
+                            }
+                        }
+                    }
+                }
+            }
         }
+
+        eprintln!("DEBUG after fallback prereq_map: total_entries={}", prereq_map.len());
+    }
+
+    // S1: prereqs ⊆ passed
+    // Nota: tratar 'None' (sin información) como NO elegible para evitar admitir ramos cuando
+    // no se pudo mapear correctamente su entrada en la hoja de prerrequisitos.
+    // Sólo 'Some(vec![])' (vector vacío) indica explícitamente que NO tiene prerrequisitos.
+    let mut s1: HashSet<String> = HashSet::new();
+    // helper: detect base course for heuristics (strip 'avanzada', 'ii', '2', etc)
+    fn detect_base_for(r: &RamoDisponible) -> Option<String> {
+        let mut s = r.nombre.to_lowercase();
+        for token in &["avanzada", "avanzado", "parte ii", " ii", "ii", "iii", "iv", "segundo", "2"] {
+            s = s.replace(token, " ");
+        }
+        s = s.replace(|c: char| !(c.is_alphanumeric() || c.is_whitespace()), " ");
+        let cleaned = s.split_whitespace().collect::<Vec<&str>>().join(" ");
+        let norm = crate::excel::normalize_name(&cleaned);
+        if norm.is_empty() { None } else { Some(norm) }
+    }
+
+    for (key, ramo) in ramos_disponibles.iter() {
+        let mut all_passed = match prereq_map.get(key) {
+            Some(prs) => {
+                if prs.is_empty() { true } else { prs.iter().all(|pr| passed_names.contains(pr)) }
+            }
+            None => false,
+        };
+        // Si heurísticamente es una versión avanzada/nivel superior, exigir que el ramo base esté en passed
+        if let Some(base_norm) = detect_base_for(ramo) {
+            if base_norm != *key && ramos_disponibles.contains_key(&base_norm) {
+                if !passed_names.contains(&base_norm) { all_passed = false; }
+            }
+        }
+
+        if all_passed { s1.insert(key.clone()); }
     }
     // S2: prereqs ⊆ passed ∪ S1
     let mut s2: HashSet<String> = HashSet::new();
     let mut passed_plus_s1 = passed_names.clone();
     for k in s1.iter() { passed_plus_s1.insert(k.clone()); }
     for (key, _) in ramos_disponibles.iter() {
-        let all_ok = match prereq_map.get(key) {
-            Some(prs) => prs.iter().all(|pr| passed_plus_s1.contains(pr)),
-            None => true,
+        let mut all_ok = match prereq_map.get(key) {
+            Some(prs) => {
+                if prs.is_empty() { true } else { prs.iter().all(|pr| passed_plus_s1.contains(pr)) }
+            }
+            None => false,
         };
+        // Aplicar la misma heurística de niveles al decidir S2: el ramo base debe estar
+        // en passed ∪ S1 (passed_plus_s1)
+        if let Some(ramo) = ramos_disponibles.get(key) {
+            if let Some(base_norm) = detect_base_for(ramo) {
+                if base_norm != *key && ramos_disponibles.contains_key(&base_norm) {
+                    if !passed_plus_s1.contains(&base_norm) { all_ok = false; }
+                }
+            }
+        }
         if all_ok && !s1.contains(key) {
             s2.insert(key.clone());
         }
