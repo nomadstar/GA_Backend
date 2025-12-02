@@ -1,8 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use calamine::{open_workbook_auto, Data, Reader};
 use crate::models::RamoDisponible;
 use crate::excel::io::data_to_string;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+// Índices configurables (se pueden cambiar en tiempo de ejecución si se desea)
+pub static MALLA_NAME_COL: AtomicUsize = AtomicUsize::new(0);
+pub static MALLA_ID_COL: AtomicUsize = AtomicUsize::new(1);
+pub static OA_NAME_COL: AtomicUsize = AtomicUsize::new(2);
+pub static OA_CODE_COL: AtomicUsize = AtomicUsize::new(0);
 
 /// Lee un archivo de malla (espera filas: codigo, nombre, correlativo, holgura, critico, ...)
 /// Leer malla desde un archivo Excel, permitiendo opcionalmente elegir la hoja
@@ -33,56 +40,76 @@ pub fn leer_malla_excel_with_sheet(nombre_archivo: &str, sheet: Option<&str>) ->
 
     let range = workbook.worksheet_range(&hoja_seleccionada)?;
 
-    for (row_idx, row) in range.rows().enumerate() {
-        if row_idx == 0 { continue; }
-
-        // Leer las dos primeras columnas (pueden venir como "ID | Nombre" o
-        // como "Nombre | ID" según el archivo). Normalizamos su orden con una
-        // función auxiliar que encapsula la heurística de detección.
-        let col0 = data_to_string(row.get(0).unwrap_or(&Data::Empty));
-        let col1 = data_to_string(row.get(1).unwrap_or(&Data::Empty));
-        
-        // Filtrar filas de encabezado duplicadas ("Código", "ID", etc.)
-        let col0_lower = col0.to_lowercase();
-        let col1_lower = col1.to_lowercase();
-        if (col0_lower == "código" || col0_lower == "id" || col0_lower == "código asignatura" || col0_lower == "asignatura") &&
-           (col1_lower == "nombre" || col1_lower == "id" || col1_lower == "código" || col1_lower == "código asignatura" || col1_lower == "asignatura") {
-            eprintln!("DEBUG: Saltando fila de encabezado: '{}' || '{}'", col0, col1);
-            continue;
+    // Detectar índices de columnas por encabezado (si existe)
+    let mut name_idx: usize = 0;
+    let mut id_idx: usize = 1;
+    let mut rows: Vec<_> = range.rows().collect();
+    if !rows.is_empty() {
+        let header = rows[0];
+        for (i, cell) in header.iter().enumerate() {
+            let s = data_to_string(cell).to_lowercase();
+            if s.contains("nombre") || s.contains("asignatura") || s.contains("curso") {
+                name_idx = i;
+            }
+            if s.contains("código") || s.contains("codigo") || s.contains("id") {
+                id_idx = i;
+            }
         }
-        
-        let (codigo, nombre) = normalize_codigo_nombre(&col0, &col1);
+        eprintln!("DEBUG: header detected -> name_idx={} id_idx={}", name_idx, id_idx);
+    }
 
-        let correlativo = data_to_string(row.get(2).unwrap_or(&Data::Empty)).parse::<i32>().unwrap_or(0);
-        let holgura = data_to_string(row.get(3).unwrap_or(&Data::Empty)).parse::<i32>().unwrap_or(0);
+    // Iterar filas usando los índices detectados; saltar header si existe
+    for (row_idx, row) in rows.into_iter().enumerate() {
+        if row_idx == 0 {
+            // si la fila 0 parece ser header (contiene "nombre" o "id"), la saltamos
+            let col0 = data_to_string(row.get(0).unwrap_or(&Data::Empty)).to_lowercase();
+            if col0.contains("nombre") || col0.contains("código") || col0.contains("id") { continue; }
+        }
 
-        let critico = {
-            let v = data_to_string(row.get(4).unwrap_or(&Data::Empty));
-            let vlow = v.to_lowercase();
-            if vlow == "true" { true }
-            else if let Ok(n) = v.parse::<i32>() { n != 0 }
-            else if let Ok(f) = v.parse::<f64>() { f != 0.0 }
-            else { false }
+        // Leer columnas usando índices detectados
+        let raw_name = data_to_string(row.get(name_idx).unwrap_or(&Data::Empty)).trim().to_string();
+        let raw_id = data_to_string(row.get(id_idx).unwrap_or(&Data::Empty)).trim().to_string();
+
+        // Si por alguna razón el nombre está vacío pero otra columna parece textual, intentar fallback
+        let nombre = if raw_name.is_empty() {
+            // buscar la primera celda no-vacía que parezca texto
+            row.iter()
+                .map(|c| data_to_string(c))
+                .find(|s| !s.is_empty() && s.chars().any(|ch| ch.is_alphabetic()))
+                .unwrap_or_else(|| raw_name.clone())
+        } else {
+            raw_name.clone()
         };
 
-        if !codigo.is_empty() && codigo.to_lowercase() != "código" && codigo.to_lowercase() != "id" {
-            // Convertir código a i32 para usar como ID
-            let id_num = codigo.parse::<i32>().unwrap_or(0);
-            
-            // Indexar por nombre normalizado (llave universal única)
-            let nombre_norm = crate::excel::normalize_name(&nombre);
-            ramos_disponibles.insert(nombre_norm, RamoDisponible {
-                id: id_num,
-                nombre,
-                codigo: codigo.clone(),
-                holgura,
-                numb_correlativo: correlativo,
-                critico,
-                codigo_ref: None,  // Se resuelve después si es necesario
-                dificultad: None,
-                electivo: false,
-            });
+        let id_str = if raw_id.is_empty() {
+            // fallback: buscar primera celda numérica razonable
+            row.iter()
+                .map(|c| data_to_string(c))
+                .find(|s| !s.is_empty() && s.chars().all(|ch| ch.is_numeric()))
+                .unwrap_or_else(|| raw_id.clone())
+        } else {
+            raw_id.clone()
+        };
+
+        let id = id_str.parse::<i32>().unwrap_or(0);
+
+        if nombre.is_empty() || id == 0 {
+            // ignorar filas incompletas
+            continue;
         }
+
+        let nombre_norm = crate::excel::normalize_name(&nombre);
+        ramos_disponibles.insert(nombre_norm, RamoDisponible {
+            id,
+            nombre,
+            codigo: id_str.clone(),
+            holgura: 0,
+            numb_correlativo: id,
+            critico: false,
+            codigo_ref: None,
+            dificultad: None,
+            electivo: false,
+        });
     }
 
     Ok(ramos_disponibles)
@@ -127,13 +154,35 @@ pub fn leer_prerequisitos(nombre_archivo: &str) -> Result<HashMap<String, Vec<St
     let mut map: HashMap<String, Vec<String>> = HashMap::new();
 
     let sheet_names = workbook.sheet_names().to_owned();
-    if sheet_names.len() <= 1 {
-        // no hay hojas adicionales con prerequisitos
+    if sheet_names.is_empty() {
         return Ok(map);
     }
 
-    // Iterar sobre las hojas a partir de la segunda
-    for sheet in sheet_names.iter().skip(1) {
+    // Si el archivo es una de las Mallas históricas, leer los prerequisitos
+    // desde la PRIMERA hoja (algunos archivos ponen los prerequisitos ahí).
+    // Para otros archivos, mantenemos el comportamiento anterior (hojas a partir de la segunda).
+    let filename_lower = Path::new(nombre_archivo)
+        .file_name()
+        .and_then(|os| os.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    let special_first_sheet = filename_lower.contains("malla2020")
+        || filename_lower.contains("malla2018")
+        || filename_lower.contains("malla2010");
+
+    let sheets_to_iterate: Vec<String> = if special_first_sheet {
+        vec![sheet_names[0].clone()]
+    } else {
+        if sheet_names.len() <= 1 {
+            // no hay hojas adicionales con prerequisitos
+            return Ok(map);
+        }
+        sheet_names.iter().skip(1).cloned().collect()
+    };
+
+    // Iterar sobre las hojas seleccionadas y extraer pares (codigo -> [prereqs])
+    for sheet in sheets_to_iterate.iter() {
         if let Ok(range) = workbook.worksheet_range(sheet) {
             for (row_idx, row) in range.rows().enumerate() {
                 if row_idx == 0 { continue; }
@@ -176,106 +225,121 @@ pub fn leer_prerequisitos(nombre_archivo: &str) -> Result<HashMap<String, Vec<St
 /// - NO-ELECTIVOS: nombre_normalizado
 /// - ELECTIVOS: codigo de PA2025-1 (ej: "CIT2020", "CBF1001")
 pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str) -> Result<HashMap<String, RamoDisponible>, Box<dyn std::error::Error>> {
-    use crate::excel::normalize_name;
-    use crate::excel::porcentajes::leer_porcentajes_aprobados_con_nombres;
+     use crate::excel::normalize_name;
+     use crate::excel::porcentajes::leer_porcentajes_aprobados_con_nombres;
+     
+     // 1. Leer porcentajes y construir índice por nombre normalizado
+     let (_porcent_by_code, porcent_by_name) = leer_porcentajes_aprobados_con_nombres(porcentajes_archivo)?;
+     
+    // 2. Intentar leer OA2024 para obtener lista de NOMBRES (NO usar códigos)
+    // Usamos un HashSet de nombres normalizados.
+    let mut oa_nombres: HashSet<String> = HashSet::new();
+     let mut resolved_malla_path: Option<std::path::PathBuf> = None;
+     if let Ok((malla_path, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
+         if let Ok(mut workbook) = calamine::open_workbook_auto(oferta_path.to_str().unwrap_or("")) {
+             let sheet_names = workbook.sheet_names().to_owned();
+             if let Some(sheet) = sheet_names.first() {
+                 if let Ok(range) = workbook.worksheet_range(sheet) {
+                     // debug: mostrar filas crudas (primeras 10) para entender qué estamos leyendo
+                     for (row_idx, row) in range.rows().enumerate() {
+                         if row_idx > 10 { break; }
+                         // Print raw cell variants to stderr
+                         let cells: Vec<String> = row.iter().map(|c| format!("{:?}", c)).collect();
+                         eprintln!("DEBUG MALLA row {}: {:?}", row_idx, cells);
+                     }
+                     // contador debug para mostrar las primeras filas leídas
+                     let mut oa_debug_count = 0;
+                     for (row_idx, row) in range.rows().enumerate() {
+                         if row_idx == 0 { continue; }  // skip header
+                         // OA: usamos solo el NOMBRE en la columna configurada por `OA_NAME_COL`
+                         let oa_name_col = OA_NAME_COL.load(Ordering::Relaxed);
+                         let nombre = data_to_string(row.get(oa_name_col).unwrap_or(&Data::Empty)).trim().to_string();
+                         if oa_debug_count < 5 {
+                             eprintln!("DEBUG OA sample row {}: nombre(C)='{}'", row_idx, nombre);
+                             oa_debug_count += 1;
+                         }
+                         if !nombre.is_empty() {
+                             let nombre_norm = normalize_name(&nombre);
+                             // Inserción directa en HashSet (no usar Entry.or_insert)
+                             oa_nombres.insert(nombre_norm);
+                         }
+                     }
+                 }
+             }
+         }
+     } else {
+         // Fallback: no pudimos resolver rutas automáticamente; intentamos abrir el archivo
+         // de oferta usando heurística en DATAFILES_DIR como antes (no modificar comportamiento previo).
+         if let Ok((_, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
+             if let Ok(mut workbook) = calamine::open_workbook_auto(oferta_path.to_str().unwrap_or("")) {
+                 let sheet_names = workbook.sheet_names().to_owned();
+                 if let Some(sheet) = sheet_names.first() {
+                     if let Ok(range) = workbook.worksheet_range(sheet) {
+                         // contador debug para mostrar las primeras filas leídas (fallback)
+                         let mut oa_debug_count_fb = 0;
+                         for (row_idx, row) in range.rows().enumerate() {
+                             if row_idx == 0 { continue; }
+                             let oa_code_col = OA_CODE_COL.load(Ordering::Relaxed);
+                             let oa_name_col = OA_NAME_COL.load(Ordering::Relaxed);
+                             let codigo = data_to_string(row.get(oa_code_col).unwrap_or(&Data::Empty)).trim().to_string();
+                             let nombre = data_to_string(row.get(oa_name_col).unwrap_or(&Data::Empty)).trim().to_string();
+                             if oa_debug_count_fb < 5 {
+                                 eprintln!("DEBUG OA(fallback) sample row {}: código='{}' | nombre='{}'", row_idx, codigo, nombre);
+                                 oa_debug_count_fb += 1;
+                             }
+                             if !codigo.is_empty() && !nombre.is_empty() {
+                                 let nombre_norm = normalize_name(&nombre);
+                                 oa_nombres.insert(nombre_norm);
+                             }
+                         }
+                     }
+                 }
+             }
+         }
+     }
     
-    // 1. Leer porcentajes y construir índice por nombre normalizado
-    let (_porcent_by_code, porcent_by_name) = leer_porcentajes_aprobados_con_nombres(porcentajes_archivo)?;
-    
-    // 2. Intentar leer OA2024 para obtener mapeo nombre→código
-    // IMPORTANTE: Los códigos pueden cambiar entre años (ej: CIG1002 en 2024 vs CIG1013 en 2025)
-    // Por eso usamos el NOMBRE como clave universal, no el código
-    // Estructura de OA2024: Columna 1=Código, Columna 2=Nombre, Columna 3=Sección
-    // Resolver rutas de datos (malla, oferta, porcentajes) si es posible y reutilizarlas.
-    let mut oa_nombre_to_codigo: HashMap<String, String> = HashMap::new();
-    let mut resolved_malla_path: Option<std::path::PathBuf> = None;
-    if let Ok((malla_path, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
-        // Guardar malla_path para usarlo más abajo al abrir la hoja "Malla2020"
-        resolved_malla_path = Some(malla_path.clone());
-
-        if let Ok(mut workbook) = calamine::open_workbook_auto(oferta_path.to_str().unwrap_or("")) {
-            let sheet_names = workbook.sheet_names().to_owned();
-            if let Some(sheet) = sheet_names.first() {
-                if let Ok(range) = workbook.worksheet_range(sheet) {
-                    for (row_idx, row) in range.rows().enumerate() {
-                        if row_idx == 0 { continue; }  // skip header
-                        // Columnas correctas en OA2024: Col 1 = Código, Col 2 = Nombre
-                        let codigo = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
-                        let nombre = data_to_string(row.get(2).unwrap_or(&Data::Empty)).trim().to_string();
-                        if !codigo.is_empty() && !nombre.is_empty() {
-                            let nombre_norm = normalize_name(&nombre);
-                            // Solo insertar si no existe aún (primera ocurrencia)
-                            oa_nombre_to_codigo.entry(nombre_norm).or_insert_with(|| codigo);
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        // Fallback: no pudimos resolver rutas automáticamente; intentamos abrir el archivo
-        // de oferta usando heurística en DATAFILES_DIR como antes (no modificar comportamiento previo).
-        if let Ok((_, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
-            if let Ok(mut workbook) = calamine::open_workbook_auto(oferta_path.to_str().unwrap_or("")) {
-                let sheet_names = workbook.sheet_names().to_owned();
-                if let Some(sheet) = sheet_names.first() {
-                    if let Ok(range) = workbook.worksheet_range(sheet) {
-                        for (row_idx, row) in range.rows().enumerate() {
-                            if row_idx == 0 { continue; }
-                            let codigo = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
-                            let nombre = data_to_string(row.get(2).unwrap_or(&Data::Empty)).trim().to_string();
-                            if !codigo.is_empty() && !nombre.is_empty() {
-                                let nombre_norm = normalize_name(&nombre);
-                                oa_nombre_to_codigo.entry(nombre_norm).or_insert_with(|| codigo);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    eprintln!("DEBUG: Mapeo OA2024 nombre→código: {} entradas cargadas", oa_nombre_to_codigo.len());
-    
-    // 3. Construir índice invertido: si es_electivo en PA2025-1, indexar también por codigo
-    let mut porcent_by_code_electivos: HashMap<String, (String, f64, f64, bool)> = HashMap::new();
-    // Iteramos sobre los valores del mapa porque la clave (nombre normalizado)
-    // no se utiliza en este paso. De este modo evitamos introducir variables
-    // no usadas y dejamos el código más claro.
-    for entry in porcent_by_name.values() {
-        let (codigo, pct, tot, es_electivo) = entry;
-        if *es_electivo {
-            porcent_by_code_electivos.insert(codigo.clone(), (codigo.clone(), *pct, *tot, *es_electivo));
-        }
-    }
-    
-    // 4. Recopilar todos los electivos disponibles en PA2025-1 y ordenarlos por porcentaje (DESC)
-    // Los electivos con mayor porcentaje (más fáciles) se asignan primero
-    let mut todos_electivos: Vec<(String, f64, f64)> = Vec::new();
-    for (codigo, pct, tot, es_electivo) in porcent_by_code_electivos.values() {
-        if *es_electivo {
-            todos_electivos.push((codigo.clone(), *pct, *tot));
-        }
-    }
-    // Ordenar por porcentaje DESCENDENTE (más fácil primero)
-    todos_electivos.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    eprintln!("DEBUG: {} electivos disponibles en PA2025-1 (ordenados por dificultad):", todos_electivos.len());
-    for (cod, pct, _) in todos_electivos.iter() {
-        eprintln!("  - {} ({}%)", cod, pct);
-    }
-    
-    // 4. Leer Malla2020
-    // Si previamente resolvimos `malla_path`, úsalo; si no, aplicar la heurística previa.
-    let malla_to_open = if let Some(mp) = resolved_malla_path {
-        mp
-    } else {
-        let resolved = if Path::new(malla_archivo).exists() {
-            PathBuf::from(malla_archivo.to_string())
-        } else {
-            let candidate = format!("{}/{}", crate::excel::DATAFILES_DIR, malla_archivo);
-            if Path::new(&candidate).exists() { PathBuf::from(candidate) } else { PathBuf::from(malla_archivo.to_string()) }
-        };
-        resolved
-    };
+    eprintln!("DEBUG: OA nombres cargados: {}", oa_nombres.len());
+     
+     // 3. Construir índice invertido: si es_electivo en PA2025-1, indexar también por codigo
+     let mut porcent_by_code_electivos: HashMap<String, (String, f64, f64, bool)> = HashMap::new();
+     // Iteramos sobre los valores del mapa porque la clave (nombre normalizado)
+     // no se utiliza en este paso. De este modo evitamos introducir variables
+     // no usadas y dejamos el código más claro.
+     for entry in porcent_by_name.values() {
+         let (codigo, pct, tot, es_electivo) = entry;
+         if *es_electivo {
+             porcent_by_code_electivos.insert(codigo.clone(), (codigo.clone(), *pct, *tot, *es_electivo));
+         }
+     }
+     
+     // 4. Recopilar todos los electivos disponibles en PA2025-1 y ordenarlos por porcentaje (DESC)
+     // Los electivos con mayor porcentaje (más fáciles) se asignan primero
+     let mut todos_electivos: Vec<(String, f64, f64)> = Vec::new();
+     for (codigo, pct, tot, es_electivo) in porcent_by_code_electivos.values() {
+         if *es_electivo {
+             todos_electivos.push((codigo.clone(), *pct, *tot));
+         }
+     }
+     // Ordenar por porcentaje DESCENDENTE (más fácil primero)
+     todos_electivos.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+     eprintln!("DEBUG: {} electivos disponibles en PA2025-1 (ordenados por dificultad):", todos_electivos.len());
+     for (cod, pct, _) in todos_electivos.iter() {
+         eprintln!("  - {} ({}%)", cod, pct);
+     }
+     
+     // 4. Leer Malla2020
+     // Si previamente resolvimos `malla_path`, úsalo; si no, aplicar la heurística previa.
+     let malla_to_open = if let Some(mp) = resolved_malla_path {
+         mp
+     } else {
+         let resolved = if Path::new(malla_archivo).exists() {
+             PathBuf::from(malla_archivo.to_string())
+         } else {
+             let candidate = format!("{}/{}", crate::excel::DATAFILES_DIR, malla_archivo);
+             if Path::new(&candidate).exists() { PathBuf::from(candidate) } else { PathBuf::from(malla_archivo.to_string()) }
+         };
+         resolved
+     };
 
     let mut workbook = open_workbook_auto(malla_to_open.to_str().unwrap_or(""))?;
     let mut ramos_disponibles = HashMap::new();
@@ -285,13 +349,33 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
     
     // Usar hoja "Malla2020"
     let range = workbook.worksheet_range("Malla2020")?;
+
+    // Debug: mostrar primeras filas crudas y los valores percibidos según los índices actuales
+    {
+        let mut dbg_count = 0usize;
+        eprintln!("DEBUG: MALLA -> columnas configuradas: name={} id={}", MALLA_NAME_COL.load(Ordering::Relaxed), MALLA_ID_COL.load(Ordering::Relaxed));
+        for (row_idx, row) in range.rows().enumerate() {
+            if dbg_count >= 10 { break; }
+            // Representación cruda de celdas
+            let cells: Vec<String> = row.iter().map(|c| format!("{:?}", c)).collect();
+            // Valores en las columnas configuradas (si existen)
+            let name_col = MALLA_NAME_COL.load(Ordering::Relaxed);
+            let id_col = MALLA_ID_COL.load(Ordering::Relaxed);
+            let name_val = data_to_string(row.get(name_col).unwrap_or(&Data::Empty));
+            let id_val = data_to_string(row.get(id_col).unwrap_or(&Data::Empty));
+            eprintln!("DEBUG MALLA row {}: cells={:?} | name_col[{}]='{}' | id_col[{}]='{}'", row_idx, cells, name_col, name_val, id_col, id_val);
+            dbg_count += 1;
+        }
+    }
     
     for (row_idx, row) in range.rows().enumerate() {
         if row_idx == 0 { continue; }  // Saltar encabezado
         
         // Estructura de Malla2020: Nombre, ID, Créditos, Requisitos, Semestre, Electivo
-        let nombre = data_to_string(row.get(0).unwrap_or(&Data::Empty)).trim().to_string();
-        let id_str = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
+        let malla_name_col = MALLA_NAME_COL.load(Ordering::Relaxed);
+        let malla_id_col = MALLA_ID_COL.load(Ordering::Relaxed);
+        let nombre = data_to_string(row.get(malla_name_col).unwrap_or(&Data::Empty)).trim().to_string();
+        let id_str = data_to_string(row.get(malla_id_col).unwrap_or(&Data::Empty)).trim().to_string();
         let id = id_str.parse::<i32>().unwrap_or(0);
         
         // Leer columna Electivo (column 5)
@@ -336,37 +420,18 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
             }
         } else {
             // PARA NO-ELECTIVOS: usar nombre normalizado como clave universal
-            // Estrategia: Malla (nombre) → OA2024 (código) → PA2025-1 (porcentaje)
+            // Estrategia simplificada: buscamos directamente por nombre normalizado en PA.
             let nombre_norm = normalize_name(&nombre);
-            
-            // Paso 1: Intentar obtener código de OA2024 (exacto, sin búsqueda aproximada para evitar slowness)
-            let codigo_de_oa = oa_nombre_to_codigo.get(&nombre_norm).cloned();
-            
-            // Paso 2: Buscar porcentaje en PA2025-1 usando el código de OA2024 (o fallback por nombre)
-            let (codigo, dificultad, es_elec_porcent) = if let Some(cod_oa) = codigo_de_oa {
-                // Primero intentar buscar en PA2025-1 por el código de OA2024
-                let mut resultado = (cod_oa.clone(), None, false);
-                for (_, (codigo_pa, porcentaje, _total, es_electivo_en_porcent)) in porcent_by_name.iter() {
-                    if codigo_pa == &cod_oa {
-                        resultado = (cod_oa.clone(), Some(*porcentaje), *es_electivo_en_porcent);
-                        break;
-                    }
-                }
-                resultado
+            if let Some((codigo_encontrado, porcentaje, _total, es_electivo_en_porcent)) = porcent_by_name.get(&nombre_norm) {
+                (nombre_norm, codigo_encontrado.clone(), Some(*porcentaje), *es_electivo_en_porcent)
             } else {
-                // Si no hay código en OA2024, buscar por nombre en PA2025-1 (exacto)
-                if let Some((codigo_encontrado, porcentaje, _total, es_electivo_en_porcent)) = porcent_by_name.get(&nombre_norm) {
-                    (codigo_encontrado.clone(), Some(*porcentaje), *es_electivo_en_porcent)
-                } else {
-                    (id_str.clone(), None, false)
-                }
-            };
-            
-            (nombre_norm, codigo, dificultad, es_elec_porcent)
-        };
-        
-        eprintln!("DEBUG enrich_malla: '{}' (id={}, electivo={}) → clave='{}', código='{}', dificultad={:?}", 
-                  nombre, id, es_electivo_en_malla, clave_hashmap, codigo_final, dificultad);
+                // No hay match por nombre en PA: dejar código vacío y dificultad None
+                (nombre_norm, String::new(), None, false)
+            }
+         };
+         
+         eprintln!("DEBUG enrich_malla: '{}' (id={}, electivo={}) → clave='{}', código='{}', dificultad={:?}", 
+                   nombre, id, es_electivo_en_malla, clave_hashmap, codigo_final, dificultad);
         
         // Crear RamoDisponible enriquecido (SIN codigo_ref aún, se resuelve en segundo pase)
         let ramo = RamoDisponible {
@@ -381,7 +446,7 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
             electivo: es_electivo_final,
         };
         
-        // INSERTAR CON CLAVE DIFERENCIADA
+        // INSERTAR CON CLAVE DIFERENCIADA (usando nombre como llave universal)
         ramos_disponibles.insert(clave_hashmap, ramo);
     }
     
@@ -415,4 +480,10 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
     
     Ok(ramos_disponibles)
 }
+
+// Índices por defecto (edítalos aquí si necesitas otro mapeo):
+// - MALLA_NAME_COL: columna donde está el NOMBRE en la MALLA (A1 => index 0)
+// - OA_NAME_COL: columna donde está el NOMBRE en la OA (C1 => index 2)
+// Índices configurables (se pueden cambiar en tiempo de ejecución si se desea)
+
 

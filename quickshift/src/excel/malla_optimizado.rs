@@ -47,25 +47,49 @@ pub fn leer_malla_con_porcentajes_optimizado(
     let malla_rows = crate::excel::io::read_sheet_via_zip(malla_archivo, "")?;
     
     let mut resultado: HashMap<String, RamoDisponible> = HashMap::new();
-    
-    // MiMalla tiene 2 encabezados: Row 0 (fake titulo) y Row 1 (headers reales)
-    // Estructura real: [ID, Código, Nombre Asignatura, ...]
-    // Índices: [0=ID, 1=Código, 2=Nombre, ...]
+
+    // Detectar fila de encabezado y columnas (nombre / id) de forma robusta
+    let mut header_row_idx: Option<usize> = None;
+    let mut name_col_idx: usize = 2; // fallback antiguo
+    let mut id_col_idx: usize = 0; // fallback antiguo
+    for (i, row) in malla_rows.iter().enumerate().take(4) {
+        // buscar palabras clave en las celdas
+        for (j, cell) in row.iter().enumerate() {
+            let lower = cell.to_lowercase();
+            if lower.contains("nombre") || lower.contains("asignatura") || lower.contains("curso") {
+                header_row_idx = Some(i);
+                name_col_idx = j;
+            }
+            if lower.contains("id") || lower.contains("ident") || lower.contains("codigo") || lower.contains("código") {
+                header_row_idx = Some(i);
+                // si aún no tenemos id_col, tomar este
+                id_col_idx = j;
+            }
+        }
+        if header_row_idx.is_some() { break; }
+    }
+
+    let start_idx = match header_row_idx {
+        Some(h) => h + 1,
+        None => 2, // comportamiento legacy
+    };
+
+    eprintln!("DEBUG: Malla header detected at {:?}, using name_col={} id_col={}", header_row_idx, name_col_idx, id_col_idx);
+
     for (idx, row) in malla_rows.iter().enumerate() {
-        if idx < 2 { continue; } // Saltear 2 encabezados
-        if row.is_empty() || row.len() < 3 { continue; }
-        
-        let nombre_real = row.get(2).cloned().unwrap_or_default(); // Columna 2 = Nombre Asignatura
-        let id_str = row.get(0).cloned().unwrap_or_else(|| "0".to_string()); // Columna 0 = ID
+        if idx < start_idx { continue; }
+        if row.is_empty() || row.len() <= name_col_idx { continue; }
+
+        let nombre_real = row.get(name_col_idx).cloned().unwrap_or_default();
+        let id_str = row.get(id_col_idx).cloned().unwrap_or_else(|| "0".to_string());
         let id = id_str.parse::<i32>().unwrap_or(0);
-        
+
         let norm_name = normalize(&nombre_real);
         if !norm_name.is_empty() && norm_name != "—" {
-            // Crear ramo base con datos de MALLA
             resultado.insert(norm_name.clone(), RamoDisponible {
                 id,
                 nombre: nombre_real,
-                codigo: String::new(), // Vacío inicialmente, se llenará con OA
+                codigo: String::new(),
                 holgura: 0,
                 numb_correlativo: id,
                 critico: false,
