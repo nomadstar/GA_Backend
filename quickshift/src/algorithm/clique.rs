@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use petgraph::graph::{NodeIndex, UnGraph};
 use crate::models::{Seccion, RamoDisponible};
-use crate::algorithm::conflict::horarios_tienen_conflicto;
+use crate::algorithm::conflict::{horarios_tienen_conflicto, horarios_violate_min_gap};
 use std::time::Instant;
 use std::env;
 use calamine::Reader;
@@ -497,64 +497,60 @@ pub fn get_clique_max_pond_with_prefs(
     let code_to_key_electivos = build_code_to_key_index(ramos_disponibles);
     
     // PASO 1: Calcular max_passed_semester ANTES de filtrar
-    // Buscar el semestre máximo entre los ramos ya aprobados
     let mut max_passed_semester: i32 = 0;
     for passed_code in params.ramos_pasados.iter() {
-        // Buscar el ramo en ramos_disponibles por código o nombre normalizado
-        let mut found_sem: Option<i32> = None;
-        for (key, ramo) in ramos_disponibles.iter() {
-            if ramo.codigo == *passed_code || key.contains(passed_code) || passed_code.contains(&ramo.codigo) {
-                if let Some(sem) = ramo.semestre {
-                    found_sem = Some(sem);
+        let passed_norm = crate::excel::normalize_name(passed_code);
+        // Intentar encontrar por clave normalizada
+        if let Some(r) = ramos_disponibles.get(&passed_norm) {
+            if let Some(sem) = r.semestre {
+                max_passed_semester = std::cmp::max(max_passed_semester, sem);
+                continue;
+            }
+        }
+        // Intentar encontrar por campo `codigo` dentro de los ramos_disponibles
+        for (_k, r) in ramos_disponibles.iter() {
+            if r.codigo == *passed_code {
+                if let Some(sem) = r.semestre {
+                    max_passed_semester = std::cmp::max(max_passed_semester, sem);
                 }
                 break;
             }
         }
-        if let Some(sem) = found_sem {
-            max_passed_semester = std::cmp::max(max_passed_semester, sem);
-        }
     }
-    
     let max_allowed_semester = max_passed_semester + 2;
     eprintln!("📊 Horizonte de semestres: max_pasado={}, max_permitido={}", max_passed_semester, max_allowed_semester);
 
-    // PASO 2: Filtrar secciones por semestre permitido + ramos ya pasados
+    // PASO 2: Filtrar secciones por semestre permitido + ramos ya pasados + horarios_preferidos
     let mut filtered: Vec<Seccion> = Vec::new();
     for s in lista_secciones.iter() {
-        // Excluir si ya fue aprobado
+        // Excluir si ya fue aprobado (por codigo_box o coincidencia con ramos_pasados)
         let mut is_taken = false;
         for rp in params.ramos_pasados.iter() {
-            if rp == &s.codigo_box || s.codigo.starts_with(rp) { 
-                is_taken = true; 
-                break; 
+            if rp == &s.codigo_box || s.codigo.starts_with(rp) {
+                is_taken = true;
+                break;
             }
         }
-        if is_taken { 
-            continue;
-        }
+        if is_taken { continue; }
 
-        // Resolver semestre de esta sección (buscar ramo en ramos_disponibles)
+        // Resolver semestre del ramo de la sección (si existe)
         let nombre_norm = crate::excel::normalize_name(&s.nombre);
         let ramo_opt = ramos_disponibles.get(&nombre_norm)
-            .or_else(|| {
-                // Fallback: buscar por código PA2025-1
-                ramos_disponibles.values().find(|r| r.codigo == s.codigo)
-            });
-        
-        // Filtrar por horizonte de semestres
+            .or_else(|| ramos_disponibles.values().find(|r| r.codigo == s.codigo));
+
         if let Some(ramo) = ramo_opt {
             if let Some(sem) = ramo.semestre {
                 if sem > max_allowed_semester {
+                    // Fuera del horizonte de 2 semestres
                     continue;
                 }
             }
         }
 
-        // Si el usuario especificó `horarios_preferidos`, aplicar filtrado estricto
-        let prefs = &params.horarios_preferidos;
-        if !prefs.is_empty() {
+        // Aplicar horarios_preferidos (si provistos): si hay preferencia, la sección debe encajar en alguna
+        if !params.horarios_preferidos.is_empty() {
             let mut any_pref_match = false;
-            for pref in prefs.iter() {
+            for pref in params.horarios_preferidos.iter() {
                 if crate::algorithm::conflict::seccion_contenida_en_rango(s, pref) {
                     any_pref_match = true;
                     break;
@@ -582,10 +578,6 @@ pub fn get_clique_max_pond_with_prefs(
     let mut priority_ramo: HashMap<String, i32> = HashMap::new();
     let mut priority_sec: HashMap<String, i32> = HashMap::new();
     // Helper: construir prereq_map a partir de `codigo_ref`/`numb_correlativo`.
-    // Malla actual sólo guarda una referencia al ramo anterior mediante `codigo_ref`.
-    // Mapear numb_correlativo -> clave (nombre normalizado) y usarlo para construir
-    // prereq_map: clave -> Vec<clave_prereq>
-    // Construir índice numb_correlativo -> clave (por si hay IDs numéricos en la hoja)
     let mut by_numb: HashMap<i32, String> = HashMap::new();
     for (key, ramo) in ramos_disponibles.iter() {
         by_numb.insert(ramo.numb_correlativo, key.clone());
@@ -610,13 +602,6 @@ pub fn get_clique_max_pond_with_prefs(
                 }
                 code_to_key.insert(crate::excel::normalize_name(&ramo.nombre), k.clone());
                 code_to_key.insert(ramo.numb_correlativo.to_string(), k.clone());
-            }
-
-            let mut show = 0usize;
-            for (codigo_s, prereqs_s) in sheet_map.iter() {
-                if show >= 20 { break; }
-                eprintln!("   sheet_map sample: '{}' -> {:?}", codigo_s, prereqs_s);
-                show += 1;
             }
 
             for (codigo, prereqs) in sheet_map.into_iter() {
@@ -652,31 +637,19 @@ pub fn get_clique_max_pond_with_prefs(
                     let token_norm = crate::excel::normalize_name(token);
                     if ramos_disponibles.contains_key(&token_norm) { mapped.push(token_norm); continue; }
                     if let Some(k) = code_to_key.get(token) { mapped.push(k.clone()); continue; }
-                    let mut found = false;
                     for (rk, r) in ramos_disponibles.iter() {
                         if r.codigo == token || crate::excel::normalize_name(&r.nombre) == token_norm {
-                            mapped.push(rk.clone()); found = true; break;
+                            mapped.push(rk.clone()); break;
                         }
-                    }
-                    if !found {
-                        eprintln!("DEBUG: prereq token NO mapeado: '{}' (target '{}')", token, codigo_trim);
                     }
                 }
 
                 if let Some(tk) = target_key_opt {
-                    prereq_map.insert(tk, mapped);
-                } else {
-                    if let Ok(idn) = codigo_trim.parse::<i32>() {
-                        if let Some(tk2) = by_numb.get(&idn) {
-                            prereq_map.insert(tk2.clone(), mapped);
-                        } else {
-                            eprintln!("DEBUG: prereq target NO mapeado: '{}' (id {})", codigo_trim, idn);
-                        }
-                    } else {
-                        eprintln!("DEBUG: prereq target NO mapeado y no numérico: '{}'", codigo_trim);
+                    if !mapped.is_empty() {
+                        prereq_map.insert(tk, mapped);
                     }
                 }
-             }
+            }
         }
         _ => {
             for (key, ramo) in ramos_disponibles.iter() {
