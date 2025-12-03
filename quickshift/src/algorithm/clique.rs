@@ -327,8 +327,7 @@ pub fn get_clique_dependencies_only(
     lista_secciones: &Vec<Seccion>,
     ramos_disponibles: &HashMap<String, RamoDisponible>,
 ) -> Vec<(Vec<(Seccion, i32)>, i64)> {
-    eprintln!("DEBUG get_clique_dependencies_only: {} secciones, {} ramos disponibles (SIN VERIFICACIÓN DE HORARIOS)", 
-              lista_secciones.len(), ramos_disponibles.len());
+    eprintln!("DEBUG get_clique_dependencies_only: {} secciones, {} ramos disponibles (SIN VERIFICACIÓN DE HORARIOS)", lista_secciones.len(), ramos_disponibles.len());
     println!("=== Generador de Ruta Crítica (Dependencias Solamente) ===");
     println!("Ramos disponibles:\n");
     for (i, (codigo, ramo)) in ramos_disponibles.iter().enumerate() {
@@ -764,65 +763,30 @@ pub fn get_clique_max_pond_with_prefs(
         eprintln!("DEBUG after fallback prereq_map: total_entries={}", prereq_map.len());
     }
 
-    // S1: prereqs ⊆ passed
-    // Nota: tratar 'None' (sin información) como NO elegible para evitar admitir ramos cuando
-    // no se pudo mapear correctamente su entrada en la hoja de prerrequisitos.
-    // Sólo 'Some(vec![])' (vector vacío) indica explícitamente que NO tiene prerrequisitos.
+    // S1: prerrequisitos estrictamente aprobados (prereqs ⊆ passed)
+    // Política: NO permitir S2 ni inferencias heurísticas. Si no existe entrada
+    // explícita en `prereq_map` para un ramo (None) se considera "desconocido" y
+    // por tanto NO elegible.
     let mut s1: HashSet<String> = HashSet::new();
-    // helper: detect base course for heuristics (strip 'avanzada', 'ii', '2', etc)
-    fn detect_base_for(r: &RamoDisponible) -> Option<String> {
-        let mut s = r.nombre.to_lowercase();
-        for token in &["avanzada", "avanzado", "parte ii", " ii", "ii", "iii", "iv", "segundo", "2"] {
-            s = s.replace(token, " ");
-        }
-        s = s.replace(|c: char| !(c.is_alphanumeric() || c.is_whitespace()), " ");
-        let cleaned = s.split_whitespace().collect::<Vec<&str>>().join(" ");
-        let norm = crate::excel::normalize_name(&cleaned);
-        if norm.is_empty() { None } else { Some(norm) }
-    }
-
-    for (key, ramo) in ramos_disponibles.iter() {
-        let mut all_passed = match prereq_map.get(key) {
+    for (key, _ramo) in ramos_disponibles.iter() {
+        let eligible = match prereq_map.get(key) {
             Some(prs) => {
-                if prs.is_empty() { true } else { prs.iter().all(|pr| passed_names.contains(pr)) }
-            }
-            None => false,
-        };
-        // Si heurísticamente es una versión avanzada/nivel superior, exigir que el ramo base esté en passed
-        if let Some(base_norm) = detect_base_for(ramo) {
-            if base_norm != *key && ramos_disponibles.contains_key(&base_norm) {
-                if !passed_names.contains(&base_norm) { all_passed = false; }
-            }
-        }
-
-        if all_passed { s1.insert(key.clone()); }
-    }
-    // S2: prereqs ⊆ passed ∪ S1
-    let mut s2: HashSet<String> = HashSet::new();
-    let mut passed_plus_s1 = passed_names.clone();
-    for k in s1.iter() { passed_plus_s1.insert(k.clone()); }
-    for (key, _) in ramos_disponibles.iter() {
-        let mut all_ok = match prereq_map.get(key) {
-            Some(prs) => {
-                if prs.is_empty() { true } else { prs.iter().all(|pr| passed_plus_s1.contains(pr)) }
-            }
-            None => false,
-        };
-        // Aplicar la misma heurística de niveles al decidir S2: el ramo base debe estar
-        // en passed ∪ S1 (passed_plus_s1)
-        if let Some(ramo) = ramos_disponibles.get(key) {
-            if let Some(base_norm) = detect_base_for(ramo) {
-                if base_norm != *key && ramos_disponibles.contains_key(&base_norm) {
-                    if !passed_plus_s1.contains(&base_norm) { all_ok = false; }
+                if prs.is_empty() {
+                    // explícitamente sin prerrequisitos
+                    true
+                } else {
+                    // todos los prerrequisitos deben estar en passed_names
+                    prs.iter().all(|pr| passed_names.contains(pr))
                 }
             }
-        }
-        if all_ok && !s1.contains(key) {
-            s2.insert(key.clone());
+            None => false, // ausencia de información => no elegible
+        };
+        if eligible {
+            s1.insert(key.clone());
         }
     }
-    // Conjuntos listos: sólo permitiremos ramos ∈ (s1 ∪ s2)
-    // --- FIN NUEVO ---
+    // NO construir S2: política estricta de que un ramo sólo puede ser tomado si
+    // todos sus prerrequisitos ya están aprobados (en `ramos_pasados`).
 
     let mut graph = UnGraph::<usize, ()>::new_undirected();
     // Nuevo: cada nodo modela (seccion_idx, semestre) donde semestre = 1 o 2
@@ -866,11 +830,10 @@ pub fn get_clique_max_pond_with_prefs(
             }
         };
 
-        // Solo incluir si el ramo pertenece a S1 o S2 (prune por prerrequisitos)
+        // Solo incluir si el ramo pertenece a S1 (prerrequisitos ya aprobados).
         let is_s1 = s1.contains(&ramo_key);
-        let is_s2 = s2.contains(&ramo_key);
-        if !is_s1 && !is_s2 {
-            // no es elegible dentro de horizonte 2 semestres
+        if !is_s1 {
+            // no es elegible bajo la política estricta (solo S1)
             continue;
         }
 
@@ -1063,13 +1026,6 @@ pub fn get_clique_max_pond_with_prefs(
             let n = graph.add_node(node_meta.len());
             node_meta.push((idx, 1u8));
             priorities.insert(n, prioridad);
-        }
-        // si pertenece a S2, añadir nodo para semestre 2
-        if is_s2 {
-            let n = graph.add_node(node_meta.len());
-            node_meta.push((idx, 2u8));
-            // dar prioridad ligeramente inferior a S1 para mismo curso por heurística (opcional)
-            priorities.insert(n, prioridad - 1);
         }
     }
 
