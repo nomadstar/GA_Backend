@@ -3,6 +3,7 @@ use petgraph::graph::{NodeIndex, UnGraph};
 use crate::models::{Seccion, RamoDisponible};
 use crate::algorithm::conflict::horarios_tienen_conflicto;
 use std::time::Instant;
+use std::env;
 use calamine::Reader;
 use std::collections::HashSet;
 
@@ -1144,7 +1145,22 @@ pub fn get_clique_max_pond_with_prefs(
     let mut current_clique: Vec<NodeIndex> = Vec::new();
     let mut visited = vec![false; graph.node_count()];
     
-    // Función de backtracking para encontrar cliques (con logging de nodos)
+    // Leer configuración de logging (permite silenciar logs costosos en entornos de prueba)
+    let enable_bt_logs = env::var("ENABLE_BACKTRACK_LOGS").unwrap_or("0".to_string()) == "1";
+    let silent_ramos_env = env::var("SILENT_RAMOS").unwrap_or(String::new());
+    let silent_ramos: HashSet<String> = silent_ramos_env
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    // Construir vector paralelo de ramo_keys por índice de nodo (útil para supresión selectiva de logs)
+    let mut node_ramo_keys: Vec<String> = Vec::new();
+    for (_sidx, _sem, ramo_k) in node_meta.iter() {
+        node_ramo_keys.push(ramo_k.clone());
+    }
+
+    // Función de backtracking para encontrar cliques (con logging opcional y poda por cota)
     fn find_max_clique_backtrack(
         graph: &UnGraph<usize, ()>,
         current: &mut Vec<NodeIndex>,
@@ -1153,10 +1169,21 @@ pub fn get_clique_max_pond_with_prefs(
         visited: &mut Vec<bool>,
         max_size: usize,
         node_labels: &[String],
+        ramo_keys: &[String],
+        enable_logs: bool,
+        silent_ramos: &HashSet<String>,
     ) {
+        // Poda por cota: si incluso tomando todos los candidatos restantes no superamos
+        // el mejor encontrado, abortamos.
+        if current.len() + candidates.len() <= max_found.len() {
+            return;
+        }
+
         if current.len() > max_found.len() && current.len() <= max_size {
             *max_found = current.clone();
-            eprintln!("BT: nuevo max_found (len={}): {:?}", max_found.len(), max_found.iter().map(|n| n.index()).collect::<Vec<_>>());
+            if enable_logs {
+                eprintln!("BT: nuevo max_found (len={}): {:?}", max_found.len(), max_found.iter().map(|n| n.index()).collect::<Vec<_>>());
+            }
         }
         if current.len() >= max_size {
             return; // No necesitamos más grandes que max_size
@@ -1165,7 +1192,15 @@ pub fn get_clique_max_pond_with_prefs(
             if visited[node.index()] {
                 continue;
             }
-            eprintln!("BT: intentando nodo {} => {}", node.index(), node_labels[node.index()]);
+
+            // logging condicional: saltar si ramo está en lista silenciosa
+            if enable_logs {
+                let ramo = &ramo_keys[node.index()];
+                if !silent_ramos.contains(ramo) {
+                    eprintln!("BT: intentando nodo {} => {}", node.index(), node_labels[node.index()]);
+                }
+            }
+
             // Verificar si node es compatible con todos en current
             let mut compatible = true;
             for &existing in current.iter() {
@@ -1177,12 +1212,33 @@ pub fn get_clique_max_pond_with_prefs(
             if compatible {
                 visited[node.index()] = true;
                 current.push(node);
-                eprintln!("BT: añadir nodo {} => {} (current_len={})", node.index(), node_labels[node.index()], current.len());
+                if enable_logs {
+                    let ramo = &ramo_keys[node.index()];
+                    if !silent_ramos.contains(ramo) {
+                        eprintln!("BT: añadir nodo {} => {} (current_len={})", node.index(), node_labels[node.index()], current.len());
+                    }
+                }
                 // Recursar con los candidatos restantes
-                find_max_clique_backtrack(graph, current, &candidates[i + 1..], max_found, visited, max_size, node_labels);
+                find_max_clique_backtrack(
+                    graph,
+                    current,
+                    &candidates[i + 1..],
+                    max_found,
+                    visited,
+                    max_size,
+                    node_labels,
+                    ramo_keys,
+                    enable_logs,
+                    silent_ramos,
+                );
                 current.pop();
                 visited[node.index()] = false;
-                eprintln!("BT: remover nodo {} => {} (current_len={})", node.index(), node_labels[node.index()], current.len());
+                if enable_logs {
+                    let ramo = &ramo_keys[node.index()];
+                    if !silent_ramos.contains(ramo) {
+                        eprintln!("BT: remover nodo {} => {} (current_len={})", node.index(), node_labels[node.index()], current.len());
+                    }
+                }
             }
         }
     }
@@ -1196,7 +1252,25 @@ pub fn get_clique_max_pond_with_prefs(
         ramos_disponibles.get(ramo_k).map(|r| r.numb_correlativo).unwrap_or(0)
     });
 
-    find_max_clique_backtrack(&graph, &mut current_clique, &nodes, &mut max_clique, &mut visited, 6, &node_labels);
+    // Heurística rápida: intentar una clique greedy/ponderada antes del backtracking
+    let greedy = find_max_weight_clique(&graph, &priorities);
+    if greedy.len() > max_clique.len() {
+        max_clique = greedy.clone();
+    }
+
+    // Ejecutar backtracking con poda y logging opcional. Pasamos `node_ramo_keys` y flags.
+    find_max_clique_backtrack(
+        &graph,
+        &mut current_clique,
+        &nodes,
+        &mut max_clique,
+        &mut visited,
+        6,
+        &node_labels,
+        &node_ramo_keys,
+        enable_bt_logs,
+        &silent_ramos,
+    );
     
     eprintln!("   Clique máximo encontrado: {} nodos", max_clique.len());
     
