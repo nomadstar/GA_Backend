@@ -51,7 +51,7 @@ pub fn ejecutar_ruta_critica_with_params(
 
     // 5) Llamar al planner (clique) que respeta filtros/semestres/ventanas/profesores
     eprintln!("🧠 Ejecutando planner (clique) con filtros...");
-    let soluciones = crate::algorithm::clique_bk2::get_clique_max_pond_with_prefs(&lista_secciones, &ramos_map, &params);
+    let soluciones = crate::algorithm::clique::get_clique_max_pond_with_prefs(&lista_secciones, &ramos_map, &params);
 
     eprintln!("✅ Pipeline completado: soluciones generadas = {}", soluciones.len());
     Ok(soluciones)
