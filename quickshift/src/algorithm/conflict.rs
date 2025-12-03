@@ -77,7 +77,9 @@ pub fn horarios_tienen_conflicto(horario1: &[String], horario2: &[String]) -> bo
     for (d1, s1, e1) in slots1.iter() {
         for (d2, s2, e2) in slots2.iter() {
             if d1 == d2 {
-                if s1 < e2 && s2 < e1 { return true; }
+                // Nuevo comportamiento: considerar conflicto sólo si la franja es exactamente la misma
+                // (mismo inicio y fin). Permitimos solapamientos no exactos (varios ramos el mismo día)
+                if s1 == s2 && e1 == e2 { return true; }
             }
         }
     }
