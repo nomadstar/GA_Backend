@@ -252,6 +252,61 @@
         }
       }
     },
+    "/datafiles/oferta/summary": {
+      "get": {
+        "summary": "Resumen de oferta académica agrupada por ramo",
+        "description": "Agrupa todas las secciones de una oferta académica por nombre de ramo, contando secciones por ramo. Útil para diagnosticar cobertura y concordancia entre malla y oferta.",
+        "parameters": [
+          {
+            "name": "oferta",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Nombre del archivo de oferta (ej: OA2024.xlsx). Por defecto: OA2024.xlsx"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resumen de oferta académica",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "archivo": { "type": "string", "description": "Nombre del archivo de oferta cargado" },
+                    "total_ramos": { "type": "integer", "description": "Total de ramos únicos (nombres diferentes)" },
+                    "total_secciones": { "type": "integer", "description": "Total de secciones cargadas" },
+                    "ramos": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "nombre": { "type": "string", "description": "Nombre del ramo" },
+                          "secciones": { "type": "integer", "description": "Cantidad de secciones ofertadas" }
+                        }
+                      },
+                      "description": "Lista de ramos ordenada por cantidad de secciones (descendente)"
+                    }
+                  }
+                },
+                "example": {
+                  "archivo": "OA2024.xlsx",
+                  "total_ramos": 45,
+                  "total_secciones": 697,
+                  "ramos": [
+                    { "nombre": "Cálculo I", "secciones": 18 },
+                    { "nombre": "Programación I", "secciones": 15 },
+                    { "nombre": "Álgebra Lineal", "secciones": 12 },
+                    { "nombre": "Física I", "secciones": 10 }
+                  ]
+                }
+              }
+            }
+          },
+          "400": { "description": "Error al leer el archivo de oferta" }
+        }
+      }
+    },
     "/students": {
       "post": {
         "summary": "Guarda un perfil de estudiante (se indexa por email)",
