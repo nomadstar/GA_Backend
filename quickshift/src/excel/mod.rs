@@ -28,7 +28,7 @@ pub mod mapeo_builder;
 mod porcentajes;
 
 /// Lectura de oferta académica: `leer_oferta_academica_excel`
-mod oferta;
+pub mod oferta;
 
 /// Búsqueda de "Asignatura" a partir de "Nombre Asignado": `asignatura_from_nombre`
 mod asignatura;
@@ -46,6 +46,7 @@ pub use porcentajes::leer_porcentajes_aprobados;
 pub use porcentajes::leer_porcentajes_aprobados_con_nombres;
 pub use porcentajes::enrich_porcent_names_from_malla;
 pub use oferta::leer_oferta_academica_excel;
+pub use oferta::resumen_oferta_academica;
 pub use asignatura::asignatura_from_nombre;
 pub use mapeo_builder::construir_mapeo_maestro;
 pub use mapeo::{MapeoMaestro, MapeoAsignatura};

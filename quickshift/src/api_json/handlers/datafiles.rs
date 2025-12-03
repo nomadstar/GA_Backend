@@ -144,3 +144,34 @@ pub async fn datafiles_content_handler(query: web::Query<std::collections::HashM
         Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("failed to summarize datafiles: {}", e)})),
     }
 }
+
+pub async fn oferta_summary_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
+    let oferta_file = match query.get("oferta") {
+        Some(o) if !o.trim().is_empty() => o.clone(),
+        _ => "OA2024.xlsx".to_string(),
+    };
+
+    eprintln!("📋 Generando resumen de oferta: {}", oferta_file);
+
+    match crate::excel::oferta::resumen_oferta_academica(&oferta_file) {
+        Ok(resumen) => {
+            let total_secciones: usize = resumen.iter().map(|(_, count)| count).sum();
+            let response = json!({
+                "archivo": oferta_file,
+                "total_ramos": resumen.len(),
+                "total_secciones": total_secciones,
+                "ramos": resumen.iter().map(|(nombre, count)| json!({
+                    "nombre": nombre,
+                    "secciones": count
+                })).collect::<Vec<_>>()
+            });
+            HttpResponse::Ok().json(response)
+        }
+        Err(e) => {
+            eprintln!("❌ Error al generar resumen: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "error": format!("failed to generate oferta summary: {}", e)
+            }))
+        }
+    }
+}

@@ -2,6 +2,7 @@ use calamine::{open_workbook_auto, Data, Reader};
 use crate::models::Seccion;
 use crate::excel::io::{data_to_string, read_sheet_via_zip};
 use zip;
+use std::collections::HashMap;
 
 /// Lee la oferta académica y devuelve una lista de `Seccion`.
 pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>, Box<dyn std::error::Error>> {
@@ -125,4 +126,26 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
     }
 
     Err(format!("No se pudo leer ninguna hoja del archivo '{}'.", nombre_archivo).into())
+}
+
+/// Genera un resumen de la oferta académica: nombre del ramo → cantidad de secciones
+pub fn resumen_oferta_academica(nombre_archivo: &str) -> Result<Vec<(String, usize)>, Box<dyn std::error::Error>> {
+    let secciones = leer_oferta_academica_excel(nombre_archivo)?;
+    
+    let mut resumen: HashMap<String, usize> = HashMap::new();
+    
+    for seccion in secciones.iter() {
+        *resumen.entry(seccion.nombre.clone()).or_insert(0) += 1;
+    }
+    
+    let mut result: Vec<(String, usize)> = resumen.into_iter().collect();
+    result.sort_by(|a, b| {
+        // Ordenar por número de secciones descendente, luego por nombre
+        match b.1.cmp(&a.1) {
+            std::cmp::Ordering::Equal => a.0.cmp(&b.0),
+            other => other,
+        }
+    });
+    
+    Ok(result)
 }

@@ -129,6 +129,7 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
             .route("/datafiles/upload", web::post().to(datafiles_upload_handler))
             .route("/datafiles/download", web::get().to(datafiles_download_handler))
             .route("/datafiles/content", web::get().to(datafiles_content_handler))
+            .route("/datafiles/oferta/summary", web::get().to(oferta_summary_handler))
             .route("/datafiles/debug/pa-names", web::get().to(debug_pa_names_handler))
             .route("/help", web::get().to(help_handler))
             // Registrar rutas de documentación SWAGGER
@@ -166,6 +167,12 @@ async fn datafiles_delete_handler(query: web::Query<std::collections::HashMap<St
 /// Devuelve un resumen de los contenidos (primeros elementos) de MALLA, OA y PA
 async fn datafiles_content_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
     crate::api_json::handlers::datafiles::datafiles_content_handler(query).await
+}
+
+/// GET /datafiles/oferta/summary?oferta=OA2024.xlsx
+/// Devuelve un resumen de la oferta académica con ramo → cantidad de secciones
+async fn oferta_summary_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
+    crate::api_json::handlers::datafiles::oferta_summary_handler(query).await
 }
 
 /// GET /solve handler: acepta parámetros simples en query string.
