@@ -109,6 +109,7 @@ pub fn leer_malla_excel_with_sheet(nombre_archivo: &str, sheet: Option<&str>) ->
             codigo_ref: None,
             dificultad: None,
             electivo: false,
+            semestre: None,
         });
     }
 
@@ -257,13 +258,6 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
              let sheet_names = workbook.sheet_names().to_owned();
              if let Some(sheet) = sheet_names.first() {
                  if let Ok(range) = workbook.worksheet_range(sheet) {
-                     // debug: mostrar filas crudas (primeras 10) para entender qué estamos leyendo
-                     for (row_idx, row) in range.rows().enumerate() {
-                         if row_idx > 10 { break; }
-                         // Print raw cell variants to stderr
-                         let cells: Vec<String> = row.iter().map(|c| format!("{:?}", c)).collect();
-                         eprintln!("DEBUG MALLA row {}: {:?}", row_idx, cells);
-                     }
                      // contador debug para mostrar las primeras filas leídas
                      let mut oa_debug_count = 0;
                      for (row_idx, row) in range.rows().enumerate() {
@@ -401,6 +395,12 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
             ev == "true" || ev == "1" || ev == "sí" || ev == "si"
         };
         
+        // Leer columna Semestre (column 4)
+        let semestre_opt = {
+            let sem_str = data_to_string(row.get(4).unwrap_or(&Data::Empty)).trim().to_string();
+            sem_str.parse::<i32>().ok()
+        };
+        
         if nombre.is_empty() || id == 0 {
             continue;
         }
@@ -461,6 +461,7 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
             codigo_ref: None,  // Se resuelve después
             dificultad,
             electivo: es_electivo_final,
+            semestre: semestre_opt,  // Semestre extraído de la Malla
         };
         
         // INSERTAR CON CLAVE DIFERENCIADA (usando nombre como llave universal)

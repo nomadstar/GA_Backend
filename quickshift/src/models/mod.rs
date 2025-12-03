@@ -86,6 +86,8 @@ pub struct RamoDisponible {
     pub dificultad: Option<f64>,
     /// True si es un ramo electivo (puede elegirse entre opciones)
     pub electivo: bool,
+    /// Semestre curricular (1 = S1, 2 = S2, etc.)
+    pub semestre: Option<i32>,
 }
 
 #[allow(dead_code)]

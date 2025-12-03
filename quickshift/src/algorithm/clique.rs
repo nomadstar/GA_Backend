@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use petgraph::graph::{NodeIndex, UnGraph};
 use crate::models::{Seccion, RamoDisponible};
-use crate::algorithm::conflict::{horarios_tienen_conflicto, horarios_violate_min_gap};
+use crate::algorithm::conflict::horarios_tienen_conflicto;
 use std::time::Instant;
 use calamine::Reader;
+use std::collections::HashSet;
 
 // Helper local: convertir calamine::Data a String (similar a excel::io::data_to_string)
 fn excel_data_to_string(d: &calamine::Data) -> String {
@@ -248,7 +249,7 @@ pub fn get_clique_max_pond(
 
     println!("\n=== Soluciones Recomendadas ===");
 
-    let mut prev_solutions = Vec::new();
+    let mut prev_solutions: Vec<Vec<NodeIndex>> = Vec::new();
     let mut graph_copy = graph.clone();
     let mut solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
 
@@ -411,7 +412,7 @@ pub fn get_clique_dependencies_only(
 
     println!("\n=== Soluciones Recomendadas (Dependencias Solamente) ===");
 
-    let mut prev_solutions = Vec::new();
+    let mut prev_solutions: Vec<Vec<NodeIndex>> = Vec::new();
     let mut graph_copy = graph.clone();
     let mut solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
 
@@ -488,18 +489,68 @@ pub fn get_clique_max_pond_with_prefs(
     ramos_disponibles: &HashMap<String, RamoDisponible>,
     params: &crate::api_json::InputParams,
 ) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    eprintln!("🔧 DEBUG: get_clique_max_pond_with_prefs iniciada");
+    
+    // Construir índices necesarios PRIMERO
+    let code_to_name = build_code_to_name_index(ramos_disponibles);
+    let code_to_key_electivos = build_code_to_key_index(ramos_disponibles);
+    
+    // PASO 1: Calcular max_passed_semester ANTES de filtrar
+    // Buscar el semestre máximo entre los ramos ya aprobados
+    let mut max_passed_semester: i32 = 0;
+    for passed_code in params.ramos_pasados.iter() {
+        // Buscar el ramo en ramos_disponibles por código o nombre normalizado
+        let mut found_sem: Option<i32> = None;
+        for (key, ramo) in ramos_disponibles.iter() {
+            if ramo.codigo == *passed_code || key.contains(passed_code) || passed_code.contains(&ramo.codigo) {
+                if let Some(sem) = ramo.semestre {
+                    found_sem = Some(sem);
+                }
+                break;
+            }
+        }
+        if let Some(sem) = found_sem {
+            max_passed_semester = std::cmp::max(max_passed_semester, sem);
+        }
+    }
+    
+    let max_allowed_semester = max_passed_semester + 2;
+    eprintln!("📊 Horizonte de semestres: max_pasado={}, max_permitido={}", max_passed_semester, max_allowed_semester);
+
+    // PASO 2: Filtrar secciones por semestre permitido + ramos ya pasados
     let mut filtered: Vec<Seccion> = Vec::new();
-    // Si el usuario especificó `horarios_preferidos` a nivel de params, aplicamos
-    // un filtrado estricto: sólo se permiten secciones que estén completamente
-    // contenidas en alguna de las franjas preferidas.
-    let prefs = &params.horarios_preferidos;
     for s in lista_secciones.iter() {
+        // Excluir si ya fue aprobado
         let mut is_taken = false;
         for rp in params.ramos_pasados.iter() {
-            if rp == &s.codigo_box || s.codigo.starts_with(rp) { is_taken = true; break; }
+            if rp == &s.codigo_box || s.codigo.starts_with(rp) { 
+                is_taken = true; 
+                break; 
+            }
         }
-        if is_taken { continue; }
+        if is_taken { 
+            continue;
+        }
 
+        // Resolver semestre de esta sección (buscar ramo en ramos_disponibles)
+        let nombre_norm = crate::excel::normalize_name(&s.nombre);
+        let ramo_opt = ramos_disponibles.get(&nombre_norm)
+            .or_else(|| {
+                // Fallback: buscar por código PA2025-1
+                ramos_disponibles.values().find(|r| r.codigo == s.codigo)
+            });
+        
+        // Filtrar por horizonte de semestres
+        if let Some(ramo) = ramo_opt {
+            if let Some(sem) = ramo.semestre {
+                if sem > max_allowed_semester {
+                    continue;
+                }
+            }
+        }
+
+        // Si el usuario especificó `horarios_preferidos`, aplicar filtrado estricto
+        let prefs = &params.horarios_preferidos;
         if !prefs.is_empty() {
             let mut any_pref_match = false;
             for pref in prefs.iter() {
@@ -514,12 +565,9 @@ pub fn get_clique_max_pond_with_prefs(
         filtered.push(s.clone());
     }
 
-    // Construir índice inverso PA2025-1 código → clave del HashMap (para TODOS los ramos)
-    let code_to_name = build_code_to_name_index(ramos_disponibles);
-    let code_to_key_electivos = build_code_to_key_index(ramos_disponibles);
-    // --- NUEVO: construir sets elegibles por prerrequisitos para horizonte de 2 semestres ---
-    use std::collections::HashSet;
-    // passed_names: normalizados (usamos code_to_name para mapear códigos a nombres normalizados)
+    eprintln!("   Secciones disponibles después de filtrado: {} (total: {})", filtered.len(), lista_secciones.len());
+    
+    // PASO 3: Construir passed_names y estructuras de apoyo
     let mut passed_names: HashSet<String> = HashSet::new();
     for rp in params.ramos_pasados.iter() {
         if let Some(n) = code_to_name.get(rp) {
@@ -528,6 +576,7 @@ pub fn get_clique_max_pond_with_prefs(
             passed_names.insert(crate::excel::normalize_name(rp));
         }
     }
+    
     // priority maps usados para ajustes manuales (pueden permanecer vacíos)
     let mut priority_ramo: HashMap<String, i32> = HashMap::new();
     let mut priority_sec: HashMap<String, i32> = HashMap::new();
@@ -543,8 +592,7 @@ pub fn get_clique_max_pond_with_prefs(
 
     eprintln!("DEBUG: ramos_disponibles.len = {}", ramos_disponibles.len());
 
-    // Intentar leer prerequisitos desde las hojas adicionales de la malla (preferencia B)
-    // La función devuelve: codigo_str -> Vec<codigo_prereq_str>
+    // Intentar leer prerequisitos desde las hojas adicionales de la malla
     let mut prereq_map: HashMap<String, Vec<String>> = HashMap::new();
     let prereq_result = crate::excel::leer_prerequisitos(&params.malla);
     match &prereq_result {
@@ -554,18 +602,15 @@ pub fn get_clique_max_pond_with_prefs(
 
     match prereq_result {
         Ok(sheet_map) if !sheet_map.is_empty() => {
-            // Construir índice código_string -> key (considerar campo `codigo` y `numb_correlativo`)
             let mut code_to_key: HashMap<String, String> = HashMap::new();
             for (k, ramo) in ramos_disponibles.iter() {
                 if !ramo.codigo.is_empty() {
                     code_to_key.insert(ramo.codigo.clone(), k.clone());
                 }
-                // incluir también el nombre normalizado como posible clave de mapeo
                 code_to_key.insert(crate::excel::normalize_name(&ramo.nombre), k.clone());
                 code_to_key.insert(ramo.numb_correlativo.to_string(), k.clone());
             }
 
-            // DEBUG: mostrar una muestra de las claves tal como aparecen en la hoja de prereqs
             let mut show = 0usize;
             for (codigo_s, prereqs_s) in sheet_map.iter() {
                 if show >= 20 { break; }
@@ -574,7 +619,6 @@ pub fn get_clique_max_pond_with_prefs(
             }
 
             for (codigo, prereqs) in sheet_map.into_iter() {
-                // localizar la clave objetivo a partir del codigo (variantes robustas)
                 let codigo_trim = codigo.trim();
                 let mut target_key_opt: Option<String> = None;
                 if let Some(k) = code_to_key.get(codigo_trim) { target_key_opt = Some(k.clone()); }
@@ -588,18 +632,13 @@ pub fn get_clique_max_pond_with_prefs(
                     }
                 }
 
-                // Parsear todos los tokens de prereqs; aceptar formatos como "28,34,37" o "6 7" o "6;7"
                 let mut mapped: Vec<String> = Vec::new();
-                // Si la celda viene como varias entradas en `prereqs` las procesamos todas
                 for p in prereqs.iter() {
                     let token = p.trim();
                     if token.is_empty() { continue; }
-                    // si solo contiene guiones (—, -, –) tratar como sin prereqs explícito
                     if token.chars().all(|c| c == '-' || c == '—' || c == '–' || c.is_whitespace()) {
-                        // explicit no prereqs -> leave mapped empty
                         continue;
                     }
-                    // intentar extraer IDs numéricos dentro del token (ej: "28,34,37" -> ["28","34","37"])
                     let parts: Vec<&str> = token.split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).collect();
                     if !parts.is_empty() {
                         for seg in parts {
@@ -607,15 +646,11 @@ pub fn get_clique_max_pond_with_prefs(
                                 if let Some(k) = by_numb.get(&pid) { mapped.push(k.clone()); continue; }
                             }
                         }
-                        // si se extrajeron números, pasar al siguiente token
                         if !mapped.is_empty() { continue; }
                     }
-                    // intentar mapear por nombre normalizado
                     let token_norm = crate::excel::normalize_name(token);
                     if ramos_disponibles.contains_key(&token_norm) { mapped.push(token_norm); continue; }
-                    // intentar mapear por codigo exacto (campo `codigo`)
                     if let Some(k) = code_to_key.get(token) { mapped.push(k.clone()); continue; }
-                    // fallback: buscar por coincidencia parcial en campo codigo o nombre
                     let mut found = false;
                     for (rk, r) in ramos_disponibles.iter() {
                         if r.codigo == token || crate::excel::normalize_name(&r.nombre) == token_norm {
@@ -627,11 +662,9 @@ pub fn get_clique_max_pond_with_prefs(
                     }
                 }
 
-                // Insertar entrada target incluso si mapped está vacía (explicit no prereqs)
                 if let Some(tk) = target_key_opt {
                     prereq_map.insert(tk, mapped);
                 } else {
-                    // intentar parsear target como id numérico y mapear por by_numb
                     if let Ok(idn) = codigo_trim.parse::<i32>() {
                         if let Some(tk2) = by_numb.get(&idn) {
                             prereq_map.insert(tk2.clone(), mapped);
@@ -645,10 +678,6 @@ pub fn get_clique_max_pond_with_prefs(
              }
         }
         _ => {
-            // Fallback: construir prereq_map a partir de `codigo_ref` si no hay hoja de prereqs
-            // Nota: para mantener la semántica estricta pedida por el usuario, NO
-            // insertamos entradas vacías. Si no hay evidencia explícita de
-            // prerrequisitos, dejamos la clave ausente (se tratará como 'desconocido').
             for (key, ramo) in ramos_disponibles.iter() {
                 let mut pvec: Vec<String> = Vec::new();
                 if let Some(prev_id) = ramo.codigo_ref {
@@ -663,18 +692,10 @@ pub fn get_clique_max_pond_with_prefs(
         }
     }
 
-    // DEBUG: Estadísticas del prereq_map construido
     eprintln!("DEBUG prereq_map: total_entries={}, entries_with_no_prereqs={}, entries_with_prereqs={}",
               prereq_map.len(),
               prereq_map.iter().filter(|(_, v)| v.is_empty()).count(),
               prereq_map.iter().filter(|(_, v)| !v.is_empty()).count());
-    // Mostrar una muestra limitada de entradas para inspección (hasta 20)
-    let mut sample_count = 0usize;
-    for (k, v) in prereq_map.iter() {
-        if sample_count >= 20 { break; }
-        eprintln!("   sample prereq_map: '{}' -> {} prereqs: {:?}", k, v.len(), v);
-        sample_count += 1;
-    }
 
     // Si no conseguimos construir prereq_map (mapa vacío), intentar parsear la
     // hoja principal de la malla buscando la columna "Requisitos" como fallback.
@@ -763,23 +784,72 @@ pub fn get_clique_max_pond_with_prefs(
         eprintln!("DEBUG after fallback prereq_map: total_entries={}", prereq_map.len());
     }
 
-    // S1: prerrequisitos estrictamente aprobados (prereqs ⊆ passed)
-    // Política: NO permitir S2 ni inferencias heurísticas. Si no existe entrada
-    // explícita en `prereq_map` para un ramo (None) se considera "desconocido" y
-    // por tanto NO elegible.
+    // Calcular el semestre máximo que ha pasado el usuario
+    // Si no ha pasado nada, max_passed_semester = 0 (primer semestre)
+    // Si ha pasado algo de S2, max_passed_semester = 2
+    // etc.
+    let mut max_passed_semester: i32 = 0;
+    for passed_ramo_key in passed_names.iter() {
+        if let Some(ramo) = ramos_disponibles.values().find(|r| {
+            crate::excel::normalize_name(&r.nombre) == *passed_ramo_key
+        }) {
+            if let Some(sem) = ramo.semestre {
+                max_passed_semester = std::cmp::max(max_passed_semester, sem);
+            }
+        }
+    }
+    
+    // Restricción: máximo 2 semestres de diferencia
+    let max_allowed_semester = max_passed_semester + 2;
+    eprintln!("DEBUG: max_passed_semester={}, max_allowed_semester={}", max_passed_semester, max_allowed_semester);
+    
+    // S1 + S2 elegibles según prerequisitos y horizonte de semestres
+    // POLÍTICA REVISADA (permite S1 Y S2 para estudiantes nuevos, con restricción de 2 semestres):
+    //   - Restricción: solo ramos hasta semestre (max_passed_semester + 2)
+    //   - Si ramo_pasados=[] (estudiante nuevo):
+    //     - Incluir TODOS los ramos de S1 (sin prerequisitos)
+    //     - Incluir TODOS los ramos de S2 (sus prereqs son de S1)
+    //   - Si ramo_pasados != []:
+    //     - Solo incluir ramos cuyos TODOS los prerequisitos están aprobados
+    //   - Si sin info (None): NO elegible (no sabemos si tiene prereqs)
     let mut s1: HashSet<String> = HashSet::new();
-    for (key, _ramo) in ramos_disponibles.iter() {
-        let eligible = match prereq_map.get(key) {
-            Some(prs) => {
-                if prs.is_empty() {
-                    // explícitamente sin prerrequisitos
-                    true
-                } else {
-                    // todos los prerrequisitos deben estar en passed_names
-                    prs.iter().all(|pr| passed_names.contains(pr))
+    
+    for (key, ramo) in ramos_disponibles.iter() {
+        // Verificar restricción de semestre
+        let within_horizon = if let Some(sem) = ramo.semestre {
+            sem <= max_allowed_semester
+        } else {
+            // Sin información de semestre: asumir que está permitido (ser permisivo)
+            true
+        };
+        
+        if !within_horizon {
+            continue;  // Fuera del horizonte de 2 semestres
+        }
+        
+        let eligible = if params.ramos_pasados.is_empty() {
+            // Estudiante nuevo: permitir S1 (semestre 1) y S2 (semestre 2)
+            if let Some(sem) = ramo.semestre {
+                sem == 1 || sem == 2
+            } else {
+                // Sin información de semestre: usar política anterior (solo si tiene prereqs explícitos sin requerir)
+                match prereq_map.get(key) {
+                    Some(prs) => prs.is_empty(),
+                    None => false,
                 }
             }
-            None => false, // ausencia de información => no elegible
+        } else {
+            // Estudiante con ramos aprobados: política estricta
+            match prereq_map.get(key) {
+                Some(prs) => {
+                    if prs.is_empty() {
+                        true  // Sin prerequisitos
+                    } else {
+                        prs.iter().all(|pr| passed_names.contains(pr))  // Todos los prereqs satisfechos
+                    }
+                }
+                None => false,  // Sin información = no elegible
+            }
         };
         if eligible {
             s1.insert(key.clone());
@@ -789,9 +859,9 @@ pub fn get_clique_max_pond_with_prefs(
     // todos sus prerrequisitos ya están aprobados (en `ramos_pasados`).
 
     let mut graph = UnGraph::<usize, ()>::new_undirected();
-    // Nuevo: cada nodo modela (seccion_idx, semestre) donde semestre = 1 o 2
-    // node_meta[node_index.index()] = (seccion_idx, semestre)
-    let mut node_meta: Vec<(usize, u8)> = Vec::new();
+    // Nuevo: cada nodo modela (seccion_idx, semestre, ramo_key)
+    // node_meta[node_index.index()] = (seccion_idx, semestre, ramo_key)
+    let mut node_meta: Vec<(usize, u8, String)> = Vec::new();
     let mut priorities = HashMap::new();
 
     for (idx, seccion) in filtered.iter().enumerate() {
@@ -853,8 +923,7 @@ pub fn get_clique_max_pond_with_prefs(
         let mut horario_boost: i32 = 0;
 
         // dias_set usado en varios checks; inicializar y rellenar antes de posibles usos
-        use std::collections::HashSet as _HashSet;
-        let mut dias_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut dias_set: HashSet<String> = HashSet::new();
 
         // Referencia a filtros para chequear nuevos filtros añadidos
         let filtros_opt = params.filtros.as_ref();
@@ -1021,10 +1090,10 @@ pub fn get_clique_max_pond_with_prefs(
         }
 
         let prioridad = cc * 10000 + uu * 1000 + kk * 100 + ss * 10 + dd + horario_boost;
-        // si pertenece a S1, añadir nodo para semestre 1
+        // si pertenece a S1, añadir nodo para semestre 1 (guardando ramo_key)
         if is_s1 {
             let n = graph.add_node(node_meta.len());
-            node_meta.push((idx, 1u8));
+            node_meta.push((idx, 1u8, ramo_key.clone()));
             priorities.insert(n, prioridad);
         }
     }
@@ -1033,10 +1102,10 @@ pub fn get_clique_max_pond_with_prefs(
     // node_meta índice corresponde al payload asociado al node index (node.index()).
     for a in 0..node_meta.len() {
         for b in (a + 1)..node_meta.len() {
-            let (sec_a_idx, sem_a) = node_meta[a];
-            let (sec_b_idx, sem_b) = node_meta[b];
-            let sec_a = &filtered[sec_a_idx];
-            let sec_b = &filtered[sec_b_idx];
+            let (sec_a_idx, _sem_a, _ramo_a) = &node_meta[a];
+            let (sec_b_idx, _sem_b, _ramo_b) = &node_meta[b];
+            let sec_a = &filtered[*sec_a_idx];
+            let sec_b = &filtered[*sec_b_idx];
 
             // mismo código_box -> no emparejar
             if sec_a.codigo_box == sec_b.codigo_box { continue; }
@@ -1051,239 +1120,151 @@ pub fn get_clique_max_pond_with_prefs(
         }
     }
 
-    let mut prev_solutions = Vec::new();
+    // Construir etiquetas legibles por nodo para logging (índice corresponde a NodeIndex.index())
+    let mut node_labels: Vec<String> = Vec::new();
+    for (seccion_idx, _sem, ramo_k) in node_meta.iter() {
+        let s = &filtered[*seccion_idx];
+        let label = format!("{} ({}) - Sección {}", &s.codigo[..std::cmp::min(7, s.codigo.len())], ramo_k, s.seccion);
+        node_labels.push(label);
+    }
+
+    let mut prev_solutions: Vec<Vec<NodeIndex>> = Vec::new();
     let mut solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
 
-    eprintln!("\n📊 [get_clique_with_user_prefs] Iniciando búsqueda de múltiples soluciones");
+    eprintln!("📊 [get_clique_max_pond_with_prefs] Iniciando búsqueda de múltiples soluciones");
+    eprintln!("   S1 elegibles: {} ramos", s1.len());
     eprintln!("   Grafo: {} nodos, {} aristas", graph.node_count(), graph.edge_count());
 
     let max_iterations = 8;
 
     let total_start = Instant::now();
 
-    for iteration in 1..=max_iterations {
-        let iter_start = Instant::now();
-        // Probar múltiples seeds para aumentar probabilidad de hallar la mejor clique
-        let mut best_clique: Vec<NodeIndex> = Vec::new();
-        let mut best_score: i64 = std::i64::MIN;
-        let seed_attempts = 8usize;
-        for seed in 0..seed_attempts {
-            let c = find_max_weight_clique_with_seed(&graph, &priorities, seed);
-            if c.len() <= 2 { continue; }
-            let score: i64 = c.iter().map(|n| *priorities.get(n).unwrap_or(&0) as i64).sum();
-            if score > best_score {
-                best_score = score;
-                best_clique = c;
+    // GENERAR MÚLTIPLES SOLUCIONES: encontrar el clique máximo por backtracking limitado
+    let mut max_clique: Vec<NodeIndex> = Vec::new();
+    let mut current_clique: Vec<NodeIndex> = Vec::new();
+    let mut visited = vec![false; graph.node_count()];
+    
+    // Función de backtracking para encontrar cliques (con logging de nodos)
+    fn find_max_clique_backtrack(
+        graph: &UnGraph<usize, ()>,
+        current: &mut Vec<NodeIndex>,
+        candidates: &[NodeIndex],
+        max_found: &mut Vec<NodeIndex>,
+        visited: &mut Vec<bool>,
+        max_size: usize,
+        node_labels: &[String],
+    ) {
+        if current.len() > max_found.len() && current.len() <= max_size {
+            *max_found = current.clone();
+            eprintln!("BT: nuevo max_found (len={}): {:?}", max_found.len(), max_found.iter().map(|n| n.index()).collect::<Vec<_>>());
+        }
+        if current.len() >= max_size {
+            return; // No necesitamos más grandes que max_size
+        }
+        for (i, &node) in candidates.iter().enumerate() {
+            if visited[node.index()] {
+                continue;
+            }
+            eprintln!("BT: intentando nodo {} => {}", node.index(), node_labels[node.index()]);
+            // Verificar si node es compatible con todos en current
+            let mut compatible = true;
+            for &existing in current.iter() {
+                if !graph.contains_edge(node, existing) {
+                    compatible = false;
+                    break;
+                }
+            }
+            if compatible {
+                visited[node.index()] = true;
+                current.push(node);
+                eprintln!("BT: añadir nodo {} => {} (current_len={})", node.index(), node_labels[node.index()], current.len());
+                // Recursar con los candidatos restantes
+                find_max_clique_backtrack(graph, current, &candidates[i + 1..], max_found, visited, max_size, node_labels);
+                current.pop();
+                visited[node.index()] = false;
+                eprintln!("BT: remover nodo {} => {} (current_len={})", node.index(), node_labels[node.index()], current.len());
             }
         }
-        let max_clique = best_clique;
-        if max_clique.len() <= 2 {
-            eprintln!("   Iter {}: Clique muy pequeño ({}), deteniendo", iteration, max_clique.len());
-            break;
-        }
+    }
+    
+    // Ordenar nodos por ID numérico (`numb_correlativo`) ascendente para explorar
+    // en el orden de la malla (más simple/determinístico).
+    let mut nodes: Vec<NodeIndex> = graph.node_indices().collect();
+    nodes.sort_by_key(|&n| {
+        // node_meta[node.index()] = (seccion_idx, semestre, ramo_key)
+        let (_sidx, _sem, ramo_k) = &node_meta[n.index()];
+        ramos_disponibles.get(ramo_k).map(|r| r.numb_correlativo).unwrap_or(0)
+    });
 
-        eprintln!("   Iter {}: Clique de {} nodos encontrado", iteration, max_clique.len());
-
-        // Determinar número máximo de ramos permitidos por solución (cap fijo a 6)
-        let max_ramos: usize = 6;
-
+    find_max_clique_backtrack(&graph, &mut current_clique, &nodes, &mut max_clique, &mut visited, 6, &node_labels);
+    
+    eprintln!("   Clique máximo encontrado: {} nodos", max_clique.len());
+    
+    // Ahora, generar soluciones variando removiendo nodos para diversidad
+    let mut prev_solutions: Vec<Vec<NodeIndex>> = Vec::new();
+    let mut solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    
+    // Primera solución: el clique máximo
+    if max_clique.len() >= 2 {
         let mut arr_aux_delete: Vec<(NodeIndex, i32)> = max_clique
             .iter()
             .map(|&idx| (idx, *priorities.get(&idx).unwrap_or(&0)))
             .collect();
-
-        // 🔧 Sort ASCENDING (lowest priority first) like Python version
         arr_aux_delete.sort_by_key(|&(_, prio)| prio);
-        while arr_aux_delete.len() > max_ramos { arr_aux_delete.remove(0); }  // Remove lowest priority nodes
-
+        while arr_aux_delete.len() > 6 { arr_aux_delete.remove(0); }
+        
         let solution_key: Vec<_> = arr_aux_delete.iter().map(|&(idx, _)| idx).collect();
-        if prev_solutions.contains(&solution_key) {
-            let iter_elapsed = iter_start.elapsed();
-            eprintln!("      -> Solución duplicada, penalizando nodos (iter tiempo: {:.3}s)", iter_elapsed.as_secs_f64());
-            // 🔧 Penalize used nodes instead of removing them
-            for &(node_idx, _) in &arr_aux_delete {
-                if let Some(prio) = priorities.get_mut(&node_idx) {
-                    *prio = (*prio / 2).max(100);  // Reduce priority to half
-                }
-            }
-            continue;
-        }
-
-        // Construir entries con info de semestre y validar prerrequisitos dentro de la clique
-        let mut solution_entries: Vec<(Seccion, i32, u8)> = Vec::new();
-        let mut total_score_i64: i64 = 0;
-        // mapear ramos seleccionados en semestre 1 (por clave del ramo en ramos_disponibles)
-        let mut selected_s1_ramos: HashSet<String> = HashSet::new();
-        for &(node_idx, prioridad) in &arr_aux_delete {
-            let (seccion_idx, sem) = node_meta[node_idx.index()];
-            let seccion = filtered[seccion_idx].clone();
-            // resolver clave de ramo normalizada
-            let clave = crate::excel::normalize_name(&seccion.nombre);
-            if sem == 1 { selected_s1_ramos.insert(clave.clone()); }
-            solution_entries.push((seccion, prioridad, sem));
-            total_score_i64 += prioridad as i64;
-        }
-
-        // Validar: para cada nodo en S2, sus prereqs deben estar en passed ∪ selected_s1_ramos
-        let mut prereq_ok = true;
-        for (_sec, _prio, sem) in solution_entries.iter() {
-            if *sem == 2 {
-                // obtener clave del ramo para esta sección
-                // implementación práctica: revisar cada entry con sem==2
-                // (se usa el nombre de la sección para mapear a la clave en ramos_disponibles)
-                // Esto ya se hace abajo en el loop: replicamos aquí
-            }
-        }
-        // implementación práctica: revisar cada entry con sem==2
-        for (sec, _prio, sem) in solution_entries.iter() {
-            if *sem == 2 {
-                let ram_key = crate::excel::normalize_name(&sec.nombre);
-                let needed_slice: &[String] = match prereq_map.get(&ram_key) {
-                    Some(v) => v.as_slice(),
-                    None => &[],
-                };
-                for pr in needed_slice.iter() {
-                    if !(passed_names.contains(pr) || selected_s1_ramos.contains(pr)) {
-                        prereq_ok = false;
-                        break;
-                    }
-                }
-                if !prereq_ok { break; }
-            }
-        }
-
-        if !prereq_ok {
-            eprintln!("      -> Solución descartada: requisitos semestrales no cumplidos (prerrequisitos S2 faltantes)");
-            // penalizar nodos de la clique para no repetirla
-            for &(node_idx, _) in &arr_aux_delete {
-                if let Some(prio) = priorities.get_mut(&node_idx) {
-                    *prio = (*prio / 2).max(100);
-                }
-            }
-            prev_solutions.push(solution_key);
-            continue;
-        }
-
-        let mut accept_solution = true;
-        if let Some(filtros) = params.filtros.as_ref() {
-            if let Some(balance) = filtros.balance_lineas.as_ref() {
-                if balance.habilitado {
-                    if let Some(ref lineas_map) = balance.lineas {
-                        // Construir mapa de conteos reales por línea para la solución
-                        use std::collections::HashMap as Map;
-                        let mut reales: Map<String, usize> = Map::new();
-                        let mut total_selected: usize = 0;
-
-                        for (sec, _prio, _sem) in solution_entries.iter() {
-                            // Resolver RamoDisponible a partir de la sección (mismo heurístico usado antes)
-                            let nombre_norm = crate::excel::normalize_name(&sec.nombre);
-                            let ramo_opt = if let Some(r) = ramos_disponibles.get(&nombre_norm) {
-                                Some(r)
-                            } else if nombre_norm == "electivo profesional" {
-                                // buscar por código entre electivos
-                                // usamos el mismo builder como heurística: buscar clave exacta
-                                // Si no encontramos, marcamos como sin línea y esto causará rechazo
-                                None
-                            } else {
-                                None
-                            };
-
-                            if let Some(ramo) = ramo_opt {
-                                // mapear ramo.nombre a alguna línea provista en `lineas_map` por substring
-                                let rname = ramo.nombre.to_lowercase();
-                                let mut matched = false;
-                                for key in lineas_map.keys() {
-                                    if rname.contains(&key.to_lowercase()) {
-                                        *reales.entry(key.clone()).or_insert(0) += 1;
-                                        matched = true;
-                                        break;
-                                    }
-                                }
-                                // si no matchea ninguna línea, considerarlo incumplimiento estricto
-                                if !matched {
-                                    accept_solution = false;
-                                    break;
-                                }
-                                total_selected += 1;
-                            } else {
-                                // No pude mapear la sección al ramo; tratar como incumplimiento
-                                accept_solution = false;
-                                break;
-                            }
-                        }
-
-                        if accept_solution {
-                            // Si no hay ramos seleccionados (ej: 0), entonces no cumple
-                            if total_selected == 0 {
-                                accept_solution = false;
-                            } else {
-                                // Calcular expected counts a partir de porcentajes y total_selected
-                                // Algoritmo: asignar floor(p * total), luego distribuir residuos por mayor fracción
-                                use std::cmp::Ordering;
-                                let mut expected: Map<String, usize> = Map::new();
-                                let mut frac_parts: Vec<(_, f64)> = Vec::new();
-                                let mut assigned: usize = 0;
-                                for (k, v) in lineas_map.iter() {
-                                    let exact = v * (total_selected as f64);
-                                    let base = exact.floor() as usize;
-                                    expected.insert(k.clone(), base);
-                                    assigned += base;
-                                    frac_parts.push((k.clone(), exact - (base as f64)));
-                                }
-                                let mut remaining = total_selected.saturating_sub(assigned);
-                                // ordenar por parte fraccional descendente
-                                frac_parts.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
-                                let mut idx = 0;
-                                while remaining > 0 && !frac_parts.is_empty() {
-                                    let key = &frac_parts[idx % frac_parts.len()].0;
-                                    *expected.entry(key.clone()).or_insert(0) += 1;
-                                    remaining -= 1;
-                                    idx += 1;
-                                }
-
-                                // Ahora comparar expected con reales exactamente
-                                for (k, &exp_count) in expected.iter() {
-                                    let real_count = *reales.get(k).unwrap_or(&0);
-                                    if real_count != exp_count {
-                                        accept_solution = false;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-    let iter_elapsed = iter_start.elapsed();
-    if accept_solution {
-        eprintln!("      -> Solución {} aceptada ({} cursos, score {}, tiempo: {:.3}s)", solutions.len() + 1, arr_aux_delete.len(), total_score_i64, iter_elapsed.as_secs_f64());
-
-        // Convertir entries (Seccion, i32, semestre) -> (Seccion, i32) para la API
-        let simple_entries: Vec<(Seccion, i32)> = solution_entries.iter()
-            .map(|(s, p, _sem)| (s.clone(), *p))
-            .collect();
-
-        solutions.push((simple_entries, total_score_i64));
-    } else {
-        eprintln!("      -> Solución descartada por filtros estrictos (balance_lineas u otros) (tiempo: {:.3}s)", iter_elapsed.as_secs_f64());
-        // Penalizar nodos usados para evitar elegir la misma composición repetidamente
-        for &(node_idx, _) in &arr_aux_delete {
-            if let Some(prio) = priorities.get_mut(&node_idx) {
-                *prio = (*prio / 2).max(100);
-            }
-        }
-        // No push; continuar buscando otras soluciones
-    }
         prev_solutions.push(solution_key);
-
-        // 🔧 Penalize all nodes in the clique for next iteration
-        for &(node_idx, _) in &arr_aux_delete {
-            if let Some(prio) = priorities.get_mut(&node_idx) {
-                *prio = (*prio / 2).max(100);  // Reduce priority to half
-            }
+        
+        let mut solution_entries: Vec<(Seccion, i32)> = Vec::new();
+        let total_score_i64: i64 = arr_aux_delete.len() as i64;
+        
+        for &(node_idx, prioridad) in &arr_aux_delete {
+            let (seccion_idx, _sem, _ramo) = &node_meta[node_idx.index()];
+            let seccion = filtered[*seccion_idx].clone();
+            solution_entries.push((seccion, prioridad));
         }
+        
+        solutions.push((solution_entries, total_score_i64));
+        eprintln!("      -> Solución 1 aceptada ({} cursos, score {})", arr_aux_delete.len(), total_score_i64);
+    }
+    
+    // Generar variaciones removiendo el nodo de menor prioridad
+    let mut graph_copy = graph.clone();
+    for iter in 2..=10 {
+        if max_clique.is_empty() { break; }
+        // Remover el nodo de menor prioridad del clique máximo
+        let mut clique_copy = max_clique.clone();
+        clique_copy.sort_by_key(|&n| *priorities.get(&n).unwrap_or(&0));
+        if let Some(last) = clique_copy.first().cloned() {
+            graph_copy.remove_node(last);
+            max_clique.retain(|&n| n != last);
+        }
+        
+        if max_clique.len() < 2 { break; }
+        
+        let mut arr_aux_delete: Vec<(NodeIndex, i32)> = max_clique
+            .iter()
+            .map(|&idx| (idx, *priorities.get(&idx).unwrap_or(&0)))
+            .collect();
+        arr_aux_delete.sort_by_key(|&(_, prio)| prio);
+        while arr_aux_delete.len() > 6 { arr_aux_delete.remove(0); }
+        
+        let solution_key: Vec<_> = arr_aux_delete.iter().map(|&(idx, _)| idx).collect();
+        if prev_solutions.contains(&solution_key) { continue; }
+        prev_solutions.push(solution_key);
+        
+        let mut solution_entries: Vec<(Seccion, i32)> = Vec::new();
+        let total_score_i64: i64 = arr_aux_delete.len() as i64;
+        
+        for &(node_idx, prioridad) in &arr_aux_delete {
+            let (seccion_idx, _sem, _ramo) = &node_meta[node_idx.index()];
+            let seccion = filtered[*seccion_idx].clone();
+            solution_entries.push((seccion, prioridad));
+        }
+        
+        solutions.push((solution_entries, total_score_i64));
+        eprintln!("      -> Solución {} aceptada ({} cursos, score {})", iter, arr_aux_delete.len(), total_score_i64);
     }
 
     let total_elapsed = total_start.elapsed();

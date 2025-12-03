@@ -16,6 +16,8 @@ pub fn leer_malla_con_porcentajes_optimizado(
     malla_archivo: &str,
     porcentajes_archivo: &str,
 ) -> Result<HashMap<String, RamoDisponible>, Box<dyn Error>> {
+    eprintln!("🔍 [OPTIMIZED MALLA] Starting - malla_archivo={}", malla_archivo);
+    
     // 🆕 Usar la misma lógica de normalización que en el resto del código
     fn normalize(s: &str) -> String {
         let mut out = String::new();
@@ -48,14 +50,23 @@ pub fn leer_malla_con_porcentajes_optimizado(
     
     let mut resultado: HashMap<String, RamoDisponible> = HashMap::new();
 
-    // Detectar fila de encabezado y columnas (nombre / id) de forma robusta
+    // Detectar fila de encabezado y columnas (nombre / id / semestre) de forma robusta
     let mut header_row_idx: Option<usize> = None;
     let mut name_col_idx: usize = 2; // fallback antiguo
     let mut id_col_idx: usize = 0; // fallback antiguo
+    let mut semestre_col_idx: Option<usize> = None; // Nueva columna
+    
+    eprintln!("DEBUG: malla_rows.len()={}", malla_rows.len());
+    if !malla_rows.is_empty() {
+        eprintln!("DEBUG: First row (header): {:?}", malla_rows.get(0));
+    }
+    
     for (i, row) in malla_rows.iter().enumerate().take(4) {
         // buscar palabras clave en las celdas
         for (j, cell) in row.iter().enumerate() {
             let lower = cell.to_lowercase();
+            eprintln!("DEBUG: Row {}, Col {}: '{}' -> '{}'", i, j, cell, lower);
+            
             if lower.contains("nombre") || lower.contains("asignatura") || lower.contains("curso") {
                 header_row_idx = Some(i);
                 name_col_idx = j;
@@ -65,8 +76,12 @@ pub fn leer_malla_con_porcentajes_optimizado(
                 // si aún no tenemos id_col, tomar este
                 id_col_idx = j;
             }
+            if lower.contains("semestre") {
+                header_row_idx = Some(i);
+                semestre_col_idx = Some(j);
+                eprintln!("DEBUG: Found 'semestre' at row {} col {}", i, j);
+            }
         }
-        if header_row_idx.is_some() { break; }
     }
 
     let start_idx = match header_row_idx {
@@ -74,7 +89,7 @@ pub fn leer_malla_con_porcentajes_optimizado(
         None => 2, // comportamiento legacy
     };
 
-    eprintln!("DEBUG: Malla header detected at {:?}, using name_col={} id_col={}", header_row_idx, name_col_idx, id_col_idx);
+    eprintln!("DEBUG: Malla header detected at {:?}, using name_col={} id_col={} semestre_col={:?}", header_row_idx, name_col_idx, id_col_idx, semestre_col_idx);
 
     for (idx, row) in malla_rows.iter().enumerate() {
         if idx < start_idx { continue; }
@@ -83,6 +98,13 @@ pub fn leer_malla_con_porcentajes_optimizado(
         let nombre_real = row.get(name_col_idx).cloned().unwrap_or_default();
         let id_str = row.get(id_col_idx).cloned().unwrap_or_else(|| "0".to_string());
         let id = id_str.parse::<i32>().unwrap_or(0);
+        
+        // Leer semestre si está disponible
+        let semestre_opt = semestre_col_idx.and_then(|col| {
+            row.get(col).and_then(|sem_str| {
+                sem_str.trim().parse::<i32>().ok()
+            })
+        });
 
         let norm_name = normalize(&nombre_real);
         if !norm_name.is_empty() && norm_name != "—" {
@@ -96,6 +118,7 @@ pub fn leer_malla_con_porcentajes_optimizado(
                 codigo_ref: None,
                 dificultad: None,
                 electivo: false,
+                semestre: semestre_opt,
             });
         }
     }
