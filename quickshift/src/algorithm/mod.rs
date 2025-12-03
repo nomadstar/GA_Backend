@@ -3,7 +3,7 @@
 pub mod extract;
 pub mod extract_optimizado;
 pub mod extract_controller;
-mod clique;
+pub mod clique;
 pub mod conflict;
 pub mod section_selector;
 mod pert;
