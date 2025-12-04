@@ -253,35 +253,47 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
     // Usamos un HashSet de nombres normalizados.
     let mut oa_nombres: HashSet<String> = HashSet::new();
      let mut resolved_malla_path: Option<std::path::PathBuf> = None;
-     if let Ok((malla_path, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
-         if let Ok(mut workbook) = calamine::open_workbook_auto(oferta_path.to_str().unwrap_or("")) {
-             let sheet_names = workbook.sheet_names().to_owned();
-             if let Some(sheet) = sheet_names.first() {
-                 if let Ok(range) = workbook.worksheet_range(sheet) {
-                     // contador debug para mostrar las primeras filas leídas
-                     let mut oa_debug_count = 0;
-                     for (row_idx, row) in range.rows().enumerate() {
-                         if row_idx == 0 { continue; }  // skip header
-                         // OA: usamos solo el NOMBRE en la columna configurada por `OA_NAME_COL`
-                         let oa_name_col = OA_NAME_COL.load(Ordering::Relaxed);
-                         let nombre = data_to_string(row.get(oa_name_col).unwrap_or(&Data::Empty)).trim().to_string();
-                         if oa_debug_count < 5 {
-                             eprintln!("DEBUG OA sample row {}: nombre(C)='{}'", row_idx, nombre);
-                             oa_debug_count += 1;
-                         }
-                         if !nombre.is_empty() {
-                             let nombre_norm = normalize_name(&nombre);
-                             // Inserción directa en HashSet (no usar Entry.or_insert)
-                             oa_nombres.insert(nombre_norm);
-                         }
-                     }
-                 }
-             }
-         }
-     } else {
-         // Fallback: no pudimos resolver rutas automáticamente; intentamos abrir el archivo
-         // de oferta usando heurística en DATAFILES_DIR como antes (no modificar comportamiento previo).
-         if let Ok((_, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
+    if let Ok((malla_path, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
+            // Intentar abrir con calamine y detectar columna de nombre dinámicamente
+            if let Ok(mut workbook) = calamine::open_workbook_auto(oferta_path.to_str().unwrap_or("")) {
+                let sheet_names = workbook.sheet_names().to_owned();
+                for sheet in sheet_names.iter() {
+                    if let Ok(range) = workbook.worksheet_range(sheet) {
+                        // Detectar columna de nombre en header (si existe)
+                        let mut oa_name_col: usize = OA_NAME_COL.load(Ordering::Relaxed);
+                        let rows_vec: Vec<_> = range.rows().collect();
+                        if let Some(header_row) = rows_vec.get(0) {
+                            for (i, cell) in header_row.iter().enumerate() {
+                                let s = data_to_string(cell).to_lowercase();
+                                if s.contains("nombre") || s.contains("asignatura") || s.contains("ramo") {
+                                    oa_name_col = i;
+                                }
+                            }
+                            eprintln!("DEBUG: OA header detected in '{}' -> oa_name_col={}", sheet, oa_name_col);
+                        }
+
+                        let mut oa_debug_count = 0;
+                        for (row_idx, row) in rows_vec.into_iter().enumerate() {
+                            if row_idx == 0 { continue; }  // skip header
+                            let nombre = data_to_string(row.get(oa_name_col).unwrap_or(&Data::Empty)).trim().to_string();
+                            if oa_debug_count < 5 {
+                                eprintln!("DEBUG OA sample row {}: nombre(C)='{}'", row_idx, nombre);
+                                oa_debug_count += 1;
+                            }
+                            if !nombre.is_empty() {
+                                let nombre_norm = normalize_name(&nombre);
+                                oa_nombres.insert(nombre_norm);
+                            }
+                        }
+                        // Si ya cargamos nombres, no hace falta intentar otras hojas
+                        if !oa_nombres.is_empty() { break; }
+                    }
+                }
+                    }
+                } else {
+             // Fallback: no pudimos resolver rutas automáticamente; intentamos abrir el archivo
+             // de oferta usando heurística en DATAFILES_DIR como antes (no modificar comportamiento previo).
+             if let Ok((_, oferta_path, _)) = crate::excel::resolve_datafile_paths(malla_archivo) {
              if let Ok(mut workbook) = calamine::open_workbook_auto(oferta_path.to_str().unwrap_or("")) {
                  let sheet_names = workbook.sheet_names().to_owned();
                  if let Some(sheet) = sheet_names.first() {

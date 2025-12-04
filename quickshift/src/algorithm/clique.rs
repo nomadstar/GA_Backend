@@ -2,6 +2,7 @@
 use std::collections::{HashMap, HashSet};
 use petgraph::graph::{NodeIndex, UnGraph};
 use crate::models::{Seccion, RamoDisponible};
+use crate::excel::normalize_name;
 use crate::api_json::InputParams;
 
 fn compute_priority(ramo: &RamoDisponible, sec: &Seccion) -> i64 {
@@ -62,8 +63,18 @@ pub fn get_clique_max_pond_with_prefs(
         let best = graph.node_indices().filter(|n| !removed.contains(n))
             .max_by_key(|n| {
                 let sec = graph.node_weight(*n).unwrap();
-                ramos_disponibles.values().find(|r| r.codigo == sec.codigo)
-                    .map(|r| compute_priority(r, sec)).unwrap_or(0)
+                // Mejorar matching: primero intentar por código (case-insensitive),
+                // luego por nombre normalizado (fallback). Esto evita que RamoDisponible.codigo
+                // (que puede contener códigos PA) no coincida con el código de la sección.
+                let candidate = ramos_disponibles.values().find(|r| {
+                    if !r.codigo.is_empty() && !sec.codigo.is_empty() {
+                        if r.codigo.to_lowercase() == sec.codigo.to_lowercase() { return true; }
+                    }
+                    let rn = normalize_name(&r.nombre);
+                    let sn = normalize_name(&sec.nombre);
+                    rn == sn
+                });
+                candidate.map(|r| compute_priority(r, sec)).unwrap_or(0)
             });
 
         let Some(start) = best else { break; };
@@ -75,8 +86,15 @@ pub fn get_clique_max_pond_with_prefs(
             if cands.is_empty() { break; }
             let next = cands.into_iter().max_by_key(|n| {
                 let sec = graph.node_weight(*n).unwrap();
-                ramos_disponibles.values().find(|r| r.codigo == sec.codigo)
-                    .map(|r| compute_priority(r, sec)).unwrap_or(0)
+                let candidate = ramos_disponibles.values().find(|r| {
+                    if !r.codigo.is_empty() && !sec.codigo.is_empty() {
+                        if r.codigo.to_lowercase() == sec.codigo.to_lowercase() { return true; }
+                    }
+                    let rn = normalize_name(&r.nombre);
+                    let sn = normalize_name(&sec.nombre);
+                    rn == sn
+                });
+                candidate.map(|r| compute_priority(r, sec)).unwrap_or(0)
             }).unwrap();
             clique.push(next);
         }
@@ -85,7 +103,15 @@ pub fn get_clique_max_pond_with_prefs(
         let mut total = 0i64;
         for &idx in &clique {
             let sec = graph.node_weight(idx).unwrap().clone();
-            if let Some(r) = ramos_disponibles.values().find(|r| r.codigo == sec.codigo) {
+            let candidate = ramos_disponibles.values().find(|r| {
+                if !r.codigo.is_empty() && !sec.codigo.is_empty() {
+                    if r.codigo.to_lowercase() == sec.codigo.to_lowercase() { return true; }
+                }
+                let rn = normalize_name(&r.nombre);
+                let sn = normalize_name(&sec.nombre);
+                rn == sn
+            });
+            if let Some(r) = candidate {
                 let score = compute_priority(r, &sec);
                 sol.push((sec, score as i32));
                 total += score;
