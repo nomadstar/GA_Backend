@@ -49,6 +49,30 @@ fn sections_conflict(s1: &Seccion, s2: &Seccion) -> bool {
     s1.horario.iter().any(|h1| s2.horario.iter().any(|h2| h1 == h2))
 }
 
+/// Verifica si los requisitos previos de una sección están cumplidos
+/// ret true si:
+/// - El curso NO tiene requisito (codigo_ref is None o == id)
+/// - El curso tiene requisito Y ese requisito está en passed_codes
+fn requisitos_cumplidos(
+    seccion: &Seccion,
+    ramo: &RamoDisponible,
+    ramos_disp: &HashMap<String, RamoDisponible>,
+    passed_codes: &HashSet<String>,  // códigos de cursos ya pasados + cursos en solución actual
+) -> bool {
+    if let Some(prereq_id) = ramo.codigo_ref {
+        if prereq_id != ramo.id {
+            // Tiene un prerequisito distinto
+            // Buscar el ramo con ese ID para obtener su código
+            if let Some(prereq_ramo) = ramos_disp.values().find(|r| r.id == prereq_id) {
+                // El código del prerequisito debe estar en passed_codes
+                return passed_codes.contains(&prereq_ramo.codigo.to_uppercase());
+            }
+            return false;
+        }
+    }
+    true
+}
+
 /// Helper para parsear "HH:MM" a minutos
 fn parse_hora(s: &str) -> Option<i32> {
     let s = s.trim();
@@ -377,13 +401,28 @@ pub fn get_clique_max_pond_with_prefs(
         
         let seed_idx = candidates[0];
         
-        // VALIDAR que el seed cumple filtros
+        // VALIDAR que el seed cumple filtros Y requisitos previos
         if !seccion_cumple_filtros(&filtered[seed_idx], &params.filtros) {
             remaining_indices.remove(&seed_idx);
             continue;
         }
         
+        // Construir set de cursos ya aprobados (para validar requisitos previos)
+        let mut passed_codes: HashSet<String> = params.ramos_pasados.iter()
+            .map(|s| s.to_uppercase())
+            .collect();
+        
+        // Verificar requisitos del seed
+        if let Some(seed_ramo) = ramos_disponibles.values().find(|r| r.codigo == filtered[seed_idx].codigo) {
+            if !requisitos_cumplidos(&filtered[seed_idx], seed_ramo, ramos_disponibles, &passed_codes) {
+                remaining_indices.remove(&seed_idx);
+                continue;
+            }
+        }
+        
         let mut clique: Vec<usize> = vec![seed_idx];
+        // Agregar el seed al set de códigos pasados para validar siguientes nodos
+        passed_codes.insert(filtered[seed_idx].codigo.clone().to_uppercase());
         
         // Greedy: agregar candidatos conectados a todos en la clique, max 6
         for &cand in candidates.iter().skip(1) {
@@ -401,6 +440,18 @@ pub fn get_clique_max_pond_with_prefs(
             
             // candidate must be connected to ALL nodes already in clique
             if clique.iter().all(|&u| adj[u][cand]) {
+                // VALIDAR requisitos previos del candidato
+                let mut prereq_ok = true;
+                if let Some(cand_ramo) = ramos_disponibles.values().find(|r| r.codigo == filtered[cand].codigo) {
+                    if !requisitos_cumplidos(&filtered[cand], cand_ramo, ramos_disponibles, &passed_codes) {
+                        prereq_ok = false;
+                    }
+                }
+                
+                if !prereq_ok {
+                    continue;
+                }
+                
                 // Además: si cand y algún u pertenecen a la misma materia base,
                 // exigir que pertenezcan a la misma `seccion` (emparejar laboratorios/talleres)
                 let mut conflict = false;
@@ -418,6 +469,8 @@ pub fn get_clique_max_pond_with_prefs(
                 }
                 if !conflict {
                     clique.push(cand);
+                    // Agregar el nuevo nodo al set de códigos pasados
+                    passed_codes.insert(filtered[cand].codigo.clone().to_uppercase());
                 }
             }
         }
