@@ -68,7 +68,7 @@ pub fn ejecutar_ruta_critica_with_params(
     
     // 2b) Ejecutar PERT ANTES de filtrar secciones
     // (porque necesitamos critico/holgura/numb_correlativo propagados)
-    eprintln!("   🧭 Ejecutando PERT...");
+    eprintln!("   🧭 Ejecutando PERT (primera pasada)...");
     if let Err(e) = crate::algorithm::pert::build_and_run_pert(
         &mut ramos_disponibles, 
         &lista_secciones, 
@@ -81,48 +81,53 @@ pub fn ejecutar_ruta_critica_with_params(
     
     // 2c) Filtrar secciones viables según reglas Python:
     // - Excluir ramos ya aprobados (ramos_pasados)
-    // - Para electivos: solo incluir si TODOS los prerequisites están en ramos_pasados
+    // - Excluir ramos cuyos prerequisitos NO estén en ramos_pasados
     eprintln!("   🔍 Filtrando secciones viables...");
     let passed_set: HashSet<String> = params.ramos_pasados
         .iter()
         .map(|s| s.to_uppercase())
         .collect();
     
+    // Crear un mapa de código -> RamoDisponible para búsquedas rápidas
+    let codigo_to_ramo: HashMap<String, &RamoDisponible> = ramos_disponibles.iter()
+        .map(|(k, v)| (k.to_uppercase(), v))
+        .collect();
+    
     let lista_secciones_viables: Vec<Seccion> = lista_secciones
         .iter()
         .filter(|sec| {
-            // Excluir si ya fue aprobado (comparar por código de ramo, no por codigo_box)
-            if passed_set.contains(&sec.codigo.to_uppercase()) {
+            let sec_codigo_upper = sec.codigo.to_uppercase();
+            
+            // Excluir si ya fue aprobado
+            if passed_set.contains(&sec_codigo_upper) {
                 eprintln!("   ⊘ Excluyendo {} (ya aprobado)", sec.codigo);
                 return false;
             }
             
-            // Encontrar el ramo correspondiente en ramos_disponibles
-            let ramo_opt = ramos_disponibles.values().find(|r| {
-                r.codigo.to_lowercase() == sec.codigo.to_lowercase() ||
-                r.nombre.to_lowercase().contains(&sec.nombre.to_lowercase())
-            });
-            
-            if let Some(ramo) = ramo_opt {
-                // Si es electivo, verificar que TODOS los prerequisites estén aprobados
-                if ramo.electivo {
-                    // Obtener prerequisitos de la malla
-                    // (Simplificado: si tiene codigo_ref, debería estar en passed_set)
-                    if let Some(prereq_id) = ramo.codigo_ref {
-                        if prereq_id != ramo.id {
-                            // Buscar si este prereq está en ramos_pasados
-                            let prereq_ok = ramos_disponibles.values()
-                                .find(|r| r.id == prereq_id)
-                                .map_or(false, |r| passed_set.contains(&r.codigo));
-                            if !prereq_ok {
-                                return false;  // Prerequisito no cumplido
+            // Obtener el ramo de la malla
+            if let Some(ramo) = codigo_to_ramo.get(&sec_codigo_upper) {
+                // Verificar si TODOS los prerequisitos están en ramos_pasados
+                // Un ramo es viable si:
+                // 1. No tiene prerequisito (codigo_ref == id), O
+                // 2. Su prerequisito está en ramos_pasados
+                
+                if let Some(prereq_id) = ramo.codigo_ref {
+                    if prereq_id != ramo.id {
+                        // Tiene prerequisito, buscar ese ramo
+                        if let Some(prereq_ramo) = ramos_disponibles.values().find(|r| r.id == prereq_id) {
+                            // El prerequisito debe estar en ramos_pasados
+                            if !passed_set.contains(&prereq_ramo.codigo.to_uppercase()) {
+                                eprintln!("   ⊘ Excluyendo {} (prerequisito {} no aprobado)", 
+                                         sec.codigo, prereq_ramo.codigo);
+                                return false;
                             }
                         }
                     }
                 }
                 true
             } else {
-                true  // Si no está en la malla, dejamos que pase
+                // Si no está en la malla, lo incluimos
+                true
             }
         })
         .cloned()
