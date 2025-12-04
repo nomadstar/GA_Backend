@@ -1,7 +1,6 @@
 use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use serde_json::json;
 use crate::api_json::InputParams;
-use crate::algorithm::{extract_data, get_clique_with_user_prefs, select_non_conflicting_sections};
 use crate::models::Seccion;
 use std::sync::OnceLock;
 use std::sync::Arc;
@@ -42,8 +41,6 @@ pub async fn solve_handler(req: HttpRequest, body: web::Json<serde_json::Value>)
     let client_ip = req.connection_info().realip_remote_addr().unwrap_or("unknown").to_string();
     let start = std::time::Instant::now();
 
-    let student_rank_outer = params.student_ranking.unwrap_or(0.5);
-
     static GLOBAL_SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
     let sem = GLOBAL_SEM.get_or_init(|| {
         let procs = num_cpus::get();
@@ -59,14 +56,16 @@ pub async fn solve_handler(req: HttpRequest, body: web::Json<serde_json::Value>)
 
     let blocking_handle = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        let initial_map: std::collections::HashMap<String, crate::models::RamoDisponible> = std::collections::HashMap::new();
-        let sheet_opt = params_block.sheet.as_deref();
-        let (lista_secciones, ramos_actualizados) = match extract_data(initial_map, &params_block.malla, sheet_opt) {
-            Ok((ls, ra)) => (ls, ra),
-            Err(e) => return Err(format!("extract failed: {}", e)),
-        };
-        let soluciones = get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params_block);
-        Ok((lista_secciones, ramos_actualizados, soluciones))
+        // USAR LA NUEVA FUNCIÓN 4-FASES CON FILTRAJE CORRECTO
+        match crate::algorithm::ruta::ejecutar_ruta_critica_with_params(params_block) {
+            Ok(soluciones) => {
+                // soluciones es Vec<(Vec<(Seccion, i32)>, i64)>
+                // necesitamos extraer lista_secciones y ramos_actualizados para luego serializar
+                // Por ahora, solo retornamos soluciones
+                Ok(soluciones)
+            },
+            Err(e) => Err(format!("ruta_critica failed: {}", e)),
+        }
     });
 
     let blocking_result = match blocking_handle.await {
@@ -74,70 +73,18 @@ pub async fn solve_handler(req: HttpRequest, body: web::Json<serde_json::Value>)
         Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("task join error: {}", e)})),
     };
 
-    let (lista_secciones, ramos_actualizados, soluciones) = match blocking_result {
+    let soluciones = match blocking_result {
         Ok(v) => v,
         Err(err_msg) => return HttpResponse::InternalServerError().json(json!({"error": err_msg})),
     };
 
-    const DEFAULT_THRESHOLD: f64 = 0.05;
+    // Convertir Vec<(Vec<(Seccion, i32)>, i64)> a Vec<SolutionEntry>
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
-    let student_rank = student_rank_outer;
-    for (sol, score) in soluciones.iter() {
-        let mut prod_reprobar: f64 = 1.0;
-        for (s, _prio) in sol.iter() {
-            let code_l = s.codigo.to_lowercase();
-            if let Some(ramo) = ramos_actualizados.get(&code_l) {
-                if let Some(pct_aprob) = ramo.dificultad {
-                    let repro = (100.0 - pct_aprob) / 100.0;
-                    let repro_eff = repro * (1.0 - student_rank);
-                    prod_reprobar *= repro_eff.max(0.0).min(1.0);
-                } else {
-                    prod_reprobar *= 0.0;
-                }
-            } else {
-                prod_reprobar *= 0.0;
-            }
-        }
-
-        if prod_reprobar > DEFAULT_THRESHOLD {
-            continue;
-        }
-
-        if soluciones_serial.len() < 10 {
-            // Intentar seleccionar una sección por ramo sin conflicto entre todas las opciones
-            // disponibles en `lista_secciones` para los ramos incluidos en `sol`.
-            // Construir lista ordenada de claves de ramo (normalize_name) en el mismo orden
-            let mut ramo_keys: Vec<String> = Vec::new();
-            for (s, _p) in sol.iter() {
-                ramo_keys.push(crate::excel::normalize_name(&s.nombre));
-            }
-
-            // Construir grupos de candidatos: para cada clave, todas las secciones en lista_secciones
-            // cuyo nombre normalizado coincide.
-            let mut candidate_groups: Vec<Vec<Seccion>> = Vec::new();
-            for rk in ramo_keys.iter() {
-                let mut group: Vec<Seccion> = lista_secciones.iter()
-                    .filter(|ss| crate::excel::normalize_name(&ss.nombre) == *rk)
-                    .cloned()
-                    .collect();
-                // Si no hay candidatas por nombre, intentar fallback por codigo_box que aparezca en sol
-                if group.is_empty() {
-                    // Buscar código_box en la solución para este ramo
-                    if let Some((first_sec, _)) = sol.iter().find(|(s, _)| crate::excel::normalize_name(&s.nombre) == *rk) {
-                        let cb = first_sec.codigo_box.clone();
-                        group = lista_secciones.iter().filter(|ss| ss.codigo_box == cb).cloned().collect();
-                    }
-                }
-                candidate_groups.push(group);
-            }
-
-            let final_secs: Vec<Seccion> = match select_non_conflicting_sections(&candidate_groups) {
-                Some(sel) => sel,
-                None => sol.iter().map(|(s, _)| s.clone()).collect(),
-            };
-
-            soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
-        }
+    for (sol_with_prefs, score) in soluciones.iter().take(10) {
+        let final_secs: Vec<Seccion> = sol_with_prefs.iter()
+            .map(|(sec, _pref)| sec.clone())
+            .collect();
+        soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
     }
 
     let documentos = 2usize;
@@ -206,43 +153,17 @@ pub async fn solve_get_handler(query: web::Query<std::collections::HashMap<Strin
         Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to resolve names: {}", e)})),
     };
 
-    let initial_map: std::collections::HashMap<String, crate::models::RamoDisponible> = std::collections::HashMap::new();
-    let sheet_opt = params.sheet.as_deref();
-    let (lista_secciones, ramos_actualizados) = match extract_data(initial_map, &params.malla, sheet_opt) {
-        Ok((ls, ra)) => (ls, ra),
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("extract failed: {}", e)})),
+    // USAR LA NUEVA FUNCIÓN 4-FASES CON FILTRAJE CORRECTO
+    let soluciones = match crate::algorithm::ruta::ejecutar_ruta_critica_with_params(params) {
+        Ok(sols) => sols,
+        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("ruta_critica failed: {}", e)})),
     };
-    let soluciones = get_clique_with_user_prefs(&lista_secciones, &ramos_actualizados, &params);
 
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
-    for (sol, score) in soluciones.iter().take(10) {
-        // Para la ruta GET simplificada, aplicamos la misma selección de secciones
-        // usando `lista_secciones` como fuente de candidatas.
-        let mut ramo_keys: Vec<String> = Vec::new();
-        for (s, _p) in sol.iter() {
-            ramo_keys.push(crate::excel::normalize_name(&s.nombre));
-        }
-
-        let mut candidate_groups: Vec<Vec<Seccion>> = Vec::new();
-        for rk in ramo_keys.iter() {
-            let mut group: Vec<Seccion> = lista_secciones.iter()
-                .filter(|ss| crate::excel::normalize_name(&ss.nombre) == *rk)
-                .cloned()
-                .collect();
-            if group.is_empty() {
-                if let Some((first_sec, _)) = sol.iter().find(|(s, _)| crate::excel::normalize_name(&s.nombre) == *rk) {
-                    let cb = first_sec.codigo_box.clone();
-                    group = lista_secciones.iter().filter(|ss| ss.codigo_box == cb).cloned().collect();
-                }
-            }
-            candidate_groups.push(group);
-        }
-
-        let final_secs: Vec<Seccion> = match select_non_conflicting_sections(&candidate_groups) {
-            Some(sel) => sel,
-            None => sol.iter().map(|(s, _)| s.clone()).collect(),
-        };
-
+    for (sol_with_prefs, score) in soluciones.iter().take(10) {
+        let final_secs: Vec<Seccion> = sol_with_prefs.iter()
+            .map(|(sec, _pref)| sec.clone())
+            .collect();
         soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
     }
 

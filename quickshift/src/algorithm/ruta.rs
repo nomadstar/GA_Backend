@@ -83,13 +83,17 @@ pub fn ejecutar_ruta_critica_with_params(
     // - Excluir ramos ya aprobados (ramos_pasados)
     // - Para electivos: solo incluir si TODOS los prerequisites están en ramos_pasados
     eprintln!("   🔍 Filtrando secciones viables...");
-    let passed_set: HashSet<String> = params.ramos_pasados.iter().cloned().collect();
+    let passed_set: HashSet<String> = params.ramos_pasados
+        .iter()
+        .map(|s| s.to_uppercase())
+        .collect();
     
     let lista_secciones_viables: Vec<Seccion> = lista_secciones
         .iter()
         .filter(|sec| {
-            // Excluir si ya fue aprobado
-            if passed_set.contains(&sec.codigo_box) {
+            // Excluir si ya fue aprobado (comparar por código de ramo, no por codigo_box)
+            if passed_set.contains(&sec.codigo.to_uppercase()) {
+                eprintln!("   ⊘ Excluyendo {} (ya aprobado)", sec.codigo);
                 return false;
             }
             

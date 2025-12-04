@@ -180,9 +180,9 @@ pub fn get_clique_max_pond_with_prefs(
         if !sol.is_empty() {
             all_solutions.push((sol, total));
             
-            // Remover el mejor nodo de esta clique del conjunto restante para la siguiente iteración
-            if let Some(&best_node) = clique.iter().max_by_key(|&&i| pri[i]) {
-                remaining_indices.remove(&best_node);
+            // Remover TODOS los nodos de esta clique del conjunto restante para obtener soluciones diversas
+            for &node_idx in clique.iter() {
+                remaining_indices.remove(&node_idx);
             }
         } else {
             // Si no hay solución válida, remover el seed
