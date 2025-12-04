@@ -49,6 +49,146 @@ fn sections_conflict(s1: &Seccion, s2: &Seccion) -> bool {
     s1.horario.iter().any(|h1| s2.horario.iter().any(|h2| h1 == h2))
 }
 
+/// Verifica si un horario (ej: "LU MA JU 08:30 - 09:50") solapa con una franja prohibida (ej: "LU 08:00-09:00")
+fn horario_solapa_franja(horario: &str, franja_prohibida: &str) -> bool {
+    // Parsear franja prohibida: "LU 08:00-09:00" o "LU 08:00 - 09:00"
+    let franja_parts: Vec<&str> = franja_prohibida.split_whitespace().collect();
+    if franja_parts.len() < 2 {
+        return false; // Formato inválido
+    }
+    
+    let dia_prohibido = franja_parts[0].to_lowercase(); // "lu"
+    
+    // Buscar la hora (formato: "08:00-09:00" o "08:00" seguido de "-" y "09:00")
+    let tiempo_inicio_idx = franja_parts.iter().position(|&p| p.contains(':'));
+    if tiempo_inicio_idx.is_none() {
+        return false;
+    }
+    
+    let tiempo_inicio_str = franja_parts[tiempo_inicio_idx.unwrap()];
+    let tiempo_parts: Vec<&str> = tiempo_inicio_str.split('-').collect();
+    
+    if tiempo_parts.len() != 2 {
+        return false;
+    }
+    
+    let (h_inicio_str, h_fin_str) = (tiempo_parts[0].trim(), tiempo_parts[1].trim());
+    
+    // Parsear horas
+    let h_inicio = match parse_hora(h_inicio_str) {
+        Some(m) => m,
+        None => return false,
+    };
+    
+    let h_fin = match parse_hora(h_fin_str) {
+        Some(m) => m,
+        None => return false,
+    };
+    
+    // Parsear horario: "LU MA JU 08:30 - 09:50" o "LU 08:30 - 09:50"
+    let horario_lower = horario.to_lowercase();
+    
+    // Verificar si el día prohibido está en el horario
+    if !horario_lower.contains(&dia_prohibido) {
+        return false; // Día no coincide
+    }
+    
+    // Extraer horas del horario 
+    let horario_parts: Vec<&str> = horario.split_whitespace().collect();
+    
+    // Buscar "-" en las partes
+    let dash_idx = horario_parts.iter().position(|&p| p == "-");
+    if dash_idx.is_none() || dash_idx.unwrap() < 1 {
+        return false;
+    }
+    
+    let idx = dash_idx.unwrap();
+    
+    let horario_inicio_str = horario_parts[idx - 1];
+    let horario_fin_str = if idx + 1 < horario_parts.len() {
+        horario_parts[idx + 1]
+    } else {
+        return false;
+    };
+    
+    let h_sec_inicio = match parse_hora(horario_inicio_str) {
+        Some(m) => m,
+        None => return false,
+    };
+    
+    let h_sec_fin = match parse_hora(horario_fin_str) {
+        Some(m) => m,
+        None => return false,
+    };
+    
+    // Verificar solapamiento: [h_inicio, h_fin) vs [h_sec_inicio, h_sec_fin)
+    // Solapan si: h_inicio < h_sec_fin && h_fin > h_sec_inicio
+    h_inicio < h_sec_fin && h_fin > h_sec_inicio
+}
+
+/// Helper para parsear "HH:MM" a minutos
+fn parse_hora(s: &str) -> Option<i32> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    
+    let h = parts[0].parse::<i32>().ok()?;
+    let m = parts[1].parse::<i32>().ok()?;
+    
+    Some(h * 60 + m)
+}
+
+/// Verifica si una sección cumple con los filtros del usuario
+fn seccion_cumple_filtros(seccion: &Seccion, filtros: &Option<crate::models::UserFilters>) -> bool {
+    if filtros.is_none() {
+        return true;
+    }
+    
+    let f = filtros.as_ref().unwrap();
+    
+    // Filtro: Franjas prohibidas
+    if let Some(ref dias_horarios) = f.dias_horarios_libres {
+        if dias_horarios.habilitado {
+            if let Some(ref franjas_prohibidas) = dias_horarios.franjas_prohibidas {
+                // Verificar si algún horario de la sección solapa con franjas prohibidas
+                for horario in &seccion.horario {
+                    for franja in franjas_prohibidas {
+                        if horario_solapa_franja(horario, franja) {
+                            eprintln!("[DEBUG] FILTRO: Excluyendo {} - horario '{}' solapa con franja '{}'", 
+                                     seccion.codigo, horario, franja);
+                            return false;
+                        }
+                    }
+                }
+            }
+            
+            // Filtro: No sin horario
+            if dias_horarios.no_sin_horario.unwrap_or(false) {
+                if seccion.horario.is_empty() || 
+                   seccion.horario.iter().any(|h| h.to_lowercase().contains("sin")) {
+                    return false;
+                }
+            }
+        }
+    }
+    
+    // Filtro: Profesores a evitar
+    if let Some(ref prof_filter) = f.preferencias_profesores {
+        if prof_filter.habilitado {
+            if let Some(ref evitar) = prof_filter.profesores_evitar {
+                for prof_evitar in evitar {
+                    if seccion.profesor.to_lowercase().contains(&prof_evitar.to_lowercase()) {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    
+    true
+}
+
 pub fn get_clique_max_pond_with_prefs(
     lista_secciones: &[Seccion],
     ramos_disponibles: &HashMap<String, RamoDisponible>,
@@ -56,6 +196,10 @@ pub fn get_clique_max_pond_with_prefs(
 ) -> Vec<(Vec<(Seccion, i32)>, i64)> {
     // Implementación directa y concisa de "cliques reales" (greedy multi-seed).
     eprintln!("🧠 [clique] {} secciones, {} ramos", lista_secciones.len(), ramos_disponibles.len());
+    
+    let has_filters = params.filtros.is_some();
+    eprintln!("   [DEBUG] has_filters={}, filtros={:?}", has_filters, 
+              params.filtros.as_ref().map(|f| format!("UserFilters present")));
 
     // --- Filtrado inicial (semestre y ramos pasados) ---
     let mut max_sem = 0;
@@ -168,6 +312,16 @@ pub fn get_clique_max_pond_with_prefs(
         }
         
         let seed_idx = candidates[0];
+        
+        // VALIDAR que el seed cumple filtros
+        if !seccion_cumple_filtros(&filtered[seed_idx], &params.filtros) {
+            eprintln!("[DEBUG] SEED FILTRADO: {} no cumple filtros", filtered[seed_idx].codigo);
+            remaining_indices.remove(&seed_idx);
+            continue;
+        }
+        eprintln!("[DEBUG] SEED OK: {} cumple filtros (horarios: {:?})", 
+                  filtered[seed_idx].codigo, filtered[seed_idx].horario);
+        
         let mut clique: Vec<usize> = vec![seed_idx];
         
         // Greedy: agregar candidatos conectados a todos en la clique, max 6
@@ -176,6 +330,11 @@ pub fn get_clique_max_pond_with_prefs(
                 break;
             }
             if !remaining_indices.contains(&cand) {
+                continue;
+            }
+            
+            // VALIDAR que el candidato cumple filtros
+            if !seccion_cumple_filtros(&filtered[cand], &params.filtros) {
                 continue;
             }
             

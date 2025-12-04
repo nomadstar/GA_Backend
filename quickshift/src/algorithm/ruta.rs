@@ -173,11 +173,11 @@ pub fn ejecutar_ruta_critica_with_params(
     }
     
     // =========================================================================
-    // PHASE 4: apply_filters
+    // PHASE 4: apply_filters (DEPRECADO - Los filtros se aplican en el clique)
     // =========================================================================
-    eprintln!("📋 PHASE 4: apply_filters");
+    eprintln!("📋 PHASE 4: apply_filters (skipped - filters applied in clique)");
     
-    // Verificar si hay filtros activos
+    // Verificar si hay filtros activos (para validaciones posteriores)
     let has_active_filters = params.filtros
         .as_ref()
         .map(|f| {
@@ -188,56 +188,13 @@ pub fn ejecutar_ruta_critica_with_params(
         })
         .unwrap_or(false);
     
-    // Aplicar filtros a las soluciones generadas
-    let mut soluciones_filtradas = crate::algorithm::filters::apply_all_filters(
-        soluciones.clone(), 
-        &params.filtros
-    );
+    // Las soluciones ya cumplen los filtros porque se validaron en el clique
+    let mut soluciones_filtradas = soluciones.clone();
     
-    let mut soluciones_filtradas_count = soluciones_filtradas.len();
-    eprintln!("   ✓ soluciones después de filtrar (1ª pasada): {}", soluciones_filtradas_count);
+    let soluciones_filtradas_count = soluciones_filtradas.len();
+    eprintln!("   ✓ soluciones que cumplen filtros: {}", soluciones_filtradas_count);
     
-    // ESTRATEGIA: Si hay filtros activos y quedan < 5 soluciones, 
-    // REGENERAR con más iteraciones para tener más candidatos
-    if has_active_filters && soluciones_filtradas_count < 5 && soluciones_count < 100 {
-        eprintln!("   ⚠️  Solo {} soluciones pasan los filtros. Regenerando con más candidatos...", soluciones_filtradas_count);
-        
-        // Regenerar con más iteraciones (120 en lugar de 80)
-        let soluciones_mas = crate::algorithm::clique::get_clique_max_pond_with_prefs_extended(
-            &lista_secciones_viables, 
-            &ramos_disponibles, 
-            &params,
-            120  // Mayor número de iteraciones
-        );
-        
-        eprintln!("   ✓ Nuevas soluciones generadas: {}", soluciones_mas.len());
-        
-        // Aplicar filtros a las nuevas soluciones
-        let soluciones_nuevas_filtradas = crate::algorithm::filters::apply_all_filters(
-            soluciones_mas, 
-            &params.filtros
-        );
-        
-        eprintln!("   ✓ Nuevas soluciones que pasan filtros: {}", soluciones_nuevas_filtradas.len());
-        
-        // Combinar y deduplicar
-        soluciones_filtradas.extend(soluciones_nuevas_filtradas);
-        
-        // Deduplicar por códigos de cursos
-        let mut seen: std::collections::HashSet<Vec<String>> = std::collections::HashSet::new();
-        soluciones_filtradas.retain(|(sol, _)| {
-            let codigos: Vec<String> = sol.iter().map(|(s, _)| s.codigo.to_uppercase()).collect();
-            seen.insert(codigos)
-        });
-        
-        // Re-ordenar por score
-        soluciones_filtradas.sort_by(|a, b| b.1.cmp(&a.1));
-        
-        soluciones_filtradas_count = soluciones_filtradas.len();
-        eprintln!("   ✓ Soluciones después de combinar y deduplicar: {}", soluciones_filtradas_count);
-    }
-    
-    // Retornar máximo 10 soluciones que hayan pasado los filtros
+    // Retornar máximo 10 soluciones
     let resultado: Vec<_> = soluciones_filtradas.into_iter().take(10).collect();
     
     // =====================================================================
