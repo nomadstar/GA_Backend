@@ -67,9 +67,14 @@ pub fn leer_malla_con_porcentajes_optimizado(
             let lower = cell.to_lowercase();
             eprintln!("DEBUG: Row {}, Col {}: '{}' -> '{}'", i, j, cell, lower);
             
-            if lower.contains("nombre") || lower.contains("asignatura") || lower.contains("curso") {
-                header_row_idx = Some(i);
-                name_col_idx = j;
+            // Detectar columna de NOMBRE pero evitar confundir con columnas como
+            // "Abre la/s asignatura/s" que contienen listas de referencias.
+            if lower.contains("nombre") || (lower.contains("asignatura") && !lower.contains("abre")) || lower.contains("curso") {
+                // sólo asignar si no fue detectada antes (preferir la primera aparición)
+                if header_row_idx.is_none() || name_col_idx == 2 /* fallback */ {
+                    header_row_idx = Some(i);
+                    name_col_idx = j;
+                }
             }
             if lower.contains("id") || lower.contains("ident") || lower.contains("codigo") || lower.contains("código") {
                 header_row_idx = Some(i);
