@@ -50,11 +50,12 @@ pub fn leer_malla_con_porcentajes_optimizado(
     
     let mut resultado: HashMap<String, RamoDisponible> = HashMap::new();
 
-    // Detectar fila de encabezado y columnas (nombre / id / semestre) de forma robusta
+    // Detectar fila de encabezado y columnas (nombre / id / semestre / requisitos) de forma robusta
     let mut header_row_idx: Option<usize> = None;
     let mut name_col_idx: usize = 2; // fallback antiguo
     let mut id_col_idx: usize = 0; // fallback antiguo
     let mut semestre_col_idx: Option<usize> = None; // Nueva columna
+    let mut requisitos_col_idx: Option<usize> = None; // Columna para leer requisitos previos
     
     eprintln!("DEBUG: malla_rows.len()={}", malla_rows.len());
     if !malla_rows.is_empty() {
@@ -86,6 +87,11 @@ pub fn leer_malla_con_porcentajes_optimizado(
                 semestre_col_idx = Some(j);
                 eprintln!("DEBUG: Found 'semestre' at row {} col {}", i, j);
             }
+            if lower.contains("requisito") {
+                header_row_idx = Some(i);
+                requisitos_col_idx = Some(j);
+                eprintln!("DEBUG: Found 'requisitos' at row {} col {}", i, j);
+            }
         }
     }
 
@@ -94,7 +100,7 @@ pub fn leer_malla_con_porcentajes_optimizado(
         None => 2, // comportamiento legacy
     };
 
-    eprintln!("DEBUG: Malla header detected at {:?}, using name_col={} id_col={} semestre_col={:?}", header_row_idx, name_col_idx, id_col_idx, semestre_col_idx);
+    eprintln!("DEBUG: Malla header detected at {:?}, using name_col={} id_col={} semestre_col={:?} requisitos_col={:?}", header_row_idx, name_col_idx, id_col_idx, semestre_col_idx, requisitos_col_idx);
 
     for (idx, row) in malla_rows.iter().enumerate() {
         if idx < start_idx { continue; }
@@ -110,6 +116,19 @@ pub fn leer_malla_con_porcentajes_optimizado(
                 sem_str.trim().parse::<i32>().ok()
             })
         });
+        
+        // Leer requisitos si está disponible (ID del ramo prerequisito)
+        let codigo_ref_opt = requisitos_col_idx.and_then(|col| {
+            row.get(col).and_then(|req_str| {
+                let trimmed = req_str.trim();
+                // Si es "—" o vacío, no hay requisito
+                if trimmed.is_empty() || trimmed == "—" {
+                    None
+                } else {
+                    trimmed.parse::<i32>().ok()
+                }
+            })
+        });
 
         let norm_name = normalize(&nombre_real);
         if !norm_name.is_empty() && norm_name != "—" {
@@ -120,7 +139,7 @@ pub fn leer_malla_con_porcentajes_optimizado(
                 holgura: 0,
                 numb_correlativo: id,
                 critico: false,
-                codigo_ref: None,
+                codigo_ref: codigo_ref_opt,  // Ahora usa el valor leído de la columna Requisitos
                 dificultad: None,
                 electivo: false,
                 semestre: semestre_opt,
@@ -129,6 +148,14 @@ pub fn leer_malla_con_porcentajes_optimizado(
     }
     eprintln!("✅ Malla: {} cursos cargados", resultado.len());
     eprintln!("   Ramos cargados (primeros 5): {:?}", resultado.keys().take(5).collect::<Vec<_>>());
+    
+    // Log de requisitos leídos
+    eprintln!("   Requisitos detectados:");
+    for (name, ramo) in resultado.iter().take(15) {
+        if let Some(ref_id) = ramo.codigo_ref {
+            eprintln!("     - {} (id={}) -> requisito id={}", ramo.nombre, ramo.id, ref_id);
+        }
+    }
 
     // PASO 2: Leer OA y validar existencia (no actualizamos código, solo verificamos match)
     eprintln!("\n📖 PASO 2: Leyendo OA desde src/datafiles/OA2024.xlsx");
@@ -149,12 +176,17 @@ pub fn leer_malla_con_porcentajes_optimizado(
         if idx == 0 { continue; } // Saltear encabezado
         if row.is_empty() || row.len() < 3 { continue; }
         
+        let codigo_oa = row.get(1).cloned().unwrap_or_default(); // Columna 1 = Código
         let nombre_oa = row.get(2).cloned().unwrap_or_default(); // Columna 2 = Nombre
         let norm_oa = normalize(&nombre_oa);
         
         // Solo contar si existe en MALLA (match por nombre)
-        if resultado.contains_key(&norm_oa) {
-            oa_matched += 1;
+        // Y actualizar el código si no estaba ya seteado
+        if let Some(ramo) = resultado.get_mut(&norm_oa) {
+            if ramo.codigo.is_empty() && !codigo_oa.is_empty() {
+                ramo.codigo = codigo_oa;
+                oa_matched += 1;
+            }
         }
     }
     eprintln!("✅ OA: {} secciones matcheadas por nombre", oa_matched);

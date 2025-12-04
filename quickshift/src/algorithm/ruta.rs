@@ -81,18 +81,13 @@ pub fn ejecutar_ruta_critica_with_params(
     
     // 2c) Filtrar secciones viables según reglas Python:
     // - Excluir ramos ya aprobados (ramos_pasados)
-    // - Excluir ramos cuyos prerequisitos NO estén en ramos_pasados
+    // NOTA: La validación de requisitos previos se maneja en clique.rs través del cálculo de max_sem
     // PERO: La LEY FUNDAMENTAL se garantiza porque la universidad no diseña
     //       ramos incompatibles en el mismo semestre
     eprintln!("   🔍 Filtrando secciones viables...");
     let passed_set: HashSet<String> = params.ramos_pasados
         .iter()
         .map(|s| s.to_uppercase())
-        .collect();
-    
-    // Crear un mapa de código -> RamoDisponible para búsquedas rápidas
-    let codigo_to_ramo: HashMap<String, &RamoDisponible> = ramos_disponibles.iter()
-        .map(|(k, v)| (k.to_uppercase(), v))
         .collect();
     
     let lista_secciones_viables: Vec<Seccion> = lista_secciones
@@ -106,31 +101,8 @@ pub fn ejecutar_ruta_critica_with_params(
                 return false;
             }
             
-            // Obtener el ramo de la malla
-            if let Some(ramo) = codigo_to_ramo.get(&sec_codigo_upper) {
-                // Verificar si TODOS los prerequisitos están en ramos_pasados
-                // Un ramo es viable si:
-                // 1. No tiene prerequisito (codigo_ref == id), O
-                // 2. Su prerequisito está en ramos_pasados
-                
-                if let Some(prereq_id) = ramo.codigo_ref {
-                    if prereq_id != ramo.id {
-                        // Tiene prerequisito, buscar ese ramo
-                        if let Some(prereq_ramo) = ramos_disponibles.values().find(|r| r.id == prereq_id) {
-                            // El prerequisito debe estar en ramos_pasados
-                            if !passed_set.contains(&prereq_ramo.codigo.to_uppercase()) {
-                                eprintln!("   ⊘ Excluyendo {} (prerequisito {} no aprobado)", 
-                                         sec.codigo, prereq_ramo.codigo);
-                                return false;
-                            }
-                        }
-                    }
-                }
-                true
-            } else {
-                // Si no está en la malla, lo incluimos
-                true
-            }
+            // Incluir todo lo demás - clique.rs manejará semestre y requisitos
+            true
         })
         .cloned()
         .collect();

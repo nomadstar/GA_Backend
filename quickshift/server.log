@@ -26,18 +26,6 @@ Nota: GET /solve es una versión ligera (parametros por query). Para datos priva
 📋 PHASE 1: getRamoCritico + PERT
 🔍 Buscando datafiles desde CWD: "/home/ignatus/GitHub/GA_Backend/quickshift"
 ✅ Datafiles encontrados en (CWD): "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles"
-🔁 [ruta::ejecutar_ruta_critica_with_params] iniciando pipeline de 4 fases...
-📋 PHASE 1: getRamoCritico + PERT
-🔍 Buscando datafiles desde CWD: "/home/ignatus/GitHub/GA_Backend/quickshift"
-✅ Datafiles encontrados en (CWD): "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles"
-🔁 [ruta::ejecutar_ruta_critica_with_params] iniciando pipeline de 4 fases...
-📋 PHASE 1: getRamoCritico + PERT
-🔍 Buscando datafiles desde CWD: "/home/ignatus/GitHub/GA_Backend/quickshift"
-✅ Datafiles encontrados en (CWD): "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles"
-🔁 [ruta::ejecutar_ruta_critica_with_params] iniciando pipeline de 4 fases...
-📋 PHASE 1: getRamoCritico + PERT
-🔍 Buscando datafiles desde CWD: "/home/ignatus/GitHub/GA_Backend/quickshift"
-✅ Datafiles encontrados en (CWD): "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles"
    malla_path = /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/Malla2020.xlsx
    oferta_path = /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/OA2024.xlsx
    porcentajes_path = /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/PA20251.xlsx
@@ -54,6 +42,7 @@ DEBUG: Row 0, Col 0: 'Nombre' -> 'nombre'
 DEBUG: Row 0, Col 1: 'ID' -> 'id'
 DEBUG: Row 0, Col 2: 'Créditos' -> 'créditos'
 DEBUG: Row 0, Col 3: 'Requisitos' -> 'requisitos'
+DEBUG: Found 'requisitos' at row 0 col 3
 DEBUG: Row 0, Col 4: 'Semestre' -> 'semestre'
 DEBUG: Found 'semestre' at row 0 col 4
 DEBUG: Row 0, Col 5: 'Electivo' -> 'electivo'
@@ -75,53 +64,53 @@ DEBUG: Row 3, Col 2: '6' -> '6'
 DEBUG: Row 3, Col 3: '—' -> '—'
 DEBUG: Row 3, Col 4: '1' -> '1'
 DEBUG: Row 3, Col 5: 'false' -> 'false'
-DEBUG: Malla header detected at Some(0), using name_col=0 id_col=1 semestre_col=Some(4)
+DEBUG: Malla header detected at Some(0), using name_col=0 id_col=1 semestre_col=Some(4) requisitos_col=Some(3)
 ✅ Malla: 49 cursos cargados
-   Ramos cargados (primeros 5): ["calculo iii", "ingles iii", "proyecto en tics ii", "practica profesional ii", "programacion"]
+   Ramos cargados (primeros 5): ["contabilidad y costos", "comunicaciones digitales", "tecnologias inalambricas", "algebra y geometria", "data science"]
 
 📖 PASO 2: Leyendo OA desde src/datafiles/OA2024.xlsx
 ✅ OA: 503 secciones matcheadas por nombre
 
 📖 PASO 3: Leyendo PA desde /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/PA20251.xlsx
 ✅ PA: 64 nombres de asignatura indexados
-   (Primeros 5 entradas del índice PA: [("contabilidad y costos", 75.41), ("calor y ondas", 95.91), ("ingles general i", 88.12), ("seguridad y pentesting de aplicaciones", 100.0), ("inteligencia artificial", 74.07)])
-   ✓ Match encontrado: 'Cálculo III' -> 85.27%
-   ✓ Match encontrado: 'Proyecto en TICs II' -> 100%
-   ✓ Match encontrado: 'Programación' -> 77.09%
-   ✓ Match encontrado: 'Mecánica' -> 76.68%
+   (Primeros 5 entradas del índice PA: [("ingenieria de software", 97.09), ("contabilidad y costos", 75.41), ("optimizacion", 66.01), ("sistemas de informacion empresariales", 100.0), ("practicas electivas", 75.0)])
    ✓ Match encontrado: 'Contabilidad y Costos' -> 75.41%
    ✓ Match encontrado: 'Comunicaciones Digitales' -> 97.3%
-   ✓ Match encontrado: 'Ecuaciones Diferenciales' -> 75.92%
-   ✓ Match encontrado: 'Probabilidades y Estadísticas' -> 73.91%
-   ✓ Match encontrado: 'Química' -> 88.16%
-   ✓ Match encontrado: 'Proyecto en TICs I' -> 98.95%
-   ✓ Match encontrado: 'Desarrollo Web y Móvil' -> 80.33%
-   ✓ Match encontrado: 'Cálculo I' -> 68.77%
-   ✓ Match encontrado: 'Data Science' -> 100%
-   ✓ Match encontrado: 'Álgebra y Geometría' -> 73.15%
-   ✓ Match encontrado: 'Gestión Organizacional' -> 92.19%
-   ✓ Match encontrado: 'Calor y Ondas' -> 95.91%
-   ✓ Match encontrado: 'Redes de Datos' -> 95.03%
-   ✓ Match encontrado: 'Sistemas Distribuidos' -> 74.23%
-   ✓ Match encontrado: 'Criptografía y Seguridad en Redes' -> 91.89%
-   ✓ Match encontrado: 'Inteligencia Artificial' -> 74.07%
-   ✓ Match encontrado: 'Álgebra Lineal' -> 69.06%
-   ✓ Match encontrado: 'Bases de Datos' -> 92.86%
-   ✓ Match encontrado: 'Taller de Redes y Servicios' -> 97.03%
-   ✓ Match encontrado: 'Programación Avanzada' -> 55.84%
-   ✓ Match encontrado: 'Electrónica y Electrotecnia' -> 84.88%
-   ✓ Match encontrado: 'Bases de Datos Avanzadas' -> 93.75%
    ✓ Match encontrado: 'Tecnologías Inalámbricas' -> 94.87%
+   ✓ Match encontrado: 'Álgebra y Geometría' -> 73.15%
+   ✓ Match encontrado: 'Data Science' -> 100%
    ✓ Match encontrado: 'Cálculo II' -> 53.13%
-   ✓ Match encontrado: 'Evaluación de Proyectos TIC' -> 97.87%
-   ✓ Match encontrado: 'Electricidad y Magnetismo' -> 86.15%
-   ✓ Match encontrado: 'Señales y Sistemas' -> 66.67%
-   ✓ Match encontrado: 'Comunicación para la Ingeniería' -> 96.96%
-   ✓ Match encontrado: 'Optimización' -> 66.01%
-   ✓ Match encontrado: 'Sistemas Operativos' -> 81.48%
-   ✓ Match encontrado: 'Arquitecturas Emergentes' -> 100%
-   ✓ Match encontrado: 'Arquitectura de Software' -> 96%
+   ✓ Match encontrado: 'Cálculo I' -> 68.77%
+   ✓ Match encontrado: 'Proyecto en TICs II' -> 100%
+   ✓ Match encontrado: 'Taller de Redes y Servicios' -> 97.03%
    ✓ Match encontrado: 'Ingeniería de Software' -> 97.09%
+   ✓ Match encontrado: 'Química' -> 88.16%
+   ✓ Match encontrado: 'Desarrollo Web y Móvil' -> 80.33%
+   ✓ Match encontrado: 'Optimización' -> 66.01%
+   ✓ Match encontrado: 'Criptografía y Seguridad en Redes' -> 91.89%
+   ✓ Match encontrado: 'Arquitectura de Software' -> 96%
+   ✓ Match encontrado: 'Mecánica' -> 76.68%
+   ✓ Match encontrado: 'Evaluación de Proyectos TIC' -> 97.87%
+   ✓ Match encontrado: 'Ecuaciones Diferenciales' -> 75.92%
+   ✓ Match encontrado: 'Arquitecturas Emergentes' -> 100%
+   ✓ Match encontrado: 'Electrónica y Electrotecnia' -> 84.88%
+   ✓ Match encontrado: 'Gestión Organizacional' -> 92.19%
+   ✓ Match encontrado: 'Inteligencia Artificial' -> 74.07%
+   ✓ Match encontrado: 'Calor y Ondas' -> 95.91%
+   ✓ Match encontrado: 'Programación Avanzada' -> 55.84%
+   ✓ Match encontrado: 'Comunicación para la Ingeniería' -> 96.96%
+   ✓ Match encontrado: 'Sistemas Distribuidos' -> 74.23%
+   ✓ Match encontrado: 'Álgebra Lineal' -> 69.06%
+   ✓ Match encontrado: 'Redes de Datos' -> 95.03%
+   ✓ Match encontrado: 'Probabilidades y Estadísticas' -> 73.91%
+   ✓ Match encontrado: 'Electricidad y Magnetismo' -> 86.15%
+   ✓ Match encontrado: 'Programación' -> 77.09%
+   ✓ Match encontrado: 'Bases de Datos' -> 92.86%
+   ✓ Match encontrado: 'Bases de Datos Avanzadas' -> 93.75%
+   ✓ Match encontrado: 'Señales y Sistemas' -> 66.67%
+   ✓ Match encontrado: 'Cálculo III' -> 85.27%
+   ✓ Match encontrado: 'Proyecto en TICs I' -> 98.95%
+   ✓ Match encontrado: 'Sistemas Operativos' -> 81.48%
 ✅ PA: 37 porcentajes matcheados por nombre
 
 ✅ MERGE COMPLETADO:
@@ -151,6 +140,30 @@ DEBUG: Malla header detected at Some(0), using name_col=0 id_col=1 semestre_col=
 📋 PHASE 4: apply_filters (skipped - filters applied in clique)
    ✓ soluciones que cumplen filtros: 6
 ✅ Pipeline completado: 6 soluciones (máximo 10)
+=== Sistema Generador de Horarios (API) ===
+Iniciando servidor en http://0.0.0.0:8080
+
+Endpoints disponibles:
+  POST /solve    - Body JSON. Ejemplo (use 'malla' y opcional 'sheet' para seleccionar hoja interna):
+{
+    "email": "alumno@ejemplo.cl",
+    "ramos_pasados": ["CIT3313", "CIT3211"],
+    "ramos_prioritarios": ["CIT3313"],
+    "horarios_preferidos": ["08:00-10:00"],
+    "malla": "MallaCurricular2020.xlsx",
+    "sheet": "Malla 2020"
+}
+  GET /solve     - Query params (comma-separated). Ejemplo:
+    /solve?ramos_pasados=CIT3313,CIT3211&ramos_prioritarios=CIT3413&horarios_preferidos=08:00-10:00&malla=MallaCurricular2020.xlsx&sheet=Malla%202020&email=alumno%40ejemplo.cl
+  POST /rutacomoda/best - Body: { "file_path": "/path/to/paths.json" } o incluir 'paths' array
+  POST /rutacritica/run - Ejecuta el orquestador con body JSON (igual que POST /solve)
+  GET /datafiles - Lista archivos disponibles en src/datafiles
+  GET /datafiles/content?malla=MiMalla.xlsx[&sheet=Hoja]
+      - Devuelve resumen de malla/oferta/porcentajes y lista de hojas internas de la malla
+  POST /students  - Guarda un perfil de estudiante (body JSON, se indexa por email)
+  GET /help       - Describe la API y muestra ejemplos en JSON
+
+Nota: GET /solve es una versión ligera (parametros por query). Para datos privados o estructuras complejas use POST /solve o POST /rutacritica/run con body JSON.
 🔁 [ruta::ejecutar_ruta_critica_with_params] iniciando pipeline de 4 fases...
 📋 PHASE 1: getRamoCritico + PERT
 🔍 Buscando datafiles desde CWD: "/home/ignatus/GitHub/GA_Backend/quickshift"
@@ -171,6 +184,7 @@ DEBUG: Row 0, Col 0: 'Nombre' -> 'nombre'
 DEBUG: Row 0, Col 1: 'ID' -> 'id'
 DEBUG: Row 0, Col 2: 'Créditos' -> 'créditos'
 DEBUG: Row 0, Col 3: 'Requisitos' -> 'requisitos'
+DEBUG: Found 'requisitos' at row 0 col 3
 DEBUG: Row 0, Col 4: 'Semestre' -> 'semestre'
 DEBUG: Found 'semestre' at row 0 col 4
 DEBUG: Row 0, Col 5: 'Electivo' -> 'electivo'
@@ -192,52 +206,57 @@ DEBUG: Row 3, Col 2: '6' -> '6'
 DEBUG: Row 3, Col 3: '—' -> '—'
 DEBUG: Row 3, Col 4: '1' -> '1'
 DEBUG: Row 3, Col 5: 'false' -> 'false'
-DEBUG: Malla header detected at Some(0), using name_col=0 id_col=1 semestre_col=Some(4)
+DEBUG: Malla header detected at Some(0), using name_col=0 id_col=1 semestre_col=Some(4) requisitos_col=Some(3)
 ✅ Malla: 49 cursos cargados
-   Ramos cargados (primeros 5): ["comunicaciones digitales", "calculo iii", "curso de formacion general", "arquitectura y organizacion de computadores", "senales y sistemas"]
+   Ramos cargados (primeros 5): ["bases de datos avanzadas", "bases de datos", "programacion", "taller de redes y servicios", "algebra y geometria"]
+   Requisitos detectados:
+     - Bases de Datos (id=19) -> requisito id=14
+     - Inglés III (id=33) -> requisito id=27
+     - Calor y Ondas (id=13) -> requisito id=8
+     - Estructura de Datos y Algoritmos (id=14) -> requisito id=9
 
 📖 PASO 2: Leyendo OA desde src/datafiles/OA2024.xlsx
 ✅ OA: 503 secciones matcheadas por nombre
 
 📖 PASO 3: Leyendo PA desde /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/PA20251.xlsx
 ✅ PA: 64 nombres de asignatura indexados
-   (Primeros 5 entradas del índice PA: [("blockchain y algoritmos descentralizados", 100.0), ("ingenieria economica", 93.83), ("ingles general ii", 94.2), ("algebra y geometria", 73.15), ("algebra lineal", 69.06)])
-   ✓ Match encontrado: 'Comunicaciones Digitales' -> 97.3%
-   ✓ Match encontrado: 'Cálculo III' -> 85.27%
-   ✓ Match encontrado: 'Señales y Sistemas' -> 66.67%
-   ✓ Match encontrado: 'Cálculo II' -> 53.13%
-   ✓ Match encontrado: 'Data Science' -> 100%
-   ✓ Match encontrado: 'Proyecto en TICs II' -> 100%
-   ✓ Match encontrado: 'Bases de Datos' -> 92.86%
-   ✓ Match encontrado: 'Tecnologías Inalámbricas' -> 94.87%
+   (Primeros 5 entradas del índice PA: [("seguridad y pentesting de aplicaciones", 100.0), ("senales y sistemas", 66.67), ("titulacion memoria", 83.33), ("introduccion  a la economia", 86.75), ("practica profesional 2", 100.0)])
    ✓ Match encontrado: 'Bases de Datos Avanzadas' -> 93.75%
-   ✓ Match encontrado: 'Álgebra y Geometría' -> 73.15%
-   ✓ Match encontrado: 'Redes de Datos' -> 95.03%
-   ✓ Match encontrado: 'Gestión Organizacional' -> 92.19%
-   ✓ Match encontrado: 'Ingeniería de Software' -> 97.09%
-   ✓ Match encontrado: 'Calor y Ondas' -> 95.91%
+   ✓ Match encontrado: 'Bases de Datos' -> 92.86%
    ✓ Match encontrado: 'Programación' -> 77.09%
-   ✓ Match encontrado: 'Sistemas Operativos' -> 81.48%
-   ✓ Match encontrado: 'Criptografía y Seguridad en Redes' -> 91.89%
-   ✓ Match encontrado: 'Sistemas Distribuidos' -> 74.23%
-   ✓ Match encontrado: 'Electrónica y Electrotecnia' -> 84.88%
-   ✓ Match encontrado: 'Arquitecturas Emergentes' -> 100%
-   ✓ Match encontrado: 'Ecuaciones Diferenciales' -> 75.92%
    ✓ Match encontrado: 'Taller de Redes y Servicios' -> 97.03%
-   ✓ Match encontrado: 'Química' -> 88.16%
+   ✓ Match encontrado: 'Álgebra y Geometría' -> 73.15%
+   ✓ Match encontrado: 'Ecuaciones Diferenciales' -> 75.92%
+   ✓ Match encontrado: 'Calor y Ondas' -> 95.91%
+   ✓ Match encontrado: 'Señales y Sistemas' -> 66.67%
    ✓ Match encontrado: 'Contabilidad y Costos' -> 75.41%
-   ✓ Match encontrado: 'Desarrollo Web y Móvil' -> 80.33%
-   ✓ Match encontrado: 'Álgebra Lineal' -> 69.06%
-   ✓ Match encontrado: 'Optimización' -> 66.01%
-   ✓ Match encontrado: 'Cálculo I' -> 68.77%
-   ✓ Match encontrado: 'Proyecto en TICs I' -> 98.95%
-   ✓ Match encontrado: 'Comunicación para la Ingeniería' -> 96.96%
-   ✓ Match encontrado: 'Mecánica' -> 76.68%
-   ✓ Match encontrado: 'Inteligencia Artificial' -> 74.07%
-   ✓ Match encontrado: 'Evaluación de Proyectos TIC' -> 97.87%
+   ✓ Match encontrado: 'Electrónica y Electrotecnia' -> 84.88%
+   ✓ Match encontrado: 'Sistemas Distribuidos' -> 74.23%
+   ✓ Match encontrado: 'Ingeniería de Software' -> 97.09%
+   ✓ Match encontrado: 'Redes de Datos' -> 95.03%
+   ✓ Match encontrado: 'Criptografía y Seguridad en Redes' -> 91.89%
    ✓ Match encontrado: 'Probabilidades y Estadísticas' -> 73.91%
+   ✓ Match encontrado: 'Cálculo I' -> 68.77%
+   ✓ Match encontrado: 'Química' -> 88.16%
+   ✓ Match encontrado: 'Sistemas Operativos' -> 81.48%
+   ✓ Match encontrado: 'Optimización' -> 66.01%
+   ✓ Match encontrado: 'Comunicaciones Digitales' -> 97.3%
+   ✓ Match encontrado: 'Inteligencia Artificial' -> 74.07%
+   ✓ Match encontrado: 'Tecnologías Inalámbricas' -> 94.87%
+   ✓ Match encontrado: 'Arquitecturas Emergentes' -> 100%
+   ✓ Match encontrado: 'Desarrollo Web y Móvil' -> 80.33%
+   ✓ Match encontrado: 'Evaluación de Proyectos TIC' -> 97.87%
    ✓ Match encontrado: 'Electricidad y Magnetismo' -> 86.15%
+   ✓ Match encontrado: 'Comunicación para la Ingeniería' -> 96.96%
+   ✓ Match encontrado: 'Proyecto en TICs I' -> 98.95%
+   ✓ Match encontrado: 'Proyecto en TICs II' -> 100%
+   ✓ Match encontrado: 'Álgebra Lineal' -> 69.06%
+   ✓ Match encontrado: 'Gestión Organizacional' -> 92.19%
+   ✓ Match encontrado: 'Data Science' -> 100%
    ✓ Match encontrado: 'Arquitectura de Software' -> 96%
+   ✓ Match encontrado: 'Mecánica' -> 76.68%
+   ✓ Match encontrado: 'Cálculo II' -> 53.13%
+   ✓ Match encontrado: 'Cálculo III' -> 85.27%
    ✓ Match encontrado: 'Programación Avanzada' -> 55.84%
 ✅ PA: 37 porcentajes matcheados por nombre
 
@@ -268,3 +287,277 @@ DEBUG: Malla header detected at Some(0), using name_col=0 id_col=1 semestre_col=
 📋 PHASE 4: apply_filters (skipped - filters applied in clique)
    ✓ soluciones que cumplen filtros: 6
 ✅ Pipeline completado: 6 soluciones (máximo 10)
+=== Sistema Generador de Horarios (API) ===
+Iniciando servidor en http://0.0.0.0:8080
+
+Endpoints disponibles:
+  POST /solve    - Body JSON. Ejemplo (use 'malla' y opcional 'sheet' para seleccionar hoja interna):
+{
+    "email": "alumno@ejemplo.cl",
+    "ramos_pasados": ["CIT3313", "CIT3211"],
+    "ramos_prioritarios": ["CIT3313"],
+    "horarios_preferidos": ["08:00-10:00"],
+    "malla": "MallaCurricular2020.xlsx",
+    "sheet": "Malla 2020"
+}
+  GET /solve     - Query params (comma-separated). Ejemplo:
+    /solve?ramos_pasados=CIT3313,CIT3211&ramos_prioritarios=CIT3413&horarios_preferidos=08:00-10:00&malla=MallaCurricular2020.xlsx&sheet=Malla%202020&email=alumno%40ejemplo.cl
+  POST /rutacomoda/best - Body: { "file_path": "/path/to/paths.json" } o incluir 'paths' array
+  POST /rutacritica/run - Ejecuta el orquestador con body JSON (igual que POST /solve)
+  GET /datafiles - Lista archivos disponibles en src/datafiles
+  GET /datafiles/content?malla=MiMalla.xlsx[&sheet=Hoja]
+      - Devuelve resumen de malla/oferta/porcentajes y lista de hojas internas de la malla
+  POST /students  - Guarda un perfil de estudiante (body JSON, se indexa por email)
+  GET /help       - Describe la API y muestra ejemplos en JSON
+
+Nota: GET /solve es una versión ligera (parametros por query). Para datos privados o estructuras complejas use POST /solve o POST /rutacritica/run con body JSON.
+🔁 [ruta::ejecutar_ruta_critica_with_params] iniciando pipeline de 4 fases...
+📋 PHASE 1: getRamoCritico + PERT
+🔍 Buscando datafiles desde CWD: "/home/ignatus/GitHub/GA_Backend/quickshift"
+✅ Datafiles encontrados en (CWD): "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles"
+   malla_path = /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/Malla2020.xlsx
+   oferta_path = /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/OA2024.xlsx
+   porcentajes_path = /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/PA20251.xlsx
+   📥 Leyendo malla y porcentajes...
+🔍 [OPTIMIZED MALLA] Starting - malla_archivo=/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/Malla2020.xlsx
+
+🚀 MERGE SIMPLE: MALLA (base) + OA + PA
+======================================
+
+📖 PASO 1: Leyendo MALLA desde /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/Malla2020.xlsx
+DEBUG: malla_rows.len()=57
+DEBUG: First row (header): Some(["Nombre", "ID", "Créditos", "Requisitos", "Semestre", "Electivo"])
+DEBUG: Row 0, Col 0: 'Nombre' -> 'nombre'
+DEBUG: Row 0, Col 1: 'ID' -> 'id'
+DEBUG: Row 0, Col 2: 'Créditos' -> 'créditos'
+DEBUG: Row 0, Col 3: 'Requisitos' -> 'requisitos'
+DEBUG: Found 'requisitos' at row 0 col 3
+DEBUG: Row 0, Col 4: 'Semestre' -> 'semestre'
+DEBUG: Found 'semestre' at row 0 col 4
+DEBUG: Row 0, Col 5: 'Electivo' -> 'electivo'
+DEBUG: Row 1, Col 0: 'Álgebra y Geometría' -> 'álgebra y geometría'
+DEBUG: Row 1, Col 1: '1' -> '1'
+DEBUG: Row 1, Col 2: '7' -> '7'
+DEBUG: Row 1, Col 3: '—' -> '—'
+DEBUG: Row 1, Col 4: '1' -> '1'
+DEBUG: Row 1, Col 5: 'false' -> 'false'
+DEBUG: Row 2, Col 0: 'Cálculo I' -> 'cálculo i'
+DEBUG: Row 2, Col 1: '2' -> '2'
+DEBUG: Row 2, Col 2: '7' -> '7'
+DEBUG: Row 2, Col 3: '—' -> '—'
+DEBUG: Row 2, Col 4: '1' -> '1'
+DEBUG: Row 2, Col 5: 'false' -> 'false'
+DEBUG: Row 3, Col 0: 'Química' -> 'química'
+DEBUG: Row 3, Col 1: '3' -> '3'
+DEBUG: Row 3, Col 2: '6' -> '6'
+DEBUG: Row 3, Col 3: '—' -> '—'
+DEBUG: Row 3, Col 4: '1' -> '1'
+DEBUG: Row 3, Col 5: 'false' -> 'false'
+DEBUG: Malla header detected at Some(0), using name_col=0 id_col=1 semestre_col=Some(4) requisitos_col=Some(3)
+✅ Malla: 49 cursos cargados
+   Ramos cargados (primeros 5): ["calculo ii", "ingles i", "opcion de articulacion con magister en ciencias de la ingenieria", "redes de datos", "gestion organizacional"]
+   Requisitos detectados:
+     - Cálculo II (id=7) -> requisito id=2
+     - Redes de Datos (id=15) -> requisito id=9
+     - Gestión Organizacional (id=34) -> requisito id=29
+     - Inglés II (id=27) -> requisito id=21
+
+📖 PASO 2: Leyendo OA desde src/datafiles/OA2024.xlsx
+✅ OA: 34 secciones matcheadas por nombre
+
+📖 PASO 3: Leyendo PA desde /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/PA20251.xlsx
+✅ PA: 64 nombres de asignatura indexados
+   (Primeros 5 entradas del índice PA: [("introduccion  a la economia", 86.75), ("data science", 100.0), ("bases de datos avanzadas", 93.75), ("electricidad y magnetismo", 86.15), ("optimizacion", 66.01)])
+   ✓ Match encontrado: 'Cálculo II' -> 53.13%
+   ✓ Match encontrado: 'Redes de Datos' -> 95.03%
+   ✓ Match encontrado: 'Gestión Organizacional' -> 92.19%
+   ✓ Match encontrado: 'Química' -> 88.16%
+   ✓ Match encontrado: 'Señales y Sistemas' -> 66.67%
+   ✓ Match encontrado: 'Bases de Datos Avanzadas' -> 93.75%
+   ✓ Match encontrado: 'Ecuaciones Diferenciales' -> 75.92%
+   ✓ Match encontrado: 'Sistemas Operativos' -> 81.48%
+   ✓ Match encontrado: 'Comunicación para la Ingeniería' -> 96.96%
+   ✓ Match encontrado: 'Proyecto en TICs I' -> 98.95%
+   ✓ Match encontrado: 'Comunicaciones Digitales' -> 97.3%
+   ✓ Match encontrado: 'Programación' -> 77.09%
+   ✓ Match encontrado: 'Mecánica' -> 76.68%
+   ✓ Match encontrado: 'Sistemas Distribuidos' -> 74.23%
+   ✓ Match encontrado: 'Calor y Ondas' -> 95.91%
+   ✓ Match encontrado: 'Inteligencia Artificial' -> 74.07%
+   ✓ Match encontrado: 'Contabilidad y Costos' -> 75.41%
+   ✓ Match encontrado: 'Data Science' -> 100%
+   ✓ Match encontrado: 'Electrónica y Electrotecnia' -> 84.88%
+   ✓ Match encontrado: 'Electricidad y Magnetismo' -> 86.15%
+   ✓ Match encontrado: 'Ingeniería de Software' -> 97.09%
+   ✓ Match encontrado: 'Cálculo III' -> 85.27%
+   ✓ Match encontrado: 'Arquitectura de Software' -> 96%
+   ✓ Match encontrado: 'Bases de Datos' -> 92.86%
+   ✓ Match encontrado: 'Programación Avanzada' -> 55.84%
+   ✓ Match encontrado: 'Álgebra Lineal' -> 69.06%
+   ✓ Match encontrado: 'Evaluación de Proyectos TIC' -> 97.87%
+   ✓ Match encontrado: 'Arquitecturas Emergentes' -> 100%
+   ✓ Match encontrado: 'Tecnologías Inalámbricas' -> 94.87%
+   ✓ Match encontrado: 'Probabilidades y Estadísticas' -> 73.91%
+   ✓ Match encontrado: 'Proyecto en TICs II' -> 100%
+   ✓ Match encontrado: 'Desarrollo Web y Móvil' -> 80.33%
+   ✓ Match encontrado: 'Cálculo I' -> 68.77%
+   ✓ Match encontrado: 'Criptografía y Seguridad en Redes' -> 91.89%
+   ✓ Match encontrado: 'Taller de Redes y Servicios' -> 97.03%
+   ✓ Match encontrado: 'Optimización' -> 66.01%
+   ✓ Match encontrado: 'Álgebra y Geometría' -> 73.15%
+✅ PA: 37 porcentajes matcheados por nombre
+
+✅ MERGE COMPLETADO:
+  - Ramos de MALLA: 49
+  - Con OA actualizado: 34
+  - Con PA (porcentaje): 37
+   ✓ ramos cargados: 49
+📋 PHASE 2: extract_viable_sections
+   📥 Leyendo oferta académica...
+   ✓ secciones cargadas: 697
+   🧭 Ejecutando PERT (primera pasada)...
+🔍 Buscando datafiles desde CWD: "/home/ignatus/GitHub/GA_Backend/quickshift"
+✅ Datafiles encontrados en (CWD): "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles"
+🔍 Buscando datafiles desde CWD: "/home/ignatus/GitHub/GA_Backend/quickshift"
+✅ Datafiles encontrados en (CWD): "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles"
+   ✓ PERT completado: ramos actualizados (critico/holgura)
+   🔍 Filtrando secciones viables...
+   ✓ secciones viables: 697 (de 697)
+📋 PHASE 3: clique_search
+🧠 [clique] 697 secciones, 49 ramos
+   [DEBUG] has_filters=false, filtros=None
+   Filtrado: 423 secciones
+   [PRE-FILTER] params.filtros is_some=false
+   [DEBUG] n=423, should_allow_reuse=false, max_iterations=80
+✅ [clique] 2 soluciones (max_weight_clique, max 6 ramos, iteraciones)
+   ✓ clique search completado: 2 soluciones antes de filtrar
+📋 PHASE 4: apply_filters (skipped - filters applied in clique)
+   ✓ soluciones que cumplen filtros: 2
+✅ Pipeline completado: 2 soluciones (máximo 10)
+🔁 [ruta::ejecutar_ruta_critica_with_params] iniciando pipeline de 4 fases...
+📋 PHASE 1: getRamoCritico + PERT
+🔍 Buscando datafiles desde CWD: "/home/ignatus/GitHub/GA_Backend/quickshift"
+✅ Datafiles encontrados en (CWD): "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles"
+   malla_path = /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/Malla2020.xlsx
+   oferta_path = /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/OA2024.xlsx
+   porcentajes_path = /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/PA20251.xlsx
+   📥 Leyendo malla y porcentajes...
+🔍 [OPTIMIZED MALLA] Starting - malla_archivo=/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/Malla2020.xlsx
+
+🚀 MERGE SIMPLE: MALLA (base) + OA + PA
+======================================
+
+📖 PASO 1: Leyendo MALLA desde /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/Malla2020.xlsx
+DEBUG: malla_rows.len()=57
+DEBUG: First row (header): Some(["Nombre", "ID", "Créditos", "Requisitos", "Semestre", "Electivo"])
+DEBUG: Row 0, Col 0: 'Nombre' -> 'nombre'
+DEBUG: Row 0, Col 1: 'ID' -> 'id'
+DEBUG: Row 0, Col 2: 'Créditos' -> 'créditos'
+DEBUG: Row 0, Col 3: 'Requisitos' -> 'requisitos'
+DEBUG: Found 'requisitos' at row 0 col 3
+DEBUG: Row 0, Col 4: 'Semestre' -> 'semestre'
+DEBUG: Found 'semestre' at row 0 col 4
+DEBUG: Row 0, Col 5: 'Electivo' -> 'electivo'
+DEBUG: Row 1, Col 0: 'Álgebra y Geometría' -> 'álgebra y geometría'
+DEBUG: Row 1, Col 1: '1' -> '1'
+DEBUG: Row 1, Col 2: '7' -> '7'
+DEBUG: Row 1, Col 3: '—' -> '—'
+DEBUG: Row 1, Col 4: '1' -> '1'
+DEBUG: Row 1, Col 5: 'false' -> 'false'
+DEBUG: Row 2, Col 0: 'Cálculo I' -> 'cálculo i'
+DEBUG: Row 2, Col 1: '2' -> '2'
+DEBUG: Row 2, Col 2: '7' -> '7'
+DEBUG: Row 2, Col 3: '—' -> '—'
+DEBUG: Row 2, Col 4: '1' -> '1'
+DEBUG: Row 2, Col 5: 'false' -> 'false'
+DEBUG: Row 3, Col 0: 'Química' -> 'química'
+DEBUG: Row 3, Col 1: '3' -> '3'
+DEBUG: Row 3, Col 2: '6' -> '6'
+DEBUG: Row 3, Col 3: '—' -> '—'
+DEBUG: Row 3, Col 4: '1' -> '1'
+DEBUG: Row 3, Col 5: 'false' -> 'false'
+DEBUG: Malla header detected at Some(0), using name_col=0 id_col=1 semestre_col=Some(4) requisitos_col=Some(3)
+✅ Malla: 49 cursos cargados
+   Ramos cargados (primeros 5): ["mecanica", "opcion de articulacion con magister en ciencias de la ingenieria", "ingles ii", "arquitecturas emergentes", "desarrollo web y movil"]
+   Requisitos detectados:
+     - Mecánica (id=8) -> requisito id=2
+     - Inglés II (id=27) -> requisito id=21
+     - Arquitecturas Emergentes (id=45) -> requisito id=35
+     - Desarrollo Web y Móvil (id=20) -> requisito id=9
+     - Inglés III (id=33) -> requisito id=27
+     - Arquitectura de Software (id=47) -> requisito id=37
+     - Cálculo II (id=7) -> requisito id=2
+     - Álgebra Lineal (id=6) -> requisito id=1
+
+📖 PASO 2: Leyendo OA desde src/datafiles/OA2024.xlsx
+✅ OA: 34 secciones matcheadas por nombre
+
+📖 PASO 3: Leyendo PA desde /home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles/PA20251.xlsx
+✅ PA: 64 nombres de asignatura indexados
+   (Primeros 5 entradas del índice PA: [("gestion organizacional", 92.19), ("estructuras de datos y algoritmos", 82.25), ("practica electiva interdisciplinaria", 97.96), ("procesamiento de imagenes", 100.0), ("calculo ii", 53.13)])
+   ✓ Match encontrado: 'Mecánica' -> 76.68%
+   ✓ Match encontrado: 'Arquitecturas Emergentes' -> 100%
+   ✓ Match encontrado: 'Desarrollo Web y Móvil' -> 80.33%
+   ✓ Match encontrado: 'Bases de Datos Avanzadas' -> 93.75%
+   ✓ Match encontrado: 'Arquitectura de Software' -> 96%
+   ✓ Match encontrado: 'Electricidad y Magnetismo' -> 86.15%
+   ✓ Match encontrado: 'Cálculo II' -> 53.13%
+   ✓ Match encontrado: 'Álgebra Lineal' -> 69.06%
+   ✓ Match encontrado: 'Cálculo I' -> 68.77%
+   ✓ Match encontrado: 'Comunicaciones Digitales' -> 97.3%
+   ✓ Match encontrado: 'Data Science' -> 100%
+   ✓ Match encontrado: 'Evaluación de Proyectos TIC' -> 97.87%
+   ✓ Match encontrado: 'Ecuaciones Diferenciales' -> 75.92%
+   ✓ Match encontrado: 'Electrónica y Electrotecnia' -> 84.88%
+   ✓ Match encontrado: 'Inteligencia Artificial' -> 74.07%
+   ✓ Match encontrado: 'Comunicación para la Ingeniería' -> 96.96%
+   ✓ Match encontrado: 'Proyecto en TICs II' -> 100%
+   ✓ Match encontrado: 'Gestión Organizacional' -> 92.19%
+   ✓ Match encontrado: 'Tecnologías Inalámbricas' -> 94.87%
+   ✓ Match encontrado: 'Ingeniería de Software' -> 97.09%
+   ✓ Match encontrado: 'Programación' -> 77.09%
+   ✓ Match encontrado: 'Álgebra y Geometría' -> 73.15%
+   ✓ Match encontrado: 'Optimización' -> 66.01%
+   ✓ Match encontrado: 'Sistemas Operativos' -> 81.48%
+   ✓ Match encontrado: 'Señales y Sistemas' -> 66.67%
+   ✓ Match encontrado: 'Taller de Redes y Servicios' -> 97.03%
+   ✓ Match encontrado: 'Cálculo III' -> 85.27%
+   ✓ Match encontrado: 'Probabilidades y Estadísticas' -> 73.91%
+   ✓ Match encontrado: 'Química' -> 88.16%
+   ✓ Match encontrado: 'Sistemas Distribuidos' -> 74.23%
+   ✓ Match encontrado: 'Programación Avanzada' -> 55.84%
+   ✓ Match encontrado: 'Criptografía y Seguridad en Redes' -> 91.89%
+   ✓ Match encontrado: 'Calor y Ondas' -> 95.91%
+   ✓ Match encontrado: 'Redes de Datos' -> 95.03%
+   ✓ Match encontrado: 'Proyecto en TICs I' -> 98.95%
+   ✓ Match encontrado: 'Bases de Datos' -> 92.86%
+   ✓ Match encontrado: 'Contabilidad y Costos' -> 75.41%
+✅ PA: 37 porcentajes matcheados por nombre
+
+✅ MERGE COMPLETADO:
+  - Ramos de MALLA: 49
+  - Con OA actualizado: 34
+  - Con PA (porcentaje): 37
+   ✓ ramos cargados: 49
+📋 PHASE 2: extract_viable_sections
+   📥 Leyendo oferta académica...
+   ✓ secciones cargadas: 697
+   🧭 Ejecutando PERT (primera pasada)...
+🔍 Buscando datafiles desde CWD: "/home/ignatus/GitHub/GA_Backend/quickshift"
+✅ Datafiles encontrados en (CWD): "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles"
+🔍 Buscando datafiles desde CWD: "/home/ignatus/GitHub/GA_Backend/quickshift"
+✅ Datafiles encontrados en (CWD): "/home/ignatus/GitHub/GA_Backend/quickshift/src/datafiles"
+   ✓ PERT completado: ramos actualizados (critico/holgura)
+   🔍 Filtrando secciones viables...
+   ✓ secciones viables: 697 (de 697)
+📋 PHASE 3: clique_search
+🧠 [clique] 697 secciones, 49 ramos
+   [DEBUG] has_filters=false, filtros=None
+   Filtrado: 423 secciones
+   [PRE-FILTER] params.filtros is_some=false
+   [DEBUG] n=423, should_allow_reuse=false, max_iterations=80
+✅ [clique] 2 soluciones (max_weight_clique, max 6 ramos, iteraciones)
+   ✓ clique search completado: 2 soluciones antes de filtrar
+📋 PHASE 4: apply_filters (skipped - filters applied in clique)
+   ✓ soluciones que cumplen filtros: 2
+✅ Pipeline completado: 2 soluciones (máximo 10)
