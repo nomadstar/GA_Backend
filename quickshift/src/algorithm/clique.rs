@@ -49,94 +49,143 @@ fn sections_conflict(s1: &Seccion, s2: &Seccion) -> bool {
     s1.horario.iter().any(|h1| s2.horario.iter().any(|h2| h1 == h2))
 }
 
-/// Verifica si un horario (ej: "LU MA JU 08:30 - 09:50") solapa con una franja prohibida (ej: "LU 08:00-09:00")
-fn horario_solapa_franja(horario: &str, franja_prohibida: &str) -> bool {
-    // Parsear franja prohibida: "LU 08:00-09:00" o "LU 08:00 - 09:00"
-    let franja_parts: Vec<&str> = franja_prohibida.split_whitespace().collect();
-    if franja_parts.len() < 2 {
-        return false; // Formato inválido
-    }
-    
-    let dia_prohibido = franja_parts[0].to_lowercase(); // "lu"
-    
-    // Buscar la hora (formato: "08:00-09:00" o "08:00" seguido de "-" y "09:00")
-    let tiempo_inicio_idx = franja_parts.iter().position(|&p| p.contains(':'));
-    if tiempo_inicio_idx.is_none() {
-        return false;
-    }
-    
-    let tiempo_inicio_str = franja_parts[tiempo_inicio_idx.unwrap()];
-    let tiempo_parts: Vec<&str> = tiempo_inicio_str.split('-').collect();
-    
-    if tiempo_parts.len() != 2 {
-        return false;
-    }
-    
-    let (h_inicio_str, h_fin_str) = (tiempo_parts[0].trim(), tiempo_parts[1].trim());
-    
-    // Parsear horas
-    let h_inicio = match parse_hora(h_inicio_str) {
-        Some(m) => m,
-        None => return false,
-    };
-    
-    let h_fin = match parse_hora(h_fin_str) {
-        Some(m) => m,
-        None => return false,
-    };
-    
-    // Parsear horario: "LU MA JU 08:30 - 09:50" o "LU 08:30 - 09:50"
-    let horario_lower = horario.to_lowercase();
-    
-    // Verificar si el día prohibido está en el horario
-    if !horario_lower.contains(&dia_prohibido) {
-        return false; // Día no coincide
-    }
-    
-    // Extraer horas del horario 
-    let horario_parts: Vec<&str> = horario.split_whitespace().collect();
-    
-    // Buscar "-" en las partes
-    let dash_idx = horario_parts.iter().position(|&p| p == "-");
-    if dash_idx.is_none() || dash_idx.unwrap() < 1 {
-        return false;
-    }
-    
-    let idx = dash_idx.unwrap();
-    
-    let horario_inicio_str = horario_parts[idx - 1];
-    let horario_fin_str = if idx + 1 < horario_parts.len() {
-        horario_parts[idx + 1]
-    } else {
-        return false;
-    };
-    
-    let h_sec_inicio = match parse_hora(horario_inicio_str) {
-        Some(m) => m,
-        None => return false,
-    };
-    
-    let h_sec_fin = match parse_hora(horario_fin_str) {
-        Some(m) => m,
-        None => return false,
-    };
-    
-    // Verificar solapamiento: [h_inicio, h_fin) vs [h_sec_inicio, h_sec_fin)
-    // Solapan si: h_inicio < h_sec_fin && h_fin > h_sec_inicio
-    h_inicio < h_sec_fin && h_fin > h_sec_inicio
-}
-
 /// Helper para parsear "HH:MM" a minutos
 fn parse_hora(s: &str) -> Option<i32> {
+    let s = s.trim();
     let parts: Vec<&str> = s.split(':').collect();
     if parts.len() != 2 {
         return None;
     }
     
-    let h = parts[0].parse::<i32>().ok()?;
-    let m = parts[1].parse::<i32>().ok()?;
+    let h = parts[0].trim().parse::<i32>().ok()?;
+    let m = parts[1].trim().parse::<i32>().ok()?;
     
     Some(h * 60 + m)
+}
+
+/// Verifica si un horario (ej: "LU MA JU 08:30 - 09:50") solapa con una franja prohibida (ej: "LU 08:00-09:00")
+fn horario_solapa_franja(horario: &str, franja_prohibida: &str) -> bool {
+    let horario = horario.trim();
+    let franja = franja_prohibida.trim();
+    
+    // Parsear franja: "LU 08:00-09:00" o "LU 08:00 - 09:00"
+    let franja_words: Vec<&str> = franja.split_whitespace().collect();
+    if franja_words.is_empty() {
+        return false;
+    }
+    
+    // El primer token es el día(s) prohibido
+    let dias_prohibidos = franja_words[0].to_lowercase();
+    
+    // Buscar horario en franja (formato: "HH:MM-HH:MM" o "HH:MM ... HH:MM")
+    let franja_tiempo = franja.replace("- ", "-");
+    let tiempo_pattern: Vec<&str> = franja_tiempo.split_whitespace()
+        .filter(|w| w.contains(':') || w.contains('-'))
+        .collect();
+    
+    if tiempo_pattern.is_empty() {
+        return false;
+    }
+    
+    // Combinar todos los tokens de tiempo
+    let tiempo_combined = tiempo_pattern.join(" ");
+    
+    // Parsear horas: buscar formato "HH:MM-HH:MM"
+    let tiempo_parts: Vec<&str> = if tiempo_combined.contains('-') {
+        tiempo_combined.split('-').collect()
+    } else {
+        return false;
+    };
+    
+    if tiempo_parts.len() != 2 {
+        return false;
+    }
+    
+    let (franja_inicio_str, franja_fin_str) = (tiempo_parts[0].trim(), tiempo_parts[1].trim());
+    
+    let franja_inicio = match parse_hora(franja_inicio_str) {
+        Some(m) => m,
+        None => {
+            eprintln!("[DEBUG] No pude parsear hora inicio de franja: '{}'", franja_inicio_str);
+            return false;
+        }
+    };
+    
+    let franja_fin = match parse_hora(franja_fin_str) {
+        Some(m) => m,
+        None => {
+            eprintln!("[DEBUG] No pude parsear hora fin de franja: '{}'", franja_fin_str);
+            return false;
+        }
+    };
+    
+    // Verificar que el día prohibido está en el horario
+    // Los días están al inicio del horario (antes de las horas)
+    // Formato: "LU MA JU 08:30 - 09:50" o "MI 14:30 - 15:50"
+    let horario_lower = horario.to_lowercase();
+    let horario_days: Vec<&str> = horario_lower.split_whitespace()
+        .take_while(|w| !w.contains(':') && !w.contains('-'))
+        .collect();
+    
+    eprintln!("[DEBUG horario_solapa_franja] horario_days={:?}, dias_prohibidos='{}'", horario_days, dias_prohibidos);
+    
+    let tiene_dia = horario_days.contains(&dias_prohibidos.as_str());
+    
+    if !tiene_dia {
+        eprintln!("[DEBUG horario_solapa_franja] día prohibido '{}' no encontrado en {:?}, retornando false", dias_prohibidos, horario_days);
+        return false; // Día no coincide
+    }
+    
+    // Parsear horario: "LU MA JU 08:30 - 09:50" o "MI 14:30 - 15:50"
+    let horario_tiempo = horario.replace("- ", "-");
+    let horario_parts: Vec<&str> = horario_tiempo.split_whitespace()
+        .filter(|w| w.contains(':') || w.contains('-'))
+        .collect();
+    
+    if horario_parts.is_empty() {
+        return false;
+    }
+    
+    let horario_tiempo_combined = horario_parts.join(" ");
+    
+    let horario_tiempo_parts: Vec<&str> = if horario_tiempo_combined.contains('-') {
+        horario_tiempo_combined.split('-').collect()
+    } else {
+        return false;
+    };
+    
+    if horario_tiempo_parts.len() != 2 {
+        return false;
+    }
+    
+    let (horario_inicio_str, horario_fin_str) = (horario_tiempo_parts[0].trim(), horario_tiempo_parts[1].trim());
+    
+    let horario_inicio = match parse_hora(horario_inicio_str) {
+        Some(m) => m,
+        None => {
+            eprintln!("[DEBUG] No pude parsear hora inicio de horario: '{}'", horario_inicio_str);
+            return false;
+        }
+    };
+    
+    let horario_fin = match parse_hora(horario_fin_str) {
+        Some(m) => m,
+        None => {
+            eprintln!("[DEBUG] No pude parsear hora fin de horario: '{}'", horario_fin_str);
+            return false;
+        }
+    };
+    
+    // Verificar solapamiento temporal
+    // Dos intervalos [a, b] y [c, d] solapan si a < d && c < b
+    let solapa = franja_inicio < horario_fin && horario_inicio < franja_fin;
+    
+    if solapa {
+        eprintln!("[DEBUG] SOLAPAMIENTO: franja=[{}-{}] horario=[{}-{}]", 
+                 franja_inicio, franja_fin, horario_inicio, horario_fin);
+    }
+    
+    solapa
 }
 
 /// Verifica si una sección cumple con los filtros del usuario
@@ -220,6 +269,23 @@ pub fn get_clique_max_pond_with_prefs(
     }).cloned().collect();
 
     eprintln!("   Filtrado: {} secciones", filtered.len());
+    
+    // Aplicar filtros del usuario ANTES de construir la matriz de adjacencia
+    // Esto reduce drasticamente el tamaño del problema
+    eprintln!("   [PRE-FILTER] params.filtros is_some={}", params.filtros.is_some());
+    let mut filtered = if params.filtros.is_some() {
+        let pre_filtered = filtered.into_iter().filter(|s| {
+            seccion_cumple_filtros(s, &params.filtros)
+        }).collect::<Vec<_>>();
+        eprintln!("   Después de filtros de usuario: {} secciones", pre_filtered.len());
+        pre_filtered
+    } else {
+        filtered
+    };
+    
+    if filtered.is_empty() && params.filtros.is_some() {
+        eprintln!("   ⚠️  Todos fueron filtrados!");
+    }
 
     // --- Construir matriz de compatibilidad (adjacency) ---
     let n = filtered.len();
