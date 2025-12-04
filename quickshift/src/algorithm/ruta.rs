@@ -79,18 +79,13 @@ pub fn ejecutar_ruta_critica_with_params(
         eprintln!("   ✓ PERT completado: ramos actualizados (critico/holgura)");
     }
     
-    // 2c) Filtrar secciones viables según reglas Python:
-    // - Excluir ramos ya aprobados (ramos_pasados)
-    // - Excluir ramos cuyos prerequisitos NO estén en ramos_pasados
+    // 2c) Filtrar secciones viables:
+    // RULE ESTRICTA: Excluir SOLO ramos ya aprobados (ramos_pasados)
+    // NO excluimos por prerequisitos no satisfechos - dejar que el clique lo resuelva
     eprintln!("   🔍 Filtrando secciones viables...");
     let passed_set: HashSet<String> = params.ramos_pasados
         .iter()
         .map(|s| s.to_uppercase())
-        .collect();
-    
-    // Crear un mapa de código -> RamoDisponible para búsquedas rápidas
-    let codigo_to_ramo: HashMap<String, &RamoDisponible> = ramos_disponibles.iter()
-        .map(|(k, v)| (k.to_uppercase(), v))
         .collect();
     
     let lista_secciones_viables: Vec<Seccion> = lista_secciones
@@ -98,37 +93,14 @@ pub fn ejecutar_ruta_critica_with_params(
         .filter(|sec| {
             let sec_codigo_upper = sec.codigo.to_uppercase();
             
-            // Excluir si ya fue aprobado
+            // Excluir si ya fue aprobado - ESTO ES OBLIGATORIO
             if passed_set.contains(&sec_codigo_upper) {
                 eprintln!("   ⊘ Excluyendo {} (ya aprobado)", sec.codigo);
                 return false;
             }
             
-            // Obtener el ramo de la malla
-            if let Some(ramo) = codigo_to_ramo.get(&sec_codigo_upper) {
-                // Verificar si TODOS los prerequisitos están en ramos_pasados
-                // Un ramo es viable si:
-                // 1. No tiene prerequisito (codigo_ref == id), O
-                // 2. Su prerequisito está en ramos_pasados
-                
-                if let Some(prereq_id) = ramo.codigo_ref {
-                    if prereq_id != ramo.id {
-                        // Tiene prerequisito, buscar ese ramo
-                        if let Some(prereq_ramo) = ramos_disponibles.values().find(|r| r.id == prereq_id) {
-                            // El prerequisito debe estar en ramos_pasados
-                            if !passed_set.contains(&prereq_ramo.codigo.to_uppercase()) {
-                                eprintln!("   ⊘ Excluyendo {} (prerequisito {} no aprobado)", 
-                                         sec.codigo, prereq_ramo.codigo);
-                                return false;
-                            }
-                        }
-                    }
-                }
-                true
-            } else {
-                // Si no está en la malla, lo incluimos
-                true
-            }
+            // Incluir todo lo demás - el clique seleccionará lo mejor
+            true
         })
         .cloned()
         .collect();
@@ -141,6 +113,16 @@ pub fn ejecutar_ruta_critica_with_params(
     // =========================================================================
     eprintln!("📋 PHASE 3: clique_search");
     
+    // VALIDACIÓN: Debe haber al menos algunas secciones viables
+    if lista_secciones_viables.is_empty() {
+        eprintln!("❌ ERROR: No hay secciones viables después de filtrar");
+        eprintln!("   Posibles causas:");
+        eprintln!("   - Todos los cursos están en ramos_pasados");
+        eprintln!("   - El archivo de oferta académica está vacío");
+        eprintln!("   - Hay un problema en PHASE 2");
+        return Ok(Vec::new());
+    }
+    
     // 3) Ejecutar búsqueda de máxima clique ponderada
     // (implementada en algorithm::clique::get_clique_max_pond_with_prefs)
     let soluciones = crate::algorithm::clique::get_clique_max_pond_with_prefs(
@@ -149,22 +131,78 @@ pub fn ejecutar_ruta_critica_with_params(
         &params
     );
     
-    eprintln!("   ✓ clique search completado: {} soluciones antes de filtrar", soluciones.len());
+    // Log del resultado del clique y guardar el count
+    let soluciones_count = soluciones.len();
+    eprintln!("   ✓ clique search completado: {} soluciones antes de filtrar", soluciones_count);
+    
+    // VALIDACIÓN: El clique debe generar al menos 1 solución si hay secciones viables
+    if soluciones.is_empty() && !lista_secciones_viables.is_empty() {
+        eprintln!("⚠️  AVISO: El clique no generó soluciones a pesar de tener {} secciones viables", 
+                  lista_secciones_viables.len());
+        eprintln!("   Esto puede indicar que los cursos viables son incompatibles entre sí");
+    }
     
     // =========================================================================
     // PHASE 4: apply_filters
     // =========================================================================
     eprintln!("📋 PHASE 4: apply_filters");
     
+    // Verificar si hay filtros activos
+    let has_active_filters = params.filtros
+        .as_ref()
+        .map(|f| {
+            (f.dias_horarios_libres.as_ref().map(|d| d.habilitado).unwrap_or(false)) ||
+            (f.ventana_entre_actividades.as_ref().map(|v| v.habilitado).unwrap_or(false)) ||
+            (f.preferencias_profesores.as_ref().map(|p| p.habilitado).unwrap_or(false)) ||
+            (f.balance_lineas.as_ref().map(|b| b.habilitado).unwrap_or(false))
+        })
+        .unwrap_or(false);
+    
     let soluciones_filtradas = crate::algorithm::filters::apply_all_filters(
         soluciones, 
         &params.filtros
     );
     
-    eprintln!("   ✓ soluciones después de filtrar: {}", soluciones_filtradas.len());
+    let soluciones_filtradas_count = soluciones_filtradas.len();
+    eprintln!("   ✓ soluciones después de filtrar: {}", soluciones_filtradas_count);
     
     // Retornar máximo 10 soluciones que hayan pasado los filtros
     let resultado: Vec<_> = soluciones_filtradas.into_iter().take(10).collect();
+    
+    // =====================================================================
+    // VALIDACIÓN CRÍTICA - LEY FUNDAMENTAL
+    // =====================================================================
+    // LEY: Si no hay filtros activos Y quedan cursos por aprobar,
+    // SIEMPRE debe haber al menos 1 solución
+    
+    let cursos_por_aprobar = lista_secciones_viables.len();
+    
+    if resultado.is_empty() && !has_active_filters && cursos_por_aprobar > 0 {
+        eprintln!("❌ ✋ LEY VIOLADA ✋ ❌");
+        eprintln!("   VIOLACIÓN: No hay soluciones pero:");
+        eprintln!("   - Hay {} cursos disponibles para aprobar", cursos_por_aprobar);
+        eprintln!("   - NO hay filtros activos");
+        eprintln!("   - Esto es IMPOSIBLE y indica un BUG EN EL SISTEMA");
+        eprintln!();
+        eprintln!("   Diagnóstico:");
+        eprintln!("   - Soluciones generadas en PHASE 3: {}", soluciones_count);
+        eprintln!("   - Soluciones que pasaron filtros: {}", soluciones_filtradas_count);
+        eprintln!("   - Estado del clique: FALLO CRÍTICO");
+        eprintln!();
+        eprintln!("   Acción: Este error debe ser investigado inmediatamente");
+        // Retornamos vacío pero con log evidente
+    }
+    
+    if resultado.is_empty() && has_active_filters && cursos_por_aprobar > 0 {
+        eprintln!("⚠️  AVISO: No hay soluciones que pasen los filtros aplicados");
+        eprintln!("   - Cursos disponibles: {}", cursos_por_aprobar);
+        eprintln!("   - Considere relajar algunos filtros para obtener resultados");
+    }
+    
+    if resultado.is_empty() && cursos_por_aprobar == 0 {
+        eprintln!("✅ INFORMACIÓN: Todos los cursos han sido aprobados");
+        eprintln!("   - Felicidades, has completado el programa");
+    }
     
     eprintln!("✅ Pipeline completado: {} soluciones (máximo 10)", resultado.len());
     Ok(resultado)
