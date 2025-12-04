@@ -22,8 +22,10 @@ pub fn get_clique_max_pond_with_prefs(
     ramos_disponibles: &HashMap<String, RamoDisponible>,
     params: &InputParams,
 ) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    // Implementación directa y concisa de "cliques reales" (greedy multi-seed).
     eprintln!("🧠 [clique] {} secciones, {} ramos", lista_secciones.len(), ramos_disponibles.len());
 
+    // --- Filtrado inicial (semestre y ramos pasados) ---
     let mut max_sem = 0;
     for code in &params.ramos_pasados {
         if let Some(r) = ramos_disponibles.values().find(|r| r.codigo == *code) {
@@ -33,98 +35,86 @@ pub fn get_clique_max_pond_with_prefs(
     let max_sem = max_sem + 2;
     let passed: HashSet<_> = params.ramos_pasados.iter().cloned().collect();
 
-    let filtered: Vec<_> = lista_secciones.iter().filter(|s| {
-        !passed.contains(&s.codigo_box) && 
-        ramos_disponibles.values().find(|r| r.codigo == s.codigo)
-            .map_or(true, |r| r.semestre.map_or(true, |sem| sem <= max_sem))
+    let filtered: Vec<Seccion> = lista_secciones.iter().filter(|s| {
+        if passed.contains(&s.codigo_box) { return false; }
+        // aceptar si el ramo existe en la malla (por nombre normalizado) o si no tiene semestre fuera del horizonte
+        let ramo_ok = ramos_disponibles.values().find(|r| r.codigo == s.codigo)
+            .map_or(true, |r| r.semestre.map_or(true, |sem| sem <= max_sem));
+        ramo_ok
     }).cloned().collect();
 
     eprintln!("   Filtrado: {} secciones", filtered.len());
 
-    let mut graph = UnGraph::<Seccion, ()>::new_undirected();
-    let nodes: Vec<_> = filtered.iter().map(|s| graph.add_node(s.clone())).collect();
-
-    for i in 0..nodes.len() {
-        for j in (i+1)..nodes.len() {
-            let s1 = graph.node_weight(nodes[i]).unwrap();
-            let s2 = graph.node_weight(nodes[j]).unwrap();
-            let code_a = &s1.codigo[0..std::cmp::min(7, s1.codigo.len())];
-            let code_b = &s2.codigo[0..std::cmp::min(7, s2.codigo.len())];
+    // --- Construir matriz de compatibilidad (adjacency) ---
+    let n = filtered.len();
+    let mut adj = vec![vec![false; n]; n];
+    for i in 0..n {
+        for j in (i+1)..n {
+            let s1 = &filtered[i];
+            let s2 = &filtered[j];
+            let code_a = &s1.codigo[..std::cmp::min(7, s1.codigo.len())];
+            let code_b = &s2.codigo[..std::cmp::min(7, s2.codigo.len())];
             if s1.codigo_box != s2.codigo_box && code_a != code_b && !sections_conflict(s1, s2) {
-                graph.add_edge(nodes[i], nodes[j], ());
+                adj[i][j] = true; adj[j][i] = true;
             }
         }
     }
 
-    let mut solutions = Vec::new();
-    let mut removed = HashSet::new();
+    // --- Prioridades por sección (resolver RamoDisponible por código o nombre normalizado) ---
+    let mut pri: Vec<i64> = Vec::with_capacity(n);
+    for s in filtered.iter() {
+        let candidate = ramos_disponibles.values().find(|r| {
+            if !r.codigo.is_empty() && !s.codigo.is_empty() {
+                if r.codigo.to_lowercase() == s.codigo.to_lowercase() { return true; }
+            }
+            normalize_name(&r.nombre) == normalize_name(&s.nombre)
+        });
+        let p = candidate.map(|r| compute_priority(r, s)).unwrap_or(0);
+        pri.push(p);
+    }
 
-    for _ in 0..10 {
-        let best = graph.node_indices().filter(|n| !removed.contains(n))
-            .max_by_key(|n| {
-                let sec = graph.node_weight(*n).unwrap();
-                // Mejorar matching: primero intentar por código (case-insensitive),
-                // luego por nombre normalizado (fallback). Esto evita que RamoDisponible.codigo
-                // (que puede contener códigos PA) no coincida con el código de la sección.
-                let candidate = ramos_disponibles.values().find(|r| {
-                    if !r.codigo.is_empty() && !sec.codigo.is_empty() {
-                        if r.codigo.to_lowercase() == sec.codigo.to_lowercase() { return true; }
-                    }
-                    let rn = normalize_name(&r.nombre);
-                    let sn = normalize_name(&sec.nombre);
-                    rn == sn
-                });
-                candidate.map(|r| compute_priority(r, sec)).unwrap_or(0)
-            });
+    // --- Greedy multi-seed to build real cliques ---
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by_key(|&i| -(pri[i] as i64));
 
-        let Some(start) = best else { break; };
-        let mut clique = vec![start];
-
-        for _ in 1..6 {
-            let cands: Vec<_> = graph.neighbors(clique[clique.len()-1])
-                .filter(|n| !removed.contains(n) && !clique.contains(n)).collect();
-            if cands.is_empty() { break; }
-            let next = cands.into_iter().max_by_key(|n| {
-                let sec = graph.node_weight(*n).unwrap();
-                let candidate = ramos_disponibles.values().find(|r| {
-                    if !r.codigo.is_empty() && !sec.codigo.is_empty() {
-                        if r.codigo.to_lowercase() == sec.codigo.to_lowercase() { return true; }
-                    }
-                    let rn = normalize_name(&r.nombre);
-                    let sn = normalize_name(&sec.nombre);
-                    rn == sn
-                });
-                candidate.map(|r| compute_priority(r, sec)).unwrap_or(0)
-            }).unwrap();
-            clique.push(next);
+    let mut solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    let max_seeds = std::cmp::min(30, n);
+    for &seed_idx in order.iter().take(max_seeds) {
+        let mut clique: Vec<usize> = vec![seed_idx];
+        for &cand in order.iter() {
+            if cand == seed_idx { continue; }
+            // candidate must be connected to ALL nodes already in clique
+            if clique.iter().all(|&u| adj[u][cand]) {
+                clique.push(cand);
+            }
+            if clique.len() >= 6 { break; }
         }
 
-        let mut sol = Vec::new();
-        let mut total = 0i64;
-        for &idx in &clique {
-            let sec = graph.node_weight(idx).unwrap().clone();
-            let candidate = ramos_disponibles.values().find(|r| {
-                if !r.codigo.is_empty() && !sec.codigo.is_empty() {
-                    if r.codigo.to_lowercase() == sec.codigo.to_lowercase() { return true; }
+        // mapear clique a solución (Seccion + score) usando matching robusto
+        let mut sol: Vec<(Seccion, i32)> = Vec::new();
+        let mut total: i64 = 0;
+        for &ix in clique.iter() {
+            let s = filtered[ix].clone();
+            if let Some(r) = ramos_disponibles.values().find(|r| {
+                if !r.codigo.is_empty() && !s.codigo.is_empty() {
+                    if r.codigo.to_lowercase() == s.codigo.to_lowercase() { return true; }
                 }
-                let rn = normalize_name(&r.nombre);
-                let sn = normalize_name(&sec.nombre);
-                rn == sn
-            });
-            if let Some(r) = candidate {
-                let score = compute_priority(r, &sec);
-                sol.push((sec, score as i32));
+                normalize_name(&r.nombre) == normalize_name(&s.nombre)
+            }) {
+                let score = compute_priority(r, &s);
+                sol.push((s, score as i32));
                 total += score;
             }
         }
-
-        if !sol.is_empty() { solutions.push((sol, total)); }
-        removed.insert(start);
+        if !sol.is_empty() {
+            solutions.push((sol, total));
+        }
     }
 
+    // ordenar y truncar
     solutions.sort_by(|a, b| b.1.cmp(&a.1));
-    eprintln!("✅ [clique] {} soluciones", solutions.len());
     solutions.truncate(10);
+    eprintln!("✅ [clique] {} soluciones (real cliques greedy)", solutions.len());
     solutions
 }
 
