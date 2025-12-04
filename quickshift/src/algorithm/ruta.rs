@@ -149,16 +149,25 @@ pub fn ejecutar_ruta_critica_with_params(
         &params
     );
     
-    eprintln!("   ✓ clique search completado: {} soluciones", soluciones.len());
+    eprintln!("   ✓ clique search completado: {} soluciones antes de filtrar", soluciones.len());
     
     // =========================================================================
-    // PHASE 4: apply_filters (delegado al frontend)
+    // PHASE 4: apply_filters
     // =========================================================================
     eprintln!("📋 PHASE 4: apply_filters");
-    eprintln!("   ℹ️  Filtros de usuario (horarios, profesores) pueden aplicarse en frontend");
     
-    eprintln!("✅ Pipeline completado: {} soluciones", soluciones.len());
-    Ok(soluciones)
+    let soluciones_filtradas = crate::algorithm::filters::apply_all_filters(
+        soluciones, 
+        &params.filtros
+    );
+    
+    eprintln!("   ✓ soluciones después de filtrar: {}", soluciones_filtradas.len());
+    
+    // Retornar máximo 10 soluciones que hayan pasado los filtros
+    let resultado: Vec<_> = soluciones_filtradas.into_iter().take(10).collect();
+    
+    eprintln!("✅ Pipeline completado: {} soluciones (máximo 10)", resultado.len());
+    Ok(resultado)
 }
 
 /// Función alternativa (compatibilidad): intenta cargar con malla por defecto

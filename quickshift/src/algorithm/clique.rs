@@ -110,7 +110,7 @@ pub fn get_clique_max_pond_with_prefs(
     let mut all_solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
     
     let mut remaining_indices: HashSet<usize> = (0..n).collect();
-    let max_iterations = 10;  // Buscar hasta 10 soluciones
+    let max_iterations = 20;  // Buscar hasta 20 soluciones
     
     for _iteration in 0..max_iterations {
         if remaining_indices.is_empty() {
@@ -190,9 +190,9 @@ pub fn get_clique_max_pond_with_prefs(
         }
     }
 
-    // ordenar por score y truncar a 10 soluciones
+    // ordenar por score y truncar a 20 soluciones
     all_solutions.sort_by(|a, b| b.1.cmp(&a.1));
-    all_solutions.truncate(10);
+    all_solutions.truncate(20);
     eprintln!("✅ [clique] {} soluciones (max_weight_clique, max 6 ramos, iteraciones)", all_solutions.len());
     all_solutions
 }

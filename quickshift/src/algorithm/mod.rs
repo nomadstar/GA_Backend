@@ -8,6 +8,7 @@ pub mod conflict;
 pub mod section_selector;
 mod pert;
 pub mod ruta;
+pub mod filters;
 
 // Reexportar solo la API pública que quieres exponer desde aquí
 pub use extract_controller::{extract_data};
