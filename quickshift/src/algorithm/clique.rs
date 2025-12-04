@@ -107,14 +107,37 @@ pub fn get_clique_max_pond_with_prefs(
 
     // --- Greedy multi-seed to build real cliques with max 6 courses ---
     // Itera múltiples veces removiendo el mejor nodo cada vez para obtener soluciones diversas
+    // PERO: Si hay pocos cursos viables (< 6), permitir reutilización controlada
     let mut all_solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
     
+    let should_allow_reuse = n < 6;  // Si hay menos de 6 secciones viables, permitir reutilización
+    let max_iterations = if should_allow_reuse { 200 } else { 80 };  // Más iteraciones si hay reutilización
+    
+    eprintln!("   [DEBUG] n={}, should_allow_reuse={}, max_iterations={}", n, should_allow_reuse, max_iterations);
+    
     let mut remaining_indices: HashSet<usize> = (0..n).collect();
-    let max_iterations = 80;  // Buscar hasta 80 soluciones
+    let mut consecutive_empty_resets = 0;
     
     for _iteration in 0..max_iterations {
+        if all_solutions.len() >= 10 {
+            break;  // Ya tenemos suficientes soluciones
+        }
+        
         if remaining_indices.is_empty() {
-            break;
+            // Si permitimos reutilización y no hay más nodos únicos, reinicializar
+            if should_allow_reuse && all_solutions.len() < 10 && n > 0 {
+                remaining_indices = (0..n).collect();
+                consecutive_empty_resets += 1;
+                eprintln!("   [DEBUG] Reiniciando búsqueda con reutilización (reset #{}, iteración {})", consecutive_empty_resets, _iteration);
+                
+                // Si hemos reiniciado demasiadas veces, para evitar loop infinito
+                if consecutive_empty_resets > 20 {
+                    eprintln!("   [DEBUG] Máximo de reinicios alcanzado");
+                    break;
+                }
+            } else {
+                break;
+            }
         }
         
         // Ordenar por prioridad dentro de índices restantes
@@ -178,12 +201,21 @@ pub fn get_clique_max_pond_with_prefs(
         }
         
         if !sol.is_empty() {
-            all_solutions.push((sol, total));
+            // Verificar que no es solución duplicada
+            let sol_codes: Vec<String> = sol.iter().map(|(s, _)| s.codigo.to_uppercase()).collect();
+            let is_duplicate = all_solutions.iter().any(|(prev_sol, _)| {
+                let prev_codes: Vec<String> = prev_sol.iter().map(|(s, _)| s.codigo.to_uppercase()).collect();
+                sol_codes == prev_codes
+            });
             
-            // Remover TODOS los nodos de esta clique del conjunto restante para obtener soluciones diversas
-            for &node_idx in clique.iter() {
-                remaining_indices.remove(&node_idx);
+            if !is_duplicate {
+                all_solutions.push((sol, total));
+                consecutive_empty_resets = 0;  // Reset el contador
+                eprintln!("   [DEBUG] Solución #{} encontrada (iteración {})", all_solutions.len(), _iteration);
             }
+            
+            // Siempre remover el seed para intentar variaciones
+            remaining_indices.remove(&seed_idx);
         } else {
             // Si no hay solución válida, remover el seed
             remaining_indices.remove(&seed_idx);
