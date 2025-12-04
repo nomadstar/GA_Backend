@@ -17,11 +17,32 @@ fn base_course_key(nombre: &str) -> String {
 }
 
 fn compute_priority(ramo: &RamoDisponible, sec: &Seccion) -> i64 {
-    let cc = if ramo.critico { 10 } else { 0 };
-    let uu = std::cmp::min(9, (10 - ramo.holgura as i64).max(0));
-    let kk = (60 - ramo.numb_correlativo as i64).max(0);
-    let ss = sec.seccion.parse::<i64>().unwrap_or(0);
-    cc * 1_000_000 + uu * 100_000 + kk * 100 + ss
+    // Fórmula correcta del RutaCritica.py:
+    // priority = CC + UU + KK + SS (concatenación como string, luego a int)
+    // CC: "10" if critico else "00"
+    // UU: f"{10-holgura:02d}"
+    // KK: f"{60-numb_correlativo:02d}"
+    // SS: f"{seccion_number:02d}"
+    
+    let cc_str = if ramo.critico { "10" } else { "00" };
+    
+    let holgura_int = (ramo.holgura as i32).max(0).min(10);
+    let uu_val = 10 - holgura_int;
+    let uu_str = format!("{:02}", uu_val);
+    
+    let numb_corr_int = ramo.numb_correlativo.max(0);
+    let kk_val = 60 - numb_corr_int;
+    let kk_str = format!("{:02}", kk_val.max(0).min(60));
+    
+    // SS: extraer número de seccion
+    let ss_str = if let Ok(sec_num) = sec.seccion.parse::<i32>() {
+        format!("{:02}", sec_num.max(0).min(99))
+    } else {
+        "00".to_string()
+    };
+    
+    let priority_str = format!("{}{}{}{}", cc_str, uu_str, kk_str, ss_str);
+    priority_str.parse::<i64>().unwrap_or(0)
 }
 
 fn sections_conflict(s1: &Seccion, s2: &Seccion) -> bool {
@@ -84,16 +105,38 @@ pub fn get_clique_max_pond_with_prefs(
         pri.push(p);
     }
 
-    // --- Greedy multi-seed to build real cliques ---
-    let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by_key(|&i| -(pri[i] as i64));
-
-    let mut solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
-    let max_seeds = std::cmp::min(30, n);
-    for &seed_idx in order.iter().take(max_seeds) {
+    // --- Greedy multi-seed to build real cliques with max 6 courses ---
+    // Itera múltiples veces removiendo el mejor nodo cada vez para obtener soluciones diversas
+    let mut all_solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    
+    let mut remaining_indices: HashSet<usize> = (0..n).collect();
+    let max_iterations = 10;  // Buscar hasta 10 soluciones
+    
+    for _iteration in 0..max_iterations {
+        if remaining_indices.is_empty() {
+            break;
+        }
+        
+        // Ordenar por prioridad dentro de índices restantes
+        let mut candidates: Vec<usize> = remaining_indices.iter().copied().collect();
+        candidates.sort_by_key(|&i| -(pri[i] as i64));
+        
+        if candidates.is_empty() {
+            break;
+        }
+        
+        let seed_idx = candidates[0];
         let mut clique: Vec<usize> = vec![seed_idx];
-        for &cand in order.iter() {
-            if cand == seed_idx { continue; }
+        
+        // Greedy: agregar candidatos conectados a todos en la clique, max 6
+        for &cand in candidates.iter().skip(1) {
+            if clique.len() >= 6 {
+                break;
+            }
+            if !remaining_indices.contains(&cand) {
+                continue;
+            }
+            
             // candidate must be connected to ALL nodes already in clique
             if clique.iter().all(|&u| adj[u][cand]) {
                 // Además: si cand y algún u pertenecen a la misma materia base,
@@ -115,10 +158,9 @@ pub fn get_clique_max_pond_with_prefs(
                     clique.push(cand);
                 }
             }
-            if clique.len() >= 6 { break; }
         }
 
-        // mapear clique a solución (Seccion + score) usando matching robusto
+        // mapear clique a solución (Seccion + score)
         let mut sol: Vec<(Seccion, i32)> = Vec::new();
         let mut total: i64 = 0;
         for &ix in clique.iter() {
@@ -130,20 +172,29 @@ pub fn get_clique_max_pond_with_prefs(
                 normalize_name(&r.nombre) == normalize_name(&s.nombre)
             }) {
                 let score = compute_priority(r, &s);
-                sol.push((s, score as i32));
+                sol.push((s.clone(), score as i32));
                 total += score;
             }
         }
+        
         if !sol.is_empty() {
-            solutions.push((sol, total));
+            all_solutions.push((sol, total));
+            
+            // Remover el mejor nodo de esta clique del conjunto restante para la siguiente iteración
+            if let Some(&best_node) = clique.iter().max_by_key(|&&i| pri[i]) {
+                remaining_indices.remove(&best_node);
+            }
+        } else {
+            // Si no hay solución válida, remover el seed
+            remaining_indices.remove(&seed_idx);
         }
     }
 
-    // ordenar y truncar
-    solutions.sort_by(|a, b| b.1.cmp(&a.1));
-    solutions.truncate(10);
-    eprintln!("✅ [clique] {} soluciones (real cliques greedy)", solutions.len());
-    solutions
+    // ordenar por score y truncar a 10 soluciones
+    all_solutions.sort_by(|a, b| b.1.cmp(&a.1));
+    all_solutions.truncate(10);
+    eprintln!("✅ [clique] {} soluciones (max_weight_clique, max 6 ramos, iteraciones)", all_solutions.len());
+    all_solutions
 }
 
 /// Wrapper público
