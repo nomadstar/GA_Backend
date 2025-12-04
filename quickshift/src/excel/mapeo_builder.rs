@@ -104,8 +104,44 @@ fn leer_oa2024_al_mapeo(
         let nombre_norm = normalize_name(&nombre);
 
         // Si ya existe en el mapeo (de PA2025-1), actualizar con código de OA2024
+        let mut matched = false;
+
         if let Some(asignatura_mut) = mapeo.asignaturas.get_mut(&nombre_norm) {
-            asignatura_mut.codigo_oa2024 = Some(codigo);
+            asignatura_mut.codigo_oa2024 = Some(codigo.clone());
+            matched = true;
+            eprintln!("DEBUG: OA match by normalized name: '{}' -> {}", codigo, asignatura_mut.nombre_real);
+        }
+
+        // Nota: debido a limitaciones del diffs, reescribimos la lógica correctamente abajo.
+        // (La versión compacta anterior será reemplazada por la lógica final más clara.)
+
+        // --- lógica final: intentar nombre_norm, luego código_pa, luego fallback por tokens ---
+        if !matched {
+            // Buscar por código PA
+            if let Some(asign_pa) = mapeo.asignaturas.values_mut().find(|a| a.codigo_pa2025.as_deref() == Some(codigo.as_str())) {
+                asign_pa.codigo_oa2024 = Some(codigo.clone());
+                matched = true;
+                eprintln!("DEBUG: OA match by PA code: '{}' -> {}", codigo, asign_pa.nombre_real);
+            }
+        }
+
+        if !matched {
+            // Fallback: intentar matching por tokens comunes en el nombre normalizado
+            let tokens_oa: Vec<&str> = nombre_norm.split_whitespace().collect();
+            for asign in mapeo.asignaturas.values_mut() {
+                let tokens_existing: Vec<&str> = asign.nombre_normalizado.split_whitespace().collect();
+                let common = tokens_existing.iter().filter(|t| tokens_oa.contains(t)).count();
+                if common >= 2 {
+                    asign.codigo_oa2024 = Some(codigo.clone());
+                    matched = true;
+                    eprintln!("DEBUG: OA fuzzy match (tokens) '{}' -> {} (common tokens={})", codigo, asign.nombre_real, common);
+                    break;
+                }
+            }
+        }
+
+        if !matched {
+            eprintln!("WARN: OA no match encontrado para código '{}' nombre='{}' (norm='{}')", codigo, nombre, nombre_norm);
         }
 
         contador += 1;
