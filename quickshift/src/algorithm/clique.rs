@@ -357,11 +357,9 @@ pub fn get_clique_max_pond_with_prefs(
             if should_allow_reuse && all_solutions.len() < 10 && n > 0 {
                 remaining_indices = (0..n).collect();
                 consecutive_empty_resets += 1;
-                eprintln!("   [DEBUG] Reiniciando búsqueda con reutilización (reset #{}, iteración {})", consecutive_empty_resets, _iteration);
                 
                 // Si hemos reiniciado demasiadas veces, para evitar loop infinito
                 if consecutive_empty_resets > 20 {
-                    eprintln!("   [DEBUG] Máximo de reinicios alcanzado");
                     break;
                 }
             } else {
@@ -381,12 +379,9 @@ pub fn get_clique_max_pond_with_prefs(
         
         // VALIDAR que el seed cumple filtros
         if !seccion_cumple_filtros(&filtered[seed_idx], &params.filtros) {
-            eprintln!("[DEBUG] SEED FILTRADO: {} no cumple filtros", filtered[seed_idx].codigo);
             remaining_indices.remove(&seed_idx);
             continue;
         }
-        eprintln!("[DEBUG] SEED OK: {} cumple filtros (horarios: {:?})", 
-                  filtered[seed_idx].codigo, filtered[seed_idx].horario);
         
         let mut clique: Vec<usize> = vec![seed_idx];
         
@@ -455,11 +450,22 @@ pub fn get_clique_max_pond_with_prefs(
             if !is_duplicate {
                 all_solutions.push((sol, total));
                 consecutive_empty_resets = 0;  // Reset el contador
-                eprintln!("   [DEBUG] Solución #{} encontrada (iteración {})", all_solutions.len(), _iteration);
+                
+                // IMPORTANTE: Remover TODO el clique Y sus secciones adicionales
+                // Extrae los códigos de los cursos que están en la clique actual
+                let mut courses_in_clique = std::collections::HashSet::new();
+                for &idx in clique.iter() {
+                    let codigo = &filtered[idx].codigo;
+                    courses_in_clique.insert(codigo.clone());
+                }
+                
+                // Remover TODAS las secciones de estos cursos
+                remaining_indices.retain(|&idx| {
+                    !courses_in_clique.contains(&filtered[idx].codigo)
+                });
+            } else {
+                remaining_indices.remove(&seed_idx);
             }
-            
-            // Siempre remover el seed para intentar variaciones
-            remaining_indices.remove(&seed_idx);
         } else {
             // Si no hay solución válida, remover el seed
             remaining_indices.remove(&seed_idx);
