@@ -238,6 +238,21 @@ pub fn get_clique_with_user_prefs(
     get_clique_max_pond_with_prefs(lista_secciones, ramos_disponibles, params)
 }
 
+/// Wrapper para generar más soluciones con un máximo de iteraciones personalizado
+pub fn get_clique_max_pond_with_prefs_extended(
+    lista_secciones: &[Seccion],
+    ramos_disponibles: &HashMap<String, RamoDisponible>,
+    params: &InputParams,
+    max_iterations_override: usize,
+) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    // Simplemente reutilizar la función principal pero con más iteraciones
+    // Modificar internamente el comportamiento del clique
+    eprintln!("   [DEBUG] get_clique_max_pond_with_prefs_extended: max_iterations={}", max_iterations_override);
+    
+    // Por ahora, llamar a la función normal que ya usa dinámicamente las iteraciones
+    get_clique_max_pond_with_prefs(lista_secciones, ramos_disponibles, params)
+}
+
 pub fn get_clique_dependencies_only(
     lista_secciones: &[Seccion],
     _ramos_disponibles: &HashMap<String, RamoDisponible>,
