@@ -5,6 +5,17 @@ use crate::models::{Seccion, RamoDisponible};
 use crate::excel::normalize_name;
 use crate::api_json::InputParams;
 
+// Extrae la clave base de un curso (quita sufijos tipo 'laboratorio', 'taller', 'práctica')
+fn base_course_key(nombre: &str) -> String {
+    let mut s = nombre.to_lowercase();
+    // remover tokens comunes
+    for t in &["laboratorio", "laboratorios", "lab", "taller", "talleres", "practica", "práctica", "practicas", "prácticas"] {
+        s = s.replace(t, "");
+    }
+    // quitar caracteres no alfanuméricos y normalizar
+    normalize_name(&s)
+}
+
 fn compute_priority(ramo: &RamoDisponible, sec: &Seccion) -> i64 {
     let cc = if ramo.critico { 10 } else { 0 };
     let uu = std::cmp::min(9, (10 - ramo.holgura as i64).max(0));
@@ -85,7 +96,24 @@ pub fn get_clique_max_pond_with_prefs(
             if cand == seed_idx { continue; }
             // candidate must be connected to ALL nodes already in clique
             if clique.iter().all(|&u| adj[u][cand]) {
-                clique.push(cand);
+                // Además: si cand y algún u pertenecen a la misma materia base,
+                // exigir que pertenezcan a la misma `seccion` (emparejar laboratorios/talleres)
+                let mut conflict = false;
+                let cand_key = base_course_key(&filtered[cand].nombre);
+                let cand_seccion = filtered[cand].seccion.clone();
+                for &u in clique.iter() {
+                    let u_key = base_course_key(&filtered[u].nombre);
+                    let u_seccion = &filtered[u].seccion;
+                    if !cand_key.is_empty() && cand_key == u_key {
+                        if u_seccion != &cand_seccion {
+                            conflict = true;
+                            break;
+                        }
+                    }
+                }
+                if !conflict {
+                    clique.push(cand);
+                }
             }
             if clique.len() >= 6 { break; }
         }

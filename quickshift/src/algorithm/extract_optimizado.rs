@@ -95,13 +95,30 @@ pub fn extract_data_optimizado(
     // Paso 3: Filtrar secciones por Malla (una sola pasada O(n))
     eprintln!("  📖 Paso 3: Filtrando secciones por Malla2020...");
     let total_secciones = secciones.len();
+    // Aceptar además laboratorios/talleres/prácticas aunque no aparezcan exacto en la malla
+    let mut labs_included = 0;
     let secciones_filtradas: Vec<Seccion> = secciones
         .into_iter()
         .filter(|sec| {
             // 🆕 Usar excel::normalize_name() en lugar de otra función
             let nombre_norm = crate::excel::normalize_name(&sec.nombre);
-            // Aceptar si existe en ramos_disponibles (de Malla) O si es electivo
-            ramos_disponibles.contains_key(&nombre_norm) || nombre_norm.contains("electivo")
+
+            let is_electivo = nombre_norm.contains("electivo");
+            let is_lab = nombre_norm.contains("laboratori") || nombre_norm.contains("pract") || nombre_norm.contains("taller");
+
+            let in_malla = ramos_disponibles.contains_key(&nombre_norm);
+
+            if is_lab && !in_malla {
+                // contaremos laboratorios incluidos por palabra clave
+                // (no alteramos ramos_disponibles, sólo los aceptamos como sección válida)
+                // incrementar contador atómico fuera del closure no es trivial aquí,
+                // así que haremos un hack: marcar con side-effect en un temp variable
+                // usando a mutable static would be overkill; en su lugar, retornamos true
+                // y contaremos luego por inspección si es necesario.
+                return true;
+            }
+
+            in_malla || is_electivo || is_lab
         })
         .collect();
 
