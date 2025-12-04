@@ -110,6 +110,25 @@ pub fn get_clique_max_pond_with_prefs(
     // PERO: Si hay pocos cursos viables (< 6), permitir reutilización controlada
     let mut all_solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
     
+    // FALLBACK para 1 sección: retornar como solución única (LEY FUNDAMENTAL)
+    if n == 1 {
+        eprintln!("   [DEBUG] Solo 1 sección viable. Retornando como solución única.");
+        let s = filtered[0].clone();
+        if let Some(r) = ramos_disponibles.values().find(|r| {
+            if !r.codigo.is_empty() && !s.codigo.is_empty() {
+                if r.codigo.to_lowercase() == s.codigo.to_lowercase() { return true; }
+            }
+            normalize_name(&r.nombre) == normalize_name(&s.nombre)
+        }) {
+            let score = compute_priority(r, &s);
+            let sol = vec![(s.clone(), score as i32)];
+            let total = score;
+            all_solutions.push((sol, total));
+            eprintln!("✅ [clique] 1 solución (fallback para 1 sección viable)");
+            return all_solutions;
+        }
+    }
+    
     let should_allow_reuse = n < 6;  // Si hay menos de 6 secciones viables, permitir reutilización
     let max_iterations = if should_allow_reuse { 200 } else { 80 };  // Más iteraciones si hay reutilización
     
