@@ -180,13 +180,18 @@ pub fn leer_malla_con_porcentajes_optimizado(
     // PASO 2: Leer OA y validar existencia (no actualizamos código, solo verificamos match)
     eprintln!("\n📖 PASO 2: Leyendo OA desde src/datafiles/OA2024.xlsx");
     
-    // Construir ruta correcta para OA2024
-    let base_path = std::path::Path::new(malla_archivo)
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new(""));
-    let oa_path = base_path.join("OA2024.xlsx").to_string_lossy().to_string();
+    // Construir ruta correcta para OA2024 desde datafiles
+    let data_dir = crate::excel::get_datafiles_dir();
+    let oa_path = data_dir.join("OA2024.xlsx").to_string_lossy().to_string();
     
-    let oa_rows = crate::excel::io::read_sheet_via_zip(&oa_path, "")?;
+    let oa_rows = match crate::excel::io::read_sheet_via_zip(&oa_path, "") {
+        Ok(rows) => rows,
+        Err(e) => {
+            eprintln!("⚠️  OA2024.xlsx no encontrado en {}: {:?}", oa_path, e);
+            eprintln!("   Continuando sin actualizar códigos desde OA");
+            Vec::new()
+        }
+    };
     
     let mut oa_matched = 0;
     // OA2024 tiene 1 encabezado (Row 0)
