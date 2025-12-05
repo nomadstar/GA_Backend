@@ -593,22 +593,21 @@ pub fn get_clique_max_pond_with_prefs(
             continue;
         }
         
-        // Construir set de cursos ya aprobados (para validar requisitos previos)
-        let mut passed_codes: HashSet<String> = params.ramos_pasados.iter()
+        // Construir set base de cursos ya aprobados (solo `ramos_pasados`) —STRICT: no permitimos
+        // que la propia solución satisfaga prerequisitos (sin co-requisitos).
+        let base_passed_codes: HashSet<String> = params.ramos_pasados.iter()
             .map(|s| s.to_uppercase())
             .collect();
-        
-        // Verificar requisitos del seed
+
+        // Verificar requisitos del seed usando SOLO `ramos_pasados`
         if let Some(seed_ramo) = ramos_disponibles.values().find(|r| r.codigo == filtered[seed_idx].codigo) {
-            if !requisitos_cumplidos(&filtered[seed_idx], seed_ramo, ramos_disponibles, &passed_codes) {
+            if !requisitos_cumplidos(&filtered[seed_idx], seed_ramo, ramos_disponibles, &base_passed_codes) {
                 remaining_indices.remove(&seed_idx);
                 continue;
             }
         }
         
         let mut clique: Vec<usize> = vec![seed_idx];
-        // Agregar el seed al set de códigos pasados para validar siguientes nodos
-        passed_codes.insert(filtered[seed_idx].codigo.clone().to_uppercase());
         
         // Greedy: agregar candidatos conectados a todos en la clique, max 6
         for &cand in candidates.iter().skip(1) {
@@ -626,10 +625,10 @@ pub fn get_clique_max_pond_with_prefs(
             
             // candidate must be connected to ALL nodes already in clique
             if clique.iter().all(|&u| adj[u][cand]) {
-                // VALIDAR requisitos previos del candidato
+                // VALIDAR requisitos previos del candidato: usar SOLO `ramos_pasados` (no co-requisitos)
                 let mut prereq_ok = true;
                 if let Some(cand_ramo) = ramos_disponibles.values().find(|r| r.codigo == filtered[cand].codigo) {
-                    if !requisitos_cumplidos(&filtered[cand], cand_ramo, ramos_disponibles, &passed_codes) {
+                    if !requisitos_cumplidos(&filtered[cand], cand_ramo, ramos_disponibles, &base_passed_codes) {
                         prereq_ok = false;
                     }
                 }
@@ -655,8 +654,6 @@ pub fn get_clique_max_pond_with_prefs(
                 }
                 if !conflict {
                     clique.push(cand);
-                    // Agregar el nuevo nodo al set de códigos pasados
-                    passed_codes.insert(filtered[cand].codigo.clone().to_uppercase());
                 }
             }
         }
@@ -899,10 +896,8 @@ fn enumerate_clique_combinations(
                 }
             }
 
-            // check prereqs given passed_codes + current
-            let mut local_passed = passed_codes.clone();
-            for &u in current.iter() { local_passed.insert(filtered[u].codigo.to_uppercase()); }
-            for rc in params.ramos_pasados.iter() { local_passed.insert(rc.to_uppercase()); }
+            // check prereqs STRICT: only `ramos_pasados` — no co-requisites allowed
+            let local_passed: HashSet<String> = params.ramos_pasados.iter().map(|s| s.to_uppercase()).collect();
 
             if let Some(ramo_i) = ramos_disponibles.values().find(|r| r.codigo.to_uppercase() == filtered[i].codigo.to_uppercase()) {
                 if !requisitos_cumplidos(&filtered[i], ramo_i, ramos_disponibles, &local_passed) { continue; }
@@ -913,9 +908,9 @@ fn enumerate_clique_combinations(
                 } else { continue; }
             }
 
-            // include i
+            // include i (no se añade a `passed_codes`: no permitimos que un curso en la
+            // misma solución sirva como prerequisito para otro)
             current.push(i);
-            passed_codes.insert(filtered[i].codigo.to_uppercase());
             let added_score = pri_cache[i];
 
             // recurse next (pos+1 ensures combinations without reuse in ordered list)
@@ -923,7 +918,6 @@ fn enumerate_clique_combinations(
 
             // backtrack
             current.pop();
-            passed_codes.remove(&filtered[i].codigo.to_uppercase());
 
             if results.len() >= limit { break; }
         }
