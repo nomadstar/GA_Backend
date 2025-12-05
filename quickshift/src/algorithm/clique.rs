@@ -531,8 +531,9 @@ pub fn get_clique_max_pond_with_prefs(
     }
 
     // --- Greedy multi-seed to build real cliques with max 6 courses ---
-    // Itera múltiples veces removiendo el mejor nodo cada vez para obtener soluciones diversas
-    // PERO: Si hay pocos cursos viables (< 6), permitir reutilización controlada
+    // ESTRATEGIA OPTIMIZADA: Solo generar soluciones que MAXIMIZAN cursos (respetando PERT criticidad)
+    // Si encontramos soluciones con 6 cursos -> guardar y seguir buscando DIFERENTES de 6
+    // Detener cuando tengamos 10 soluciones con 6 cursos cada una
     let mut all_solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
     
     // FALLBACK para 1 sección: retornar como solución única (LEY FUNDAMENTAL)
@@ -555,14 +556,24 @@ pub fn get_clique_max_pond_with_prefs(
     }
     
     let should_allow_reuse = n < 6;  // Si hay menos de 6 secciones viables, permitir reutilización
-    let max_iterations = if should_allow_reuse { 200 } else { 80 };  // Más iteraciones si hay reutilización
+    // OPTIMIZACIÓN: Reducir max_iterations agresivamente. Solo 20-30 iteraciones para encontrar soluciones ÓPTIMAS
+    let max_iterations = if should_allow_reuse { 30 } else { 20 };  // MUCHO MÁS BAJO (was 200/80)
     
-    eprintln!("   [DEBUG] n={}, should_allow_reuse={}, max_iterations={}", n, should_allow_reuse, max_iterations);
+    eprintln!("   [DEBUG] n={}, should_allow_reuse={}, max_iterations={} (OPTIMIZED)", n, should_allow_reuse, max_iterations);
     
     let mut remaining_indices: HashSet<usize> = (0..n).collect();
     let mut consecutive_empty_resets = 0;
     
     for _iteration in 0..max_iterations {
+        // EARLY TERMINATION LOGIC:
+        // Si tenemos 10 soluciones con 6 cursos cada una -> PARAR (son ÓPTIMAS)
+        let optimal_solutions_count = all_solutions.iter().filter(|(sol, _)| sol.len() == 6).count();
+        if optimal_solutions_count >= 10 {
+            eprintln!("   [OPTIMIZATION] Early termination: {} optimal 6-course solutions found", optimal_solutions_count);
+            break;
+        }
+        
+        // O si tenemos 10+ soluciones totales (para casos donde no hay 6-course solutions posibles)
         if all_solutions.len() >= 10 {
             break;  // Ya tenemos suficientes soluciones
         }
@@ -715,10 +726,24 @@ pub fn get_clique_max_pond_with_prefs(
         }
     }
 
-    // ordenar por score y truncar a 80 soluciones
+    // ordenar por score y aplicar estrategia de OPTIMIZACIÓN
     all_solutions.sort_by(|a, b| b.1.cmp(&a.1));
-    all_solutions.truncate(80);
-    eprintln!("✅ [clique] {} soluciones (max_weight_clique, max 6 ramos, iteraciones)", all_solutions.len());
+    
+    // ESTRATEGIA DE FILTRADO INTELIGENTE:
+    // Si hay soluciones con 6 cursos (ÓPTIMAS), mantener SOLO esas (máximo 10)
+    // Si no, mantener las mejores diversas (máximo 10)
+    let has_six_course_solutions = all_solutions.iter().any(|(sol, _)| sol.len() == 6);
+    if has_six_course_solutions {
+        // Filtrar: mantener solo soluciones con 6 cursos, máximo 10
+        all_solutions.retain(|(sol, _)| sol.len() == 6);
+        all_solutions.truncate(10);
+        eprintln!("✅ [clique] {} soluciones ÓPTIMAS (6 ramos cada una, STRATEGY=MAX_COURSES)", all_solutions.len());
+    } else {
+        // Si no hay soluciones con 6 cursos, mantener las mejores 10
+        all_solutions.truncate(10);
+        eprintln!("✅ [clique] {} soluciones (max_weight_clique, max 6 ramos, sin 6-ramo solutions)", all_solutions.len());
+    }
+    
     all_solutions
 }
 
