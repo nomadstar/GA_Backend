@@ -132,12 +132,13 @@ pub fn ejecutar_ruta_critica_with_params(
         return Ok(Vec::new());
     }
     
-    // 3) Ejecutar búsqueda de máxima clique ponderada
-    // (implementada en algorithm::clique::get_clique_max_pond_with_prefs)
-    let soluciones = crate::algorithm::clique::get_clique_max_pond_with_prefs(
-        &lista_secciones_viables, 
-        &ramos_disponibles, 
-        &params
+    // 3) Ejecutar búsqueda de cliques con preferencias del usuario
+    // Cambiado para usar el enumerador exhaustivo limitado que genera
+    // múltiples combinaciones diversas (mejor cobertura que el greedy único)
+    let soluciones = crate::algorithm::clique::get_clique_with_user_prefs(
+        &lista_secciones_viables,
+        &ramos_disponibles,
+        &params,
     );
     
     // Log del resultado del clique y guardar el count

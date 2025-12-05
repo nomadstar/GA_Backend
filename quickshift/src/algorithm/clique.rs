@@ -117,6 +117,60 @@ fn parse_hora(s: &str) -> Option<i32> {
     Some(h * 60 + m)
 }
 
+// Extrae rangos (día, inicio, fin) de un vector de horarios de sección
+fn seccion_time_ranges(horarios: &Vec<String>) -> Vec<(String, i32, i32)> {
+    let mut out = Vec::new();
+    for h in horarios.iter() {
+        // intentar parsear formato "LU MA JU 08:30 - 09:50"
+        let horario = h.replace("- ", "-");
+        // separar tokens
+        let tokens: Vec<&str> = horario.split_whitespace().collect();
+        if tokens.is_empty() { continue; }
+
+        // buscar primer token que contiene ':' para identificar inicio tiempo
+        let mut day_tokens: Vec<&str> = Vec::new();
+        let mut time_tokens: Vec<&str> = Vec::new();
+        for &t in tokens.iter() {
+            if t.contains(":") || t.contains("-") {
+                time_tokens.push(t);
+            } else if time_tokens.is_empty() {
+                day_tokens.push(t);
+            }
+        }
+
+        if time_tokens.is_empty() || day_tokens.is_empty() { continue; }
+
+        // join time tokens to find pattern like "08:30-09:50" or "08:30 - 09:50"
+        let time_join = time_tokens.join(" ");
+        let parts: Vec<&str> = if time_join.contains('-') { time_join.split('-').collect() } else { Vec::new() };
+        if parts.len() != 2 { continue; }
+        if let (Some(si), Some(sf)) = (parse_hora(parts[0].trim()), parse_hora(parts[1].trim())) {
+            for &d in day_tokens.iter() {
+                out.push((d.to_string().to_lowercase(), si, sf));
+            }
+        }
+    }
+    out
+}
+
+// Comprueba si dos secciones cumplen la ventana mínima entre clases (en minutos)
+fn cumple_ventana_entre(se1: &Seccion, se2: &Seccion, minutos_min: i32) -> bool {
+    let r1 = seccion_time_ranges(&se1.horario);
+    let r2 = seccion_time_ranges(&se2.horario);
+    for (d1, s1, e1) in r1.iter() {
+        for (d2, s2, e2) in r2.iter() {
+            if d1 == d2 {
+                // desreferenciar valores numéricos (iter devuelve &i32 en tuples)
+                let s1v = *s1; let e1v = *e1; let s2v = *s2; let e2v = *e2;
+                // si se solapan la gap será 0; si no, calcular distancia mínima entre intervalos
+                let gap = if e1v <= s2v { s2v - e1v } else if e2v <= s1v { s1v - e2v } else { 0 };
+                if gap < minutos_min { return false; }
+            }
+        }
+    }
+    true
+}
+
 /// Verifica si un horario (ej: "LU MA JU 08:30 - 09:50") solapa con una franja prohibida (ej: "LU 08:00-09:00")
 fn horario_solapa_franja(horario: &str, franja_prohibida: &str) -> bool {
     let horario = horario.trim();
@@ -276,9 +330,23 @@ fn seccion_cumple_filtros(seccion: &Seccion, filtros: &Option<crate::models::Use
         }
     }
     
-    // Filtro: Profesores a evitar
+    // Filtro: Profesores a evitar / preferidos
     if let Some(ref prof_filter) = f.preferencias_profesores {
         if prof_filter.habilitado {
+            // Si hay una lista de preferidos no vacía, requerir que el profesor esté en la lista
+            if let Some(ref preferidos) = prof_filter.profesores_preferidos {
+                if !preferidos.is_empty() {
+                    let mut matched = false;
+                    for pref in preferidos {
+                        if seccion.profesor.to_lowercase().contains(&pref.to_lowercase()) {
+                            matched = true; break;
+                        }
+                    }
+                    if !matched { return false; }
+                }
+            }
+
+            // Profesores a evitar siguen excluyendo
             if let Some(ref evitar) = prof_filter.profesores_evitar {
                 for prof_evitar in evitar {
                     if seccion.profesor.to_lowercase().contains(&prof_evitar.to_lowercase()) {
@@ -510,7 +578,8 @@ pub fn get_clique_max_pond_with_prefs(
         
         // Ordenar por prioridad dentro de índices restantes
         let mut candidates: Vec<usize> = remaining_indices.iter().copied().collect();
-        candidates.sort_by_key(|&i| -(pri[i] as i64));
+        // Orden determinista: primero por prioridad descendente, luego por índice ascendente
+        candidates.sort_by(|&i, &j| pri[j].cmp(&pri[i]).then(i.cmp(&j)));
         
         if candidates.is_empty() {
             break;
@@ -656,8 +725,8 @@ pub fn get_clique_with_user_prefs(
     params: &InputParams,
 ) -> Vec<(Vec<(Seccion, i32)>, i64)> {
     // Usar enumerador exhaustivo limitado para generar combinaciones diversas
-    // max_size=6 (carga por semestre), limit=2000 combinaciones máximas
-    get_all_clique_combinations_with_pert(lista_secciones, ramos_disponibles, params, 6, 2000)
+    // max_size=6 (carga por semestre), limit aumentado para mayor variedad
+    get_all_clique_combinations_with_pert(lista_secciones, ramos_disponibles, params, 6, 10000)
 }
 
 /// Wrapper para generar más soluciones con un máximo de iteraciones personalizado
@@ -725,11 +794,20 @@ fn enumerate_clique_combinations(
         pri_cache.push(p);
     }
 
-    // (no helper closure here because nested fn cannot capture environment)
+    // Build an order vector of indices sorted by priority desc (tie: index asc)
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| pri_cache[b].cmp(&pri_cache[a]).then(a.cmp(&b)));
 
-    // Recursive backtracking
+    // Precompute prefix sums over pri ordered (for optimistic upper bound pruning)
+    let mut pri_ordered: Vec<i64> = order.iter().map(|&i| pri_cache[i]).collect();
+    let mut prefix: Vec<i64> = Vec::with_capacity(pri_ordered.len());
+    let mut acc = 0i64;
+    for &v in pri_ordered.iter() { acc += v; prefix.push(acc); }
+
+    // Recursive backtracking with branch-and-bound using optimistic sum of top priorities
     fn dfs(
         start: usize,
+        order: &Vec<usize>,
         filtered: &Vec<Seccion>,
         adj: &Vec<Vec<bool>>,
         ramos_disponibles: &HashMap<String, RamoDisponible>,
@@ -737,7 +815,9 @@ fn enumerate_clique_combinations(
         max_size: usize,
         limit: usize,
         pri_cache: &Vec<i64>,
+        prefix: &Vec<i64>,
         current: &mut Vec<usize>,
+        current_total: i64,
         passed_codes: &mut HashSet<String>,
         results: &mut Vec<(Vec<(Seccion, i32)>, i64)>,
         seen: &mut HashSet<String>,
@@ -746,17 +826,14 @@ fn enumerate_clique_combinations(
 
         // Record current (non-empty) solution
         if !current.is_empty() {
-            // map to codes set key
             let mut codes: Vec<String> = current.iter().map(|&i| filtered[i].codigo.to_uppercase()).collect();
             codes.sort();
             let key = codes.join("|");
             if !seen.contains(&key) {
-                // build solution payload and score
                 let mut sol: Vec<(Seccion, i32)> = Vec::new();
                 let mut total: i64 = 0;
                 for &ix in current.iter() {
                     let s = filtered[ix].clone();
-                    // find ramo
                     if let Some(r) = ramos_disponibles.values().find(|r| {
                         if !r.codigo.is_empty() && !s.codigo.is_empty() {
                             if r.codigo.to_lowercase() == s.codigo.to_lowercase() { return true; }
@@ -767,7 +844,6 @@ fn enumerate_clique_combinations(
                         sol.push((s.clone(), score as i32));
                         total += score;
                     } else {
-                        // fallback: push with zero score
                         sol.push((s.clone(), 0));
                     }
                 }
@@ -778,8 +854,29 @@ fn enumerate_clique_combinations(
 
         if current.len() >= max_size { return; }
 
-        for i in start..filtered.len() {
+        // compute current minimum score among results (for pruning)
+        let current_min_score = if results.len() < limit { i64::MIN } else { results.iter().map(|(_,s)| *s).min().unwrap_or(i64::MIN) };
+
+        for pos in start..order.len() {
             if results.len() >= limit { break; }
+
+            // optimistic upper bound: current_total + sum of next best (max_size - current.len()) pri
+            let remaining_slots = max_size.saturating_sub(current.len());
+            if remaining_slots > 0 {
+                // we can take up to remaining_slots from prefix starting at pos
+                let available = order.len().saturating_sub(pos);
+                let take = std::cmp::min(remaining_slots, available);
+                if take > 0 {
+                    let sum_top = if pos == 0 { prefix[take-1] } else { prefix[pos+take-1] - prefix[pos-1] };
+                    let optimistic = current_total + sum_top;
+                    if results.len() >= limit && optimistic <= current_min_score {
+                        // prune this branch
+                        continue;
+                    }
+                }
+            }
+
+            let i = order[pos];
 
             // ensure compatibility with all in current
             let mut ok = true;
@@ -791,38 +888,38 @@ fn enumerate_clique_combinations(
             // filters
             if !seccion_cumple_filtros(&filtered[i], &params.filtros) { continue; }
 
-            // check prereqs given passed_codes + current
-            // build a copy of passed codes and include current's codes
-            let mut local_passed = passed_codes.clone();
-            for &u in current.iter() {
-                local_passed.insert(filtered[u].codigo.to_uppercase());
-            }
-            // Also include params.ramos_pasados
-            for rc in params.ramos_pasados.iter() {
-                local_passed.insert(rc.to_uppercase());
+            if let Some(ref ventana) = params.filtros.as_ref().and_then(|f| f.ventana_entre_actividades.as_ref()) {
+                if ventana.habilitado {
+                    let minutos = ventana.minutos_entre_clases.unwrap_or(15);
+                    let mut ventana_ok = true;
+                    for &u in current.iter() {
+                        if !cumple_ventana_entre(&filtered[u], &filtered[i], minutos) { ventana_ok = false; break; }
+                    }
+                    if !ventana_ok { continue; }
+                }
             }
 
-            // find ramo for i
+            // check prereqs given passed_codes + current
+            let mut local_passed = passed_codes.clone();
+            for &u in current.iter() { local_passed.insert(filtered[u].codigo.to_uppercase()); }
+            for rc in params.ramos_pasados.iter() { local_passed.insert(rc.to_uppercase()); }
+
             if let Some(ramo_i) = ramos_disponibles.values().find(|r| r.codigo.to_uppercase() == filtered[i].codigo.to_uppercase()) {
                 if !requisitos_cumplidos(&filtered[i], ramo_i, ramos_disponibles, &local_passed) { continue; }
             } else {
-                // try match by name
                 let sec_nombre_norm = normalize_name(&filtered[i].nombre);
                 if let Some(ramo_i) = ramos_disponibles.values().find(|r| normalize_name(&r.nombre) == sec_nombre_norm) {
                     if !requisitos_cumplidos(&filtered[i], ramo_i, ramos_disponibles, &local_passed) { continue; }
-                } else {
-                    // not in malla, skip
-                    continue;
-                }
+                } else { continue; }
             }
 
             // include i
             current.push(i);
-            // add code to passed_codes
             passed_codes.insert(filtered[i].codigo.to_uppercase());
+            let added_score = pri_cache[i];
 
-            // recurse next (i+1 ensures combinations without reuse)
-            dfs(i+1, filtered, adj, ramos_disponibles, params, max_size, limit, pri_cache, current, passed_codes, results, seen);
+            // recurse next (pos+1 ensures combinations without reuse in ordered list)
+            dfs(pos+1, order, filtered, adj, ramos_disponibles, params, max_size, limit, pri_cache, prefix, current, current_total + added_score, passed_codes, results, seen);
 
             // backtrack
             current.pop();
@@ -834,7 +931,7 @@ fn enumerate_clique_combinations(
 
     let mut current: Vec<usize> = Vec::new();
     let mut passed_codes: HashSet<String> = params.ramos_pasados.iter().map(|s| s.to_uppercase()).collect();
-    dfs(0, filtered, adj, ramos_disponibles, params, max_size, limit, &pri_cache, &mut current, &mut passed_codes, &mut results, &mut seen);
+    dfs(0, &order, filtered, adj, ramos_disponibles, params, max_size, limit, &pri_cache, &prefix, &mut current, 0, &mut passed_codes, &mut results, &mut seen);
 
     results
 }
@@ -870,6 +967,55 @@ pub fn get_all_clique_combinations_with_pert(
         }
         false
     }).cloned().collect();
+
+    // --- SELLAR ramos que cumplen prerequisitos según ramos_pasados ---
+    eprintln!("   [SEAL] Sellando ramos que cumplen prerequisitos con ramos_pasados...");
+    let passed_codes_set: HashSet<String> = params.ramos_pasados.iter().map(|s| s.to_uppercase()).collect();
+
+    // Map id -> codigo_upper for lookup
+    let mut id_to_codigo: HashMap<i32, String> = HashMap::new();
+    for r in ramos_disponibles.values() {
+        id_to_codigo.insert(r.id, r.codigo.to_uppercase());
+    }
+
+    // Determinar ramos viables (sus prerequisitos todos están en passed_codes_set)
+    let mut viable_ramo_ids: HashSet<i32> = HashSet::new();
+    for r in ramos_disponibles.values() {
+        if r.requisitos_ids.is_empty() {
+            viable_ramo_ids.insert(r.id);
+            continue;
+        }
+        let mut ok = true;
+        for prereq_id in &r.requisitos_ids {
+            if let Some(cod) = id_to_codigo.get(prereq_id) {
+                if !passed_codes_set.contains(cod) {
+                    ok = false; break;
+                }
+            } else {
+                // prerequisito no encontrado -> no viable
+                ok = false; break;
+            }
+        }
+        if ok { viable_ramo_ids.insert(r.id); }
+    }
+
+    eprintln!("   [SEAL] ramos viables (según ramos_pasados): {} de {}", viable_ramo_ids.len(), ramos_disponibles.len());
+
+    // Filtrar secciones para dejar solo aquellas que pertenecen a ramos viables
+    let filtered: Vec<Seccion> = filtered.into_iter().filter(|s| {
+        // match by codigo
+        if let Some(r) = ramos_disponibles.values().find(|r| r.codigo.to_uppercase() == s.codigo.to_uppercase()) {
+            return viable_ramo_ids.contains(&r.id);
+        }
+        // match by normalized name
+        let sec_nombre_norm = normalize_name(&s.nombre);
+        if let Some(r) = ramos_disponibles.values().find(|r| normalize_name(&r.nombre) == sec_nombre_norm) {
+            return viable_ramo_ids.contains(&r.id);
+        }
+        false
+    }).collect();
+
+    eprintln!("   [SEAL] Después de sellar por prerequisitos: {} secciones", filtered.len());
 
     // build adjacency
     let n = filtered.len();
