@@ -63,9 +63,9 @@ mod test_ley_fundamental {
                 // Agregar el curso a los aprobados
                 ramos_aprobados.push(curso.to_string());
 
-                let cursos_aprobados_str = ramos_aprobados
+                let _cursos_aprobados_str = ramos_aprobados
                     .iter()
-                    .map(|c| format!("\"{}\"", c))
+                    .map(|c| format!("\"{}\"" , c))
                     .collect::<Vec<_>>()
                     .join(",");
 
@@ -204,7 +204,7 @@ mod test_ley_fundamental {
     fn test_filtros_horarios_funcionan() {
         use quickshift::api_json::InputParams;
         use quickshift::algorithm::ejecutar_ruta_critica_with_params;
-        use quickshift::models::{UserFilters, DiaHorariosLibres};
+        use quickshift::models::{UserFilters, DiaHorariosLibres, FranjaProhibida};
 
         println!("\n🧪 TEST: Validación de Filtros de Horarios\n");
         println!("{}", "=".repeat(70));
@@ -256,11 +256,11 @@ mod test_ley_fundamental {
             minimizar_ventanas: None,
             ventana_ideal_minutos: None,
             franjas_prohibidas: Some(vec![
-                "LU 08:00-12:00".to_string(),
-                "MA 08:00-12:00".to_string(),
-                "MI 08:00-12:00".to_string(),
-                "JU 08:00-12:00".to_string(),
-                "VI 08:00-12:00".to_string(),
+                FranjaProhibida { dia: "LU".to_string(), inicio: "08:00".to_string(), fin: "12:00".to_string() },
+                FranjaProhibida { dia: "MA".to_string(), inicio: "08:00".to_string(), fin: "12:00".to_string() },
+                FranjaProhibida { dia: "MI".to_string(), inicio: "08:00".to_string(), fin: "12:00".to_string() },
+                FranjaProhibida { dia: "JU".to_string(), inicio: "08:00".to_string(), fin: "12:00".to_string() },
+                FranjaProhibida { dia: "VI".to_string(), inicio: "08:00".to_string(), fin: "12:00".to_string() },
             ]),
             no_sin_horario: Some(false),
         });
@@ -366,7 +366,7 @@ mod test_ley_fundamental {
     fn test_filtros_multiples_simultaneos() {
         use quickshift::api_json::InputParams;
         use quickshift::algorithm::ejecutar_ruta_critica_with_params;
-        use quickshift::models::{UserFilters, DiaHorariosLibres, PreferenciasProfesores};
+        use quickshift::models::{UserFilters, DiaHorariosLibres, PreferenciasProfesores, FranjaProhibida};
 
         println!("\n🧪 TEST: Filtros Múltiples Simultáneos\n");
         println!("{}", "=".repeat(70));
@@ -388,7 +388,7 @@ mod test_ley_fundamental {
             minimizar_ventanas: None,
             ventana_ideal_minutos: None,
             franjas_prohibidas: Some(vec![
-                "VI 08:00-18:00".to_string(), // Sin clases los viernes
+                FranjaProhibida { dia: "VI".to_string(), inicio: "08:00".to_string(), fin: "18:00".to_string() },
             ]),
             no_sin_horario: Some(false),
         });
