@@ -78,9 +78,9 @@ pub struct RamoDisponible {
     pub holgura: i32,
     pub numb_correlativo: i32,
     pub critico: bool,
-    /// ID del ramo anterior (para dependencias PERT)
-    /// Apunta al campo `id` del ramo precedente
-    pub codigo_ref: Option<i32>,
+    /// IDs de los ramos prerequisitos (para dependencias PERT)
+    /// Lista de IDs de ramos que deben ser aprobados antes de tomar este
+    pub requisitos_ids: Vec<i32>,
     /// Porcentaje de aprobados (0.0 - 100.0). Se usará como estimador de dificultad inversa.
     /// Valores cercanos a 0 => muy difícil, cercanos a 100 => muy fácil.
     pub dificultad: Option<f64>,

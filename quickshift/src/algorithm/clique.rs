@@ -50,26 +50,56 @@ fn sections_conflict(s1: &Seccion, s2: &Seccion) -> bool {
 }
 
 /// Verifica si los requisitos previos de una sección están cumplidos
-/// ret true si:
-/// - El curso NO tiene requisito (codigo_ref is None o == id)
-/// - El curso tiene requisito Y ese requisito está en passed_codes
+/// Retorna true si:
+/// - El curso NO tiene requisitos (requisitos_ids es vacío)
+/// - El curso tiene requisitos Y TODOS ellos están en passed_codes
+/// 
+/// IMPORTANTE: Ahora soporta MÚLTIPLES prerequisitos.
+/// Todos deben estar cumplidos para que el curso sea válido.
 fn requisitos_cumplidos(
-    seccion: &Seccion,
+    _seccion: &Seccion,
     ramo: &RamoDisponible,
     ramos_disp: &HashMap<String, RamoDisponible>,
     passed_codes: &HashSet<String>,  // códigos de cursos ya pasados + cursos en solución actual
 ) -> bool {
-    if let Some(prereq_id) = ramo.codigo_ref {
-        if prereq_id != ramo.id {
-            // Tiene un prerequisito distinto
-            // Buscar el ramo con ese ID para obtener su código
-            if let Some(prereq_ramo) = ramos_disp.values().find(|r| r.id == prereq_id) {
-                // El código del prerequisito debe estar en passed_codes
-                return passed_codes.contains(&prereq_ramo.codigo.to_uppercase());
+    // Si no hay requisitos, está permitido
+    if ramo.requisitos_ids.is_empty() {
+        return true;
+    }
+    
+    // Verificar que TODOS los requisitos están cumplidos
+    for prereq_id in &ramo.requisitos_ids {
+        // Buscar el ramo prerequisito por ID
+        let prereq_ramo = match ramos_disp.values().find(|r| r.id == *prereq_id) {
+            Some(r) => r,
+            None => {
+                eprintln!(
+                    "⚠️  [prerequisitos] {} (id={}) requiere id={} pero no se encontró ese ramo",
+                    ramo.nombre, ramo.id, prereq_id
+                );
+                return false;
             }
+        };
+        
+        // Verificar si el código del prerequisito está en passed_codes
+        let prereq_codigo_upper = prereq_ramo.codigo.to_uppercase();
+        let cumplido = passed_codes.contains(&prereq_codigo_upper);
+        
+        if !cumplido {
+            eprintln!(
+                "❌ [prerequisitos] {} requiere: {} (id={}, código='{}')",
+                ramo.nombre, prereq_ramo.nombre, prereq_ramo.id, prereq_ramo.codigo
+            );
             return false;
         }
     }
+    
+    // Todos los requisitos están cumplidos
+    eprintln!(
+        "✅ [prerequisitos] {} ✓ todos los {} requisitos cumplidos",
+        ramo.nombre,
+        ramo.requisitos_ids.len()
+    );
     true
 }
 
@@ -293,6 +323,46 @@ pub fn get_clique_max_pond_with_prefs(
     }).cloned().collect();
 
     eprintln!("   Filtrado: {} secciones", filtered.len());
+    
+    // ===============================================================
+    // VALIDACIÓN DE PREREQUISITOS (filtrado crítico)
+    // ===============================================================
+    // Excluir cualquier curso cuyo prerequisito NO esté en ramos_pasados
+    // Esto es OBLIGATORIO: no permitimos recomendar cursos sin prerequisitos cumplidos
+    eprintln!("   [PREREQUISITOS] Filtrando secciones por requisitos previos...");
+    eprintln!("   [DEBUG] Ramos con requisitos cargados:");
+    
+    let passed_codes_set: HashSet<String> = params.ramos_pasados
+        .iter()
+        .map(|s| s.to_uppercase())
+        .collect();
+    
+    for ramo in ramos_disponibles.values().take(10) {
+        if !ramo.requisitos_ids.is_empty() {
+            eprintln!("     - {} (id={}) requiere: {:?}", ramo.nombre, ramo.id, ramo.requisitos_ids);
+        }
+    }
+    
+    let filtered_with_preqs = filtered.into_iter().filter(|s| {
+        // Encontrar el ramo correspondiente a esta sección
+        if let Some(ramo) = ramos_disponibles.values().find(|r| r.codigo.to_uppercase() == s.codigo.to_uppercase()) {
+            // Verificar si cumple los prerequisitos
+            if requisitos_cumplidos(s, ramo, ramos_disponibles, &passed_codes_set) {
+                return true;
+            } else {
+                eprintln!(
+                    "   ⊘ Excluyendo {} (id={}) - prerequisitos no cumplidos",
+                    ramo.nombre, ramo.id
+                );
+                return false;
+            }
+        }
+        // Si no encontramos el ramo en ramos_disponibles, aceptar (puede ser un curso sin info de malla)
+        true
+    }).collect::<Vec<_>>();
+    
+    eprintln!("   ✓ Después de validar prerequisitos: {} secciones", filtered_with_preqs.len());
+    let mut filtered = filtered_with_preqs;
     
     // Aplicar filtros del usuario ANTES de construir la matriz de adjacencia
     // Esto reduce drasticamente el tamaño del problema

@@ -106,7 +106,7 @@ pub fn leer_malla_excel_with_sheet(nombre_archivo: &str, sheet: Option<&str>) ->
             holgura: 0,
             numb_correlativo: id,
             critico: false,
-            codigo_ref: None,
+            requisitos_ids: vec![],
             dificultad: None,
             electivo: false,
             semestre: None,
@@ -462,7 +462,7 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
          eprintln!("DEBUG enrich_malla: '{}' (id={}, electivo={}) → clave='{}', código='{}', dificultad={:?}", 
                    nombre, id, es_electivo_en_malla, clave_hashmap, codigo_final, dificultad);
         
-        // Crear RamoDisponible enriquecido (SIN codigo_ref aún, se resuelve en segundo pase)
+        // Crear RamoDisponible enriquecido (SIN requisitos_ids aún, se resuelve en segundo pase)
         let ramo = RamoDisponible {
             id,
             nombre: nombre.clone(),
@@ -470,7 +470,7 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
             holgura: 0,
             numb_correlativo: id,  // Correlativo es el mismo que ID
             critico: false,
-            codigo_ref: None,  // Se resuelve después
+            requisitos_ids: vec![],  // Se resuelve después
             dificultad,
             electivo: es_electivo_final,
             semestre: semestre_opt,  // Semestre extraído de la Malla
@@ -482,29 +482,36 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
     
     // SEGUNDO PASE: Resolver dependencias por correlativo
     // Si ramo.numb_correlativo == X, buscar ramo con numb_correlativo == X-1
-    // Si existe, establecer codigo_ref al ID del ramo anterior
+    // Si existe, AGREGAR al final de requisitos_ids (no reemplazar)
     let mut updates: Vec<(String, i32)> = Vec::new();
     
     for (clave, ramo) in ramos_disponibles.iter() {
         let correlativo_actual = ramo.numb_correlativo;
         let id_anterior = correlativo_actual - 1;
         
-        // Buscar si existe un ramo con numb_correlativo == id_anterior
-        for (_, otro_ramo) in ramos_disponibles.iter() {
-            if otro_ramo.numb_correlativo == id_anterior {
-                // Encontrado: el ramo anterior tiene id = id_anterior
-                updates.push((clave.clone(), id_anterior));
-                eprintln!("DEBUG depends: ramo {} (id={}) depende de ramo con id={}", 
-                          ramo.nombre, correlativo_actual, id_anterior);
-                break;
+        // Solo procesar si NO hay requisitos explícitos ya (para no sobrescribir)
+        // Si ya tiene requisitos, no modificar
+        if ramo.requisitos_ids.is_empty() {
+            // Buscar si existe un ramo con numb_correlativo == id_anterior
+            for (_, otro_ramo) in ramos_disponibles.iter() {
+                if otro_ramo.numb_correlativo == id_anterior {
+                    // Encontrado: el ramo anterior tiene id = id_anterior
+                    updates.push((clave.clone(), id_anterior));
+                    eprintln!("DEBUG depends: ramo {} (id={}) depende de ramo con id={}", 
+                              ramo.nombre, correlativo_actual, id_anterior);
+                    break;
+                }
             }
         }
     }
     
-    // Aplicar actualizaciones
+    // Aplicar actualizaciones (solo a cursos sin requisitos explícitos)
     for (clave, id_prev) in updates {
         if let Some(ramo) = ramos_disponibles.get_mut(&clave) {
-            ramo.codigo_ref = Some(id_prev);
+            // Solo asignar si aún no tiene requisitos
+            if ramo.requisitos_ids.is_empty() {
+                ramo.requisitos_ids = vec![id_prev];
+            }
         }
     }
     

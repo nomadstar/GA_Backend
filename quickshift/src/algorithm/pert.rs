@@ -48,11 +48,11 @@ pub fn build_and_run_pert(
         node_map.insert(ramo.id, idx);
     }
 
-    // Añadir aristas por codigo_ref (que apunta a IDs)
+    // Añadir aristas por requisitos_ids (que apuntan a IDs prerequisitos)
     for (_nombre_norm, ramo) in ramos_actualizados.iter() {
-        if let Some(ref_id) = &ramo.codigo_ref {
-            if ref_id != &ramo.id {
-                if let (Some(&from), Some(&to)) = (node_map.get(ref_id), node_map.get(&ramo.id)) {
+        for prereq_id in &ramo.requisitos_ids {
+            if prereq_id != &ramo.id {
+                if let (Some(&from), Some(&to)) = (node_map.get(prereq_id), node_map.get(&ramo.id)) {
                     let _ = pert_graph.add_edge(from, to, ());
                 }
             }

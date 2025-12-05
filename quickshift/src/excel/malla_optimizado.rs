@@ -117,18 +117,29 @@ pub fn leer_malla_con_porcentajes_optimizado(
             })
         });
         
-        // Leer requisitos si está disponible (ID del ramo prerequisito)
-        let codigo_ref_opt = requisitos_col_idx.and_then(|col| {
+        // Leer requisitos si está disponible (IDs de ramos prerequisitos)
+        // Formato: puede ser "1", "1.2", "1,2", etc.
+        let requisitos_ids = requisitos_col_idx.and_then(|col| {
             row.get(col).and_then(|req_str| {
                 let trimmed = req_str.trim();
                 // Si es "—" o vacío, no hay requisito
                 if trimmed.is_empty() || trimmed == "—" {
+                    return Some(vec![]);
+                }
+                
+                // Parsear múltiples IDs separados por . o ,
+                let ids: Vec<i32> = trimmed
+                    .split(|c| c == '.' || c == ',')
+                    .filter_map(|s| s.trim().parse::<i32>().ok())
+                    .collect();
+                
+                if ids.is_empty() {
                     None
                 } else {
-                    trimmed.parse::<i32>().ok()
+                    Some(ids)
                 }
             })
-        });
+        }).unwrap_or_default();
 
         let norm_name = normalize(&nombre_real);
         if !norm_name.is_empty() && norm_name != "—" {
@@ -139,7 +150,7 @@ pub fn leer_malla_con_porcentajes_optimizado(
                 holgura: 0,
                 numb_correlativo: id,
                 critico: false,
-                codigo_ref: codigo_ref_opt,  // Ahora usa el valor leído de la columna Requisitos
+                requisitos_ids,  // Ahora usa múltiples IDs
                 dificultad: None,
                 electivo: false,
                 semestre: semestre_opt,
@@ -151,9 +162,9 @@ pub fn leer_malla_con_porcentajes_optimizado(
     
     // Log de requisitos leídos
     eprintln!("   Requisitos detectados:");
-    for (name, ramo) in resultado.iter().take(15) {
-        if let Some(ref_id) = ramo.codigo_ref {
-            eprintln!("     - {} (id={}) -> requisito id={}", ramo.nombre, ramo.id, ref_id);
+    for (_name, ramo) in resultado.iter().take(15) {
+        if !ramo.requisitos_ids.is_empty() {
+            eprintln!("     - {} (id={}) -> requisitos ids={:?}", ramo.nombre, ramo.id, ramo.requisitos_ids);
         }
     }
 
