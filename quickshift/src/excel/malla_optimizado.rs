@@ -46,7 +46,7 @@ pub fn leer_malla_con_porcentajes_optimizado(
 
     // PASO 1: Leer MALLA (fuente primaria - filtra todo)
     eprintln!("\n📖 PASO 1: Leyendo MALLA desde {}", malla_archivo);
-    let malla_rows = crate::excel::io::read_sheet_via_zip(malla_archivo, "")?;
+    let malla_rows = crate::excel::io::read_sheet_via_zip(malla_archivo, "Malla2020")?;
     
     let mut resultado: HashMap<String, RamoDisponible> = HashMap::new();
 

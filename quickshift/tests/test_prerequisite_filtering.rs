@@ -7,12 +7,17 @@ fn test_clique_filters_courses_without_prerequisites() {
     eprintln!("\n🧪 TEST: clique debe filtrar cursos sin prerequisitos cumplidos");
     eprintln!("=================================================================");
     
-    // Simulamos un estudiante que solo ha aprobado CBM1000 (Álgebra)
-    // y no debe poder tomar cursos que requieren otros prerequisitos
+    // Simulamos un estudiante que solo ha aprobado algunos cursos de semestre 1
+    // CBM1000 (Álgebra), CBM1001 (Cálculo I), CBQ1000 (Química)
+    // NO puede tomar cursos que requieren otros prerrequisitos
+    // Por ejemplo:
+    // - CBM1002 (Álgebra Lineal) requiere CBM1000 (id=1) ✓ cumple
+    // - CBM1003 (Cálculo II) requiere CBM1001 (id=2) ✓ cumple
+    // - CBM1006 (Cálculo III) requiere CBM1003 (id=7) ✗ no cumple (no aprobó Cálculo II)
     
     let params = InputParams {
         email: "test@example.com".to_string(),
-        ramos_pasados: vec!["CBM1000".to_string()], // Solo Álgebra
+        ramos_pasados: vec!["CBM1000".to_string(), "CBM1001".to_string(), "CBQ1000".to_string()], 
         ramos_prioritarios: vec![],
         horarios_preferidos: vec![],
         malla: "MiMalla.xlsx".to_string(),
@@ -41,36 +46,35 @@ fn test_clique_filters_courses_without_prerequisites() {
     
     if result.is_empty() {
         eprintln!("⚠️  No se generaron soluciones. Esto es válido si:");
-        eprintln!("   - No hay cursos disponibles después de CBM1000");
-        eprintln!("   - O todos los cursos disponibles requieren otros prerequisitos");
+        eprintln!("   - No hay cursos disponibles después de los prerequisitos");
         return;
     }
     
-    // Para cada solución, verificar que NO contiene cursos con prerequisitos no cumplidos
+    // Para cada solución, verificar que NO contiene cursos que requieran otros requisitos
     for (idx, (solucion, _score)) in result.iter().enumerate() {
         eprintln!("\n📌 Solución #{}: {} cursos", idx + 1, solucion.len());
         
         for (seccion, _score) in solucion {
             eprintln!("   - {} (Código: {})", seccion.nombre, seccion.codigo);
             
-            // Verificación: este curso NO debería tener prerequisitos no cumplidos
-            // (de lo contrario el test falla)
+            // Verificación: estos cursos NO deberían estar aquí si requieren prerrequisitos no cumplidos
             let codigo_upper = seccion.codigo.to_uppercase();
             
-            // Verificamos manualmente si este curso típicamente tiene prerequisitos
-            // Esto es una verificación simplista, pero suficiente para el test
+            // Cursos que REQUIEREN requisitos no aprobados:
+            // - CBM1003 (Cálculo II) requiere CBM1001 ✓ APROBADO - OK
+            // - CBM1006 (Cálculo III) requiere CBM1003 ✗ NO APROBADO - DEBE EXCLUIRSE
+            // - CIT2114 (Redes de Datos) requiere CIT2113 u otros ✗ NO APROBADOS - DEBE EXCLUIRSE
             match codigo_upper.as_str() {
-                // Cursos con prerequisitos conocidos (sin CBM1000)
-                "CBM1001" => panic!(
-                    "❌ FALLO: {} requiere CBM1000, pero no está en ramos_pasados",
+                "CBM1006" => panic!(
+                    "❌ FALLO: {} (Cálculo III) requiere CBM1003 (Cálculo II), pero no está aprobado",
                     seccion.codigo
                 ),
-                "CIT3313" => panic!(
-                    "❌ FALLO: {} requiere cursos de programación no aprobados",
+                "CIT2114" => panic!(
+                    "❌ FALLO: {} (Redes de Datos) requiere prereqs no cumplidos",
                     seccion.codigo
                 ),
                 _ => {
-                    // OK - curso sin prerequisito conocido o con prerequisitos cumplidos
+                    // OK - curso sin conflicto de requisitos
                 }
             }
         }
