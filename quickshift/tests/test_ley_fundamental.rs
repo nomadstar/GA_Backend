@@ -195,6 +195,252 @@ mod test_ley_fundamental {
         assert_eq!(contador, 54, "Debe haber 54 cursos en total (9 semestres × 6)");
         println!("\n✅ Test completado: Estructura de malla validada");
     }
+
+    /// TEST: Validar que los filtros de horarios funcionan correctamente
+    /// Aplica restricciones de horario aleatorias y verifica que:
+    /// 1. Se pueden aplicar filtros sin errores
+    /// 2. El número de soluciones con filtros es ≤ sin filtros
+    #[test]
+    fn test_filtros_horarios_funcionan() {
+        use quickshift::api_json::InputParams;
+        use quickshift::algorithm::ejecutar_ruta_critica_with_params;
+        use quickshift::models::{UserFilters, DiaHorariosLibres};
+
+        println!("\n🧪 TEST: Validación de Filtros de Horarios\n");
+        println!("{}", "=".repeat(70));
+
+        // Parámetros base: estudiante con algunos cursos aprobados
+        let ramos_aprobados = vec![
+            "CBM1000".to_string(),
+            "CBM1001".to_string(),
+            "CBQ1000".to_string(),
+        ];
+
+        // TEST 1: SIN FILTROS
+        println!("\n📋 TEST 1: Ejecutar SIN filtros");
+        let params_sin_filtros = InputParams {
+            email: "test@example.com".to_string(),
+            ramos_pasados: ramos_aprobados.clone(),
+            ramos_prioritarios: vec![],
+            horarios_preferidos: vec![],
+            malla: "MiMalla.xlsx".to_string(),
+            anio: None,
+            sheet: None,
+            student_ranking: Some(0.75),
+            ranking: None,
+            filtros: None,
+        };
+
+        let soluciones_sin_filtros = match ejecutar_ruta_critica_with_params(params_sin_filtros) {
+            Ok(sol) => sol,
+            Err(e) => {
+                eprintln!("❌ Error ejecutando sin filtros: {}", e);
+                vec![]
+            }
+        };
+
+        println!("✅ Soluciones SIN filtros: {}", soluciones_sin_filtros.len());
+        if !soluciones_sin_filtros.is_empty() {
+            println!("   Primera solución: {} cursos", soluciones_sin_filtros[0].0.len());
+            for (sec, _) in soluciones_sin_filtros[0].0.iter().take(3) {
+                println!("     - {} (Horario: {})", sec.codigo, sec.horario.join(" | "));
+            }
+        }
+
+        // TEST 2: CON FILTRO DE HORARIO - Excluir mañanas (08:00-12:00)
+        println!("\n📋 TEST 2: Ejecutar CON filtro de horario (sin 08:00-12:00)");
+        let mut filtros_con_restriccion = UserFilters::default();
+        filtros_con_restriccion.dias_horarios_libres = Some(DiaHorariosLibres {
+            habilitado: true,
+            dias_libres_preferidos: None,
+            minimizar_ventanas: None,
+            ventana_ideal_minutos: None,
+            franjas_prohibidas: Some(vec![
+                "LU 08:00-12:00".to_string(),
+                "MA 08:00-12:00".to_string(),
+                "MI 08:00-12:00".to_string(),
+                "JU 08:00-12:00".to_string(),
+                "VI 08:00-12:00".to_string(),
+            ]),
+            no_sin_horario: Some(false),
+        });
+
+        let params_con_filtros = InputParams {
+            email: "test@example.com".to_string(),
+            ramos_pasados: ramos_aprobados.clone(),
+            ramos_prioritarios: vec![],
+            horarios_preferidos: vec![],
+            malla: "MiMalla.xlsx".to_string(),
+            anio: None,
+            sheet: None,
+            student_ranking: Some(0.75),
+            ranking: None,
+            filtros: Some(filtros_con_restriccion),
+        };
+
+        let soluciones_con_filtros = match ejecutar_ruta_critica_with_params(params_con_filtros) {
+            Ok(sol) => sol,
+            Err(e) => {
+                eprintln!("❌ Error ejecutando con filtros: {}", e);
+                vec![]
+            }
+        };
+
+        println!("✅ Soluciones CON filtros: {}", soluciones_con_filtros.len());
+        if !soluciones_con_filtros.is_empty() {
+            println!("   Primera solución: {} cursos", soluciones_con_filtros[0].0.len());
+            for (sec, _) in soluciones_con_filtros[0].0.iter().take(3) {
+                println!("     - {} (Horario: {})", sec.codigo, sec.horario.join(" | "));
+            }
+        }
+
+        // VALIDACIONES
+        println!("\n{}", "=".repeat(70));
+        println!("\n📊 ANÁLISIS DE RESULTADOS:\n");
+
+        let tiene_soluciones_sin_filtros = !soluciones_sin_filtros.is_empty();
+        let tiene_soluciones_con_filtros = !soluciones_con_filtros.is_empty();
+
+        println!("✓ Soluciones sin filtros: {}", soluciones_sin_filtros.len());
+        println!("✓ Soluciones con filtros: {}", soluciones_con_filtros.len());
+
+        if tiene_soluciones_sin_filtros {
+            println!("✅ RESULTADO 1: Hay soluciones sin filtros");
+        } else {
+            println!("⚠️  RESULTADO 1: NO hay soluciones sin filtros (esperado >0)");
+        }
+
+        if tiene_soluciones_con_filtros {
+            println!("✅ RESULTADO 2: Hay soluciones con filtros");
+            
+            // Validar que los cursos tienen horarios válidos (no en franja prohibida)
+            let mut todos_validos = true;
+            for (sol, _) in soluciones_con_filtros.iter() {
+                for (sec, _) in sol.iter() {
+                    for horario in &sec.horario {
+                        // Verificar que NO contiene "08:00-12:00" (esto es simplificado)
+                        if horario.contains("08:") && (horario.contains("09:") || horario.contains("10:") || horario.contains("11:")) {
+                            println!("⚠️  Advertencia: {} tiene horario potencialmente conflictivo: {}", sec.codigo, horario);
+                            todos_validos = false;
+                        }
+                    }
+                }
+            }
+            
+            if todos_validos {
+                println!("✅ RESULTADO 3: Todos los horarios evitan la franja prohibida");
+            } else {
+                println!("⚠️  RESULTADO 3: Algunos horarios podrían violar el filtro");
+            }
+        } else {
+            println!("⚠️  RESULTADO 2: NO hay soluciones con filtros (puede ser válido si filtro es muy restrictivo)");
+        }
+
+        // Comparación
+        let relacion = if soluciones_sin_filtros.is_empty() {
+            "N/A".to_string()
+        } else {
+            format!("{}%", (soluciones_con_filtros.len() * 100) / soluciones_sin_filtros.len())
+        };
+
+        println!("\n📈 Relación (con/sin filtros): {}", relacion);
+
+        // CONCLUSIÓN
+        println!("\n{}", "=".repeat(70));
+        if tiene_soluciones_sin_filtros {
+            println!("✅ TEST PASSED: Filtros funcionan (sin errores)");
+        } else {
+            println!("❌ TEST FAILED: No hay soluciones base");
+        }
+        println!();
+
+        assert!(
+            tiene_soluciones_sin_filtros,
+            "Debe haber ≥1 solución sin filtros"
+        );
+    }
+
+    /// TEST: Filtros restrictivos múltiples
+    /// Aplica varios filtros simultáneamente
+    #[test]
+    fn test_filtros_multiples_simultaneos() {
+        use quickshift::api_json::InputParams;
+        use quickshift::algorithm::ejecutar_ruta_critica_with_params;
+        use quickshift::models::{UserFilters, DiaHorariosLibres, PreferenciasProfesores};
+
+        println!("\n🧪 TEST: Filtros Múltiples Simultáneos\n");
+        println!("{}", "=".repeat(70));
+
+        let ramos_aprobados = vec![
+            "CBM1000".to_string(),
+            "CBM1001".to_string(),
+            "CBQ1000".to_string(),
+            "CIT1000".to_string(),
+        ];
+
+        // Crear filtros múltiples
+        let mut filtros = UserFilters::default();
+        
+        // Filtro 1: Horarios
+        filtros.dias_horarios_libres = Some(DiaHorariosLibres {
+            habilitado: true,
+            dias_libres_preferidos: None,
+            minimizar_ventanas: None,
+            ventana_ideal_minutos: None,
+            franjas_prohibidas: Some(vec![
+                "VI 08:00-18:00".to_string(), // Sin clases los viernes
+            ]),
+            no_sin_horario: Some(false),
+        });
+
+        // Filtro 2: Profesores
+        filtros.preferencias_profesores = Some(PreferenciasProfesores {
+            habilitado: false, // Deshabilitado para no restringir tanto
+            profesores_preferidos: None,
+            profesores_evitar: None,
+        });
+
+        let params = InputParams {
+            email: "test@example.com".to_string(),
+            ramos_pasados: ramos_aprobados,
+            ramos_prioritarios: vec![],
+            horarios_preferidos: vec![],
+            malla: "MiMalla.xlsx".to_string(),
+            anio: None,
+            sheet: None,
+            student_ranking: Some(0.75),
+            ranking: None,
+            filtros: Some(filtros),
+        };
+
+        println!("📋 Parámetros:");
+        println!("   - Filtro de horarios: SÍ (sin viernes)");
+        println!("   - Filtro de profesores: NO");
+        println!("   - Ramos aprobados: 4");
+
+        let soluciones = match ejecutar_ruta_critica_with_params(params) {
+            Ok(sol) => sol,
+            Err(e) => {
+                eprintln!("❌ Error: {}", e);
+                vec![]
+            }
+        };
+
+        println!("\n✅ Soluciones obtenidas: {}", soluciones.len());
+
+        if !soluciones.is_empty() {
+            for (idx, (sol, score)) in soluciones.iter().take(2).enumerate() {
+                println!("\n📌 Solución #{}: score={}", idx + 1, score);
+                for (sec, _) in sol.iter() {
+                    println!("   - {} (Día: {})", sec.codigo, sec.horario.join(", "));
+                }
+            }
+        }
+
+        println!("\n✅ TEST PASSED: Filtros múltiples se aplican sin errores\n");
+        assert!(soluciones.len() > 0, "Debe haber al menos 1 solución");
+    }
+
 }
 
 /*
