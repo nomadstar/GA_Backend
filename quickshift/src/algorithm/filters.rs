@@ -73,7 +73,7 @@ fn filtro_dias_horarios_libres(
     // Si hay franjas prohibidas, verificar que ninguna sección solape
     if let Some(ref franjas_prohibidas) = filtro.franjas_prohibidas {
         for (seccion, _) in solucion {
-            if solapan_horarios(&seccion.horario, franjas_prohibidas) {
+            if solapan_horarios_franja(&seccion.horario, franjas_prohibidas) {
                 eprintln!("   ⊘ Excluyendo solución: sección {} solapan con franjas prohibidas", seccion.codigo);
                 return false;
             }
@@ -142,6 +142,21 @@ fn solapan_horarios(horarios_actuales: &[String], franjas_prohibidas: &[String])
     for horario_actual in horarios_actuales {
         for franja_prohibida in franjas_prohibidas {
             if horarios_se_solapan(horario_actual, franja_prohibida) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Verifica solapamiento entre horarios actuales y franjas prohibidas (nueva estructura)
+fn solapan_horarios_franja(horarios_actuales: &[String], franjas_prohibidas: &[crate::models::FranjaProhibida]) -> bool {
+    for horario_actual in horarios_actuales {
+        for franja in franjas_prohibidas {
+            // Construir una cadena franja compatible con horarios_se_solapan
+            // Formato esperado: "DIA HH:MM-HH:MM"
+            let franja_str = format!("{} {}-{}", franja.dia, franja.inicio, franja.fin);
+            if horarios_se_solapan(horario_actual, &franja_str) {
                 return true;
             }
         }

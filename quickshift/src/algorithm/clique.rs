@@ -172,45 +172,15 @@ fn cumple_ventana_entre(se1: &Seccion, se2: &Seccion, minutos_min: i32) -> bool 
 }
 
 /// Verifica si un horario (ej: "LU MA JU 08:30 - 09:50") solapa con una franja prohibida (ej: "LU 08:00-09:00")
-fn horario_solapa_franja(horario: &str, franja_prohibida: &str) -> bool {
+fn horario_solapa_franja(horario: &str, franja_prohibida: &crate::models::FranjaProhibida) -> bool {
     let horario = horario.trim();
-    let franja = franja_prohibida.trim();
     
-    // Parsear franja: "LU 08:00-09:00" o "LU 08:00 - 09:00"
-    let franja_words: Vec<&str> = franja.split_whitespace().collect();
-    if franja_words.is_empty() {
-        return false;
-    }
+    // Extraer día, inicio, fin de la estructura
+    let dia_prohibido = franja_prohibida.dia.to_lowercase();
+    let franja_inicio_str = &franja_prohibida.inicio;
+    let franja_fin_str = &franja_prohibida.fin;
     
-    // El primer token es el día(s) prohibido
-    let dias_prohibidos = franja_words[0].to_lowercase();
-    
-    // Buscar horario en franja (formato: "HH:MM-HH:MM" o "HH:MM ... HH:MM")
-    let franja_tiempo = franja.replace("- ", "-");
-    let tiempo_pattern: Vec<&str> = franja_tiempo.split_whitespace()
-        .filter(|w| w.contains(':') || w.contains('-'))
-        .collect();
-    
-    if tiempo_pattern.is_empty() {
-        return false;
-    }
-    
-    // Combinar todos los tokens de tiempo
-    let tiempo_combined = tiempo_pattern.join(" ");
-    
-    // Parsear horas: buscar formato "HH:MM-HH:MM"
-    let tiempo_parts: Vec<&str> = if tiempo_combined.contains('-') {
-        tiempo_combined.split('-').collect()
-    } else {
-        return false;
-    };
-    
-    if tiempo_parts.len() != 2 {
-        return false;
-    }
-    
-    let (franja_inicio_str, franja_fin_str) = (tiempo_parts[0].trim(), tiempo_parts[1].trim());
-    
+    // Parsear horas
     let franja_inicio = match parse_hora(franja_inicio_str) {
         Some(m) => m,
         None => {
@@ -235,12 +205,12 @@ fn horario_solapa_franja(horario: &str, franja_prohibida: &str) -> bool {
         .take_while(|w| !w.contains(':') && !w.contains('-'))
         .collect();
     
-    eprintln!("[DEBUG horario_solapa_franja] horario_days={:?}, dias_prohibidos='{}'", horario_days, dias_prohibidos);
+    eprintln!("[DEBUG horario_solapa_franja] horario_days={:?}, dia_prohibido='{}'", horario_days, dia_prohibido);
     
-    let tiene_dia = horario_days.contains(&dias_prohibidos.as_str());
+    let tiene_dia = horario_days.contains(&dia_prohibido.as_str());
     
     if !tiene_dia {
-        eprintln!("[DEBUG horario_solapa_franja] día prohibido '{}' no encontrado en {:?}, retornando false", dias_prohibidos, horario_days);
+        eprintln!("[DEBUG horario_solapa_franja] día prohibido '{}' no encontrado en {:?}, retornando false", dia_prohibido, horario_days);
         return false; // Día no coincide
     }
     
@@ -312,8 +282,8 @@ fn seccion_cumple_filtros(seccion: &Seccion, filtros: &Option<crate::models::Use
                 for horario in &seccion.horario {
                     for franja in franjas_prohibidas {
                         if horario_solapa_franja(horario, franja) {
-                            eprintln!("[DEBUG] FILTRO: Excluyendo {} - horario '{}' solapa con franja '{}'", 
-                                     seccion.codigo, horario, franja);
+                            eprintln!("[DEBUG] FILTRO: Excluyendo {} - horario '{}' solapa con franja ({} {}:{})", 
+                                     seccion.codigo, horario, franja.dia, franja.inicio, franja.fin);
                             return false;
                         }
                     }

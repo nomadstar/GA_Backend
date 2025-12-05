@@ -18,15 +18,24 @@ pub struct UserFilters {
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
+pub struct FranjaProhibida {
+    pub dia: String,      // "LU", "MA", "MI", "JU", "VI"
+    pub inicio: String,   // "08:00"
+    pub fin: String,      // "10:00"
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
 pub struct DiaHorariosLibres {
     #[serde(default)]
     pub habilitado: bool,
     pub dias_libres_preferidos: Option<Vec<String>>, // ["LU", "MA", ..., "VI"]
     pub minimizar_ventanas: Option<bool>,
     pub ventana_ideal_minutos: Option<i32>,
-    /// Franjas explícitas prohibidas, por ejemplo: ["LU 08:30-10:00", "VI 14:00-18:00"].
+    /// Franjas explícitas prohibidas como objetos con dia/inicio/fin
+    /// Por ejemplo: [{"dia": "LU", "inicio": "08:00", "fin": "10:00"}]
     /// Si se especifican, se tratan como bloques prohibidos y se excluirán secciones que solapen.
-    pub franjas_prohibidas: Option<Vec<String>>,
+    pub franjas_prohibidas: Option<Vec<FranjaProhibida>>,
     /// Si true, evitar secciones marcadas como "Sin horario".
     pub no_sin_horario: Option<bool>,
 }
