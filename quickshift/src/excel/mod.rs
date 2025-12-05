@@ -438,20 +438,21 @@ pub fn build_normalized_index(names: &[String]) -> HashMap<String, String> {
 /// use quickshift::models::RamoDisponible;
 /// // Construimos un mapa mínimo de ramos y datos de oferta/porcentajes
 /// let mut ramos: HashMap<String, RamoDisponible> = HashMap::new();
-/// ramos.insert(
-///     "CIT2100".to_string(),
-///     RamoDisponible {
-///         id: 1,
-///         nombre: "Mecánica".to_string(),
-///         codigo: "CIT2100".to_string(),
-///         holgura: 0,
-///         numb_correlativo: 0,
-///         critico: false,
-///         codigo_ref: None,
-///         dificultad: None,
-///         electivo: false,
-///     },
-/// );
+///     ramos.insert(
+///         "CIT2100".to_string(),
+///         RamoDisponible {
+///             id: 1,
+///             nombre: "Mecánica".to_string(),
+///             codigo: "CIT2100".to_string(),
+///             holgura: 0,
+///             numb_correlativo: 0,
+///             critico: false,
+///             requisitos_ids: vec![],
+///             dificultad: None,
+///             electivo: false,
+///             semestre: None,
+///         },
+///     );
 /// let oferta = vec!["Mecánica".to_string()];
 /// let mut porcentajes: HashMap<String, (f64, f64)> = HashMap::new();
 /// porcentajes.insert("CIT2100".to_string(), (85.0, 100.0));

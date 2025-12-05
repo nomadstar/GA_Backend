@@ -20,7 +20,9 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
         }
     };
 
-    let mut secciones = Vec::new();
+    // Recolectaremos filas crudas y luego las agruparemos por (codigo, seccion, codigo_box)
+    struct RawRow { codigo: String, nombre: String, seccion: String, horario: Vec<String>, profesor: String, codigo_box: String }
+    let mut raw_rows: Vec<RawRow> = Vec::new();
 
     // Intentar primero con calamine (más rápido si funciona)
     if let Ok(mut workbook) = open_workbook_auto(&resolved) {
@@ -57,18 +59,35 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
                             .filter(|s| !s.is_empty())
                             .collect() 
                     };
-                    
-                    secciones.push(Seccion { 
-                        codigo: codigo.clone(), 
-                        nombre: nombre.clone(), 
-                        seccion: seccion.clone(), 
-                        horario, 
-                        profesor, 
-                        codigo_box: codigo_box.clone() 
-                    });
+
+                    raw_rows.push(RawRow { codigo: codigo.clone(), nombre: nombre.clone(), seccion: seccion.clone(), horario, profesor, codigo_box: codigo_box.clone() });
                 }
-                if !secciones.is_empty() { 
-                    return Ok(secciones); 
+                // Agrupar y construir secciones si recolectamos filas
+                if !raw_rows.is_empty() {
+                    let mut map: HashMap<(String,String,String), Vec<RawRow>> = HashMap::new();
+                    for r in raw_rows.into_iter() {
+                        let key = (r.codigo.clone(), r.seccion.clone(), r.codigo_box.clone());
+                        map.entry(key).or_insert_with(Vec::new).push(r);
+                    }
+                    let mut result: Vec<Seccion> = Vec::new();
+                    for ((codigo, _secc, codigo_box), rows) in map.into_iter() {
+                        // unir horarios y deduplicar
+                        let mut horarios_acc: Vec<String> = Vec::new();
+                        let mut profesor_pref = String::new();
+                        let mut nombre_pref = String::new();
+                        for r in rows.into_iter() {
+                            if nombre_pref.is_empty() { nombre_pref = r.nombre.clone(); }
+                            if profesor_pref.is_empty() && !r.profesor.trim().is_empty() { profesor_pref = r.profesor.clone(); }
+                            for h in r.horario.into_iter() {
+                                if !horarios_acc.iter().any(|x| x == &h) {
+                                    horarios_acc.push(h);
+                                }
+                            }
+                        }
+                        if horarios_acc.is_empty() { horarios_acc.push("Sin horario".to_string()); }
+                        result.push(Seccion { codigo: codigo.clone(), nombre: nombre_pref.clone(), seccion: _secc.clone(), horario: horarios_acc, profesor: profesor_pref.clone(), codigo_box: codigo_box.clone() });
+                    }
+                    return Ok(result);
                 }
             }
         }
@@ -80,25 +99,26 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
     // Obtener lista de hojas desde el archivo zip
     if let Ok(archive) = zip::ZipArchive::new(std::fs::File::open(&resolved)?) {
         let file_list: Vec<String> = archive.file_names().map(|s| s.to_string()).collect();
-        
+
         for fname in file_list.iter() {
             if !fname.starts_with("xl/worksheets/sheet") { continue; }
-            
+
             if let Ok(rows_vec) = read_sheet_via_zip(&resolved, fname) {
+                let mut raw_rows_zip: Vec<RawRow> = Vec::new();
                 for (row_idx, row) in rows_vec.iter().enumerate() {
                     if row_idx == 0 { continue; }  // skip header
                     if row.iter().all(|c| c.trim().is_empty()) { continue; }
-                    
+
                     // Para OA2024: Columna 2 = Codigo, Columna 3 = Nombre, Columna 4 = Sección
                     let codigo = row.get(1).cloned().unwrap_or_default().trim().to_string();
                     if codigo.is_empty() { continue; }
-                    
+
                     let nombre = row.get(2).cloned().unwrap_or_else(|| "Sin nombre".to_string());
                     let seccion = row.get(3).cloned().unwrap_or_else(|| "1".to_string());
                     let horario_str = row.get(7).cloned().unwrap_or_default();
                     let profesor = row.get(9).cloned().unwrap_or_else(|| "Sin asignar".to_string());
                     let codigo_box = row.get(18).cloned().unwrap_or_else(|| codigo.clone());
-                    
+
                     let horario: Vec<String> = if horario_str.is_empty() { 
                         vec!["Sin horario".to_string()] 
                     } else { 
@@ -107,19 +127,35 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
                             .filter(|s| !s.is_empty())
                             .collect() 
                     };
-                    
-                    secciones.push(Seccion { 
-                        codigo: codigo.clone(), 
-                        nombre: nombre.clone(), 
-                        seccion: seccion.clone(), 
-                        horario, 
-                        profesor, 
-                        codigo_box: codigo_box.clone() 
-                    });
+
+                    raw_rows_zip.push(RawRow { codigo: codigo.clone(), nombre: nombre.clone(), seccion: seccion.clone(), horario, profesor, codigo_box: codigo_box.clone() });
                 }
-                if !secciones.is_empty() { 
-                    eprintln!("DEBUG: leer_oferta_academica_excel cargó {} secciones vía zip", secciones.len());
-                    return Ok(secciones); 
+
+                if !raw_rows_zip.is_empty() {
+                    let mut map: HashMap<(String,String,String), Vec<RawRow>> = HashMap::new();
+                    for r in raw_rows_zip.into_iter() {
+                        let key = (r.codigo.clone(), r.seccion.clone(), r.codigo_box.clone());
+                        map.entry(key).or_insert_with(Vec::new).push(r);
+                    }
+                    let mut result: Vec<Seccion> = Vec::new();
+                    for ((codigo, secc, codigo_box), rows) in map.into_iter() {
+                        let mut horarios_acc: Vec<String> = Vec::new();
+                        let mut profesor_pref = String::new();
+                        let mut nombre_pref = String::new();
+                        for r in rows.into_iter() {
+                            if nombre_pref.is_empty() { nombre_pref = r.nombre.clone(); }
+                            if profesor_pref.is_empty() && !r.profesor.trim().is_empty() { profesor_pref = r.profesor.clone(); }
+                            for h in r.horario.into_iter() {
+                                if !horarios_acc.iter().any(|x| x == &h) {
+                                    horarios_acc.push(h);
+                                }
+                            }
+                        }
+                        if horarios_acc.is_empty() { horarios_acc.push("Sin horario".to_string()); }
+                        result.push(Seccion { codigo: codigo.clone(), nombre: nombre_pref.clone(), seccion: secc.clone(), horario: horarios_acc, profesor: profesor_pref.clone(), codigo_box: codigo_box.clone() });
+                    }
+                    eprintln!("DEBUG: leer_oferta_academica_excel cargó {} secciones vía zip agrupadas", result.len());
+                    return Ok(result);
                 }
             }
         }
