@@ -4,6 +4,25 @@ use crate::excel::io::{data_to_string, read_sheet_via_zip};
 use zip;
 use std::collections::HashMap;
 
+// Extrae el código base de un código de asignatura eliminando sufijos de evento
+// Ej: "CBF1000_LA01" -> "CBF1000"
+fn base_course_code(code: &str) -> String {
+    let s = code.trim();
+    if s.is_empty() { return String::new(); }
+    // Separar por guión bajo '_' (caso más común en códigos de eventos)
+    let first = s.split('_').next().unwrap_or(s).to_string();
+    // Eliminar caracteres finales no alfanuméricos
+    let mut trimmed = first;
+    while let Some(ch) = trimmed.chars().last() {
+        if !ch.is_ascii_alphanumeric() {
+            trimmed.pop();
+        } else {
+            break;
+        }
+    }
+    trimmed
+}
+
 /// Lee la oferta académica y devuelve una lista de `Seccion`.
 pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>, Box<dyn std::error::Error>> {
     // Resolver ruta hacia el directorio protegido `DATAFILES_DIR` si es necesario
@@ -36,6 +55,7 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
                     
                     // Para OA2024: Columna 2 = Codigo, Columna 3 = Nombre, Columna 4 = Sección
                     let codigo = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
+                    let base_codigo = base_course_code(&codigo);
                     if codigo.is_empty() { continue; }
                     
                     let nombre = data_to_string(row.get(2).unwrap_or(&Data::Empty)).trim().to_string();
@@ -66,7 +86,7 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
                 if !raw_rows.is_empty() {
                     let mut map: HashMap<(String,String,String), Vec<RawRow>> = HashMap::new();
                     for r in raw_rows.into_iter() {
-                        let key = (r.codigo.clone(), r.seccion.clone(), r.codigo_box.clone());
+                        let key = (base_course_code(&r.codigo), r.seccion.clone(), r.codigo_box.clone());
                         map.entry(key).or_insert_with(Vec::new).push(r);
                     }
                     let mut result: Vec<Seccion> = Vec::new();
@@ -111,6 +131,7 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
 
                     // Para OA2024: Columna 2 = Codigo, Columna 3 = Nombre, Columna 4 = Sección
                     let codigo = row.get(1).cloned().unwrap_or_default().trim().to_string();
+                    let base_codigo = base_course_code(&codigo);
                     if codigo.is_empty() { continue; }
 
                     let nombre = row.get(2).cloned().unwrap_or_else(|| "Sin nombre".to_string());
@@ -134,7 +155,7 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
                 if !raw_rows_zip.is_empty() {
                     let mut map: HashMap<(String,String,String), Vec<RawRow>> = HashMap::new();
                     for r in raw_rows_zip.into_iter() {
-                        let key = (r.codigo.clone(), r.seccion.clone(), r.codigo_box.clone());
+                        let key = (base_course_code(&r.codigo), r.seccion.clone(), r.codigo_box.clone());
                         map.entry(key).or_insert_with(Vec::new).push(r);
                     }
                     let mut result: Vec<Seccion> = Vec::new();
