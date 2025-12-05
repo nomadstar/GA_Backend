@@ -382,7 +382,7 @@ pub fn get_clique_max_pond_with_prefs(
     let max_sem = max_sem + 2;
     let passed: HashSet<_> = params.ramos_pasados.iter().cloned().collect();
 
-    let filtered: Vec<Seccion> = lista_secciones.iter().filter(|s| {
+    let mut filtered: Vec<Seccion> = lista_secciones.iter().filter(|s| {
         if passed.contains(&s.codigo_box) { return false; }
         
         // Intentar encontrar el ramo por CÓDIGO primero
@@ -413,6 +413,12 @@ pub fn get_clique_max_pond_with_prefs(
         false
     }).cloned().collect();
 
+    // Orden determinista de secciones para evitar no-determinismo por iteración
+    filtered.sort_by(|a, b| {
+        let ca = a.codigo.to_uppercase(); let cb = b.codigo.to_uppercase();
+        let ord = ca.cmp(&cb);
+        if ord != std::cmp::Ordering::Equal { ord } else { a.codigo_box.cmp(&b.codigo_box) }
+    });
     eprintln!("   Filtrado: {} secciones", filtered.len());
     
     // ===============================================================
@@ -624,7 +630,12 @@ pub fn get_clique_max_pond_with_prefs(
             }
             
             // candidate must be connected to ALL nodes already in clique
-            if clique.iter().all(|&u| adj[u][cand]) {
+                if clique.iter().all(|&u| adj[u][cand]) {
+                    // No permitir el mismo curso dos veces dentro de una solución
+                    let cand_code = filtered[cand].codigo.to_uppercase();
+                    if clique.iter().any(|&u| filtered[u].codigo.to_uppercase() == cand_code) {
+                        continue;
+                    }
                 // VALIDAR requisitos previos del candidato: usar SOLO `ramos_pasados` (no co-requisitos)
                 let mut prereq_ok = true;
                 if let Some(cand_ramo) = ramos_disponibles.values().find(|r| r.codigo == filtered[cand].codigo) {
@@ -719,7 +730,10 @@ pub fn get_clique_with_user_prefs(
 ) -> Vec<(Vec<(Seccion, i32)>, i64)> {
     // Usar enumerador exhaustivo limitado para generar combinaciones diversas
     // max_size=6 (carga por semestre), limit aumentado para mayor variedad
-    get_all_clique_combinations_with_pert(lista_secciones, ramos_disponibles, params, 6, 10000)
+    // pero determinista: enumerador usa orden fijo basado en prioridades PERT
+    let max_size = 6usize;
+    let limit = 2000usize; // aumentar para diversidad sin explotar tiempo
+    get_all_clique_combinations_with_pert(lista_secciones, ramos_disponibles, params, max_size, limit)
 }
 
 /// Wrapper para generar más soluciones con un máximo de iteraciones personalizado
@@ -879,6 +893,14 @@ fn enumerate_clique_combinations(
                 if !adj[u][i] { ok = false; break; }
             }
             if !ok { continue; }
+
+            // No permitir el mismo curso dos veces dentro de una solución (determinista)
+            let i_code = filtered[i].codigo.to_uppercase();
+            let mut already = false;
+            for &u in current.iter() {
+                if filtered[u].codigo.to_uppercase() == i_code { already = true; break; }
+            }
+            if already { continue; }
 
             // filters
             if !seccion_cumple_filtros(&filtered[i], &params.filtros) { continue; }
