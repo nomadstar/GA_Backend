@@ -316,10 +316,33 @@ pub fn get_clique_max_pond_with_prefs(
 
     let filtered: Vec<Seccion> = lista_secciones.iter().filter(|s| {
         if passed.contains(&s.codigo_box) { return false; }
-        // aceptar si el ramo existe en la malla (por nombre normalizado) o si no tiene semestre fuera del horizonte
-        let ramo_ok = ramos_disponibles.values().find(|r| r.codigo == s.codigo)
-            .map_or(true, |r| r.semestre.map_or(true, |sem| sem <= max_sem));
-        ramo_ok
+        
+        // Intentar encontrar el ramo por CÓDIGO primero
+        if let Some(r) = ramos_disponibles.values().find(|r| r.codigo == s.codigo) {
+            // Encontrado por código
+            if let Some(sem) = r.semestre {
+                return sem <= max_sem;
+            } else {
+                return true; // Sin semestre especificado, permitir
+            }
+        }
+        
+        // Si no encuentra por código, intentar por NOMBRE normalizado
+        let sec_nombre_norm = normalize_name(&s.nombre);
+        if let Some(r) = ramos_disponibles.values().find(|r| {
+            normalize_name(&r.nombre) == sec_nombre_norm
+        }) {
+            // Encontrado por nombre
+            if let Some(sem) = r.semestre {
+                return sem <= max_sem;
+            } else {
+                return true; // Sin semestre especificado, permitir
+            }
+        }
+        
+        // Si NO encontramos en ramos_disponibles (ni por código ni por nombre),
+        // excluir (es un curso externo no en la malla)
+        false
     }).cloned().collect();
 
     eprintln!("   Filtrado: {} secciones", filtered.len());
@@ -357,8 +380,32 @@ pub fn get_clique_max_pond_with_prefs(
                 return false;
             }
         }
-        // Si no encontramos el ramo en ramos_disponibles, aceptar (puede ser un curso sin info de malla)
-        true
+        
+        // Si no encontramos el ramo en ramos_disponibles por CÓDIGO,
+        // intentar matching por NOMBRE normalizado
+        let sec_nombre_norm = normalize_name(&s.nombre);
+        if let Some(ramo) = ramos_disponibles.values().find(|r| {
+            normalize_name(&r.nombre) == sec_nombre_norm
+        }) {
+            // Encontrado por nombre, verificar requisitos
+            if requisitos_cumplidos(s, ramo, ramos_disponibles, &passed_codes_set) {
+                return true;
+            } else {
+                eprintln!(
+                    "   ⊘ Excluyendo {} (nombre match con id={}) - prerequisitos no cumplidos",
+                    ramo.nombre, ramo.id
+                );
+                return false;
+            }
+        }
+        
+        // Si NO encontramos ni por código ni por nombre, excluir
+        // (significa que es un curso que no está en la malla)
+        eprintln!(
+            "   ⊘ Excluyendo {} - NO ENCONTRADO EN MALLA (puede ser electivo externo)",
+            s.codigo
+        );
+        false
     }).collect::<Vec<_>>();
     
     eprintln!("   ✓ Después de validar prerequisitos: {} secciones", filtered_with_preqs.len());

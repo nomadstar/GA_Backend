@@ -46,7 +46,16 @@ pub fn leer_malla_con_porcentajes_optimizado(
 
     // PASO 1: Leer MALLA (fuente primaria - filtra todo)
     eprintln!("\n📖 PASO 1: Leyendo MALLA desde {}", malla_archivo);
-    let malla_rows = crate::excel::io::read_sheet_via_zip(malla_archivo, "Malla2020")?;
+    
+    // Detectar qué hoja leer: si es MiMalla.xlsx usa "Malla2020", si es Malla2020.xlsx usa "" (hoja activa)
+    let sheet_name = if malla_archivo.contains("MiMalla") || malla_archivo.contains("mimalla") {
+        "Malla2020"
+    } else {
+        "" // Usar la hoja activa (Sheet1)
+    };
+    eprintln!("   Usando hoja: '{}'", if sheet_name.is_empty() { "Sheet1 (activa)" } else { sheet_name });
+    
+    let malla_rows = crate::excel::io::read_sheet_via_zip(malla_archivo, sheet_name)?;
     
     let mut resultado: HashMap<String, RamoDisponible> = HashMap::new();
 
