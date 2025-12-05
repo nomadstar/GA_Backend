@@ -133,9 +133,11 @@ pub fn ejecutar_ruta_critica_with_params(
     }
     
     // 3) Ejecutar búsqueda de cliques con preferencias del usuario
-    // Cambiado para usar el enumerador exhaustivo limitado que genera
-    // múltiples combinaciones diversas (mejor cobertura que el greedy único)
-    let soluciones = crate::algorithm::clique::get_clique_with_user_prefs(
+    // Cambiado para usar la función OPTIMIZADA get_clique_max_pond_with_prefs que:
+    // - Reduce iteraciones a 20-30 (no 80-200)
+    // - Detiene temprano cuando encuentra 10 soluciones ÓPTIMAS
+    // - Filtra para retornar solo soluciones con máximo de cursos
+    let soluciones = crate::algorithm::clique::get_clique_max_pond_with_prefs(
         &lista_secciones_viables,
         &ramos_disponibles,
         &params,
