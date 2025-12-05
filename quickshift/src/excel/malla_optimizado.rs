@@ -396,16 +396,29 @@ pub fn leer_mc_con_porcentajes_optimizado(
     }
 
     eprintln!("✅ MC: {} cursos cargados", resultado.len());
+    eprintln!("[DEBUG] correlativo_to_id entries: {}", correlativo_to_id.len());
 
     // PASO 2: Convertir Num Correlativo a IDs internos en requisitos_ids
     for ramo in resultado.values_mut() {
+        if !ramo.requisitos_ids.is_empty() {
+            eprintln!("[DEBUG] {} (id={}) tiene {} requisitos originales: {:?}", 
+                      ramo.nombre, ramo.id, ramo.requisitos_ids.len(), ramo.requisitos_ids);
+        }
+        
         let mut converted_ids = Vec::new();
         for &prereq_corr in &ramo.requisitos_ids {
             if let Some(&internal_id) = correlativo_to_id.get(&prereq_corr) {
                 converted_ids.push(internal_id);
+            } else {
+                eprintln!("[DEBUG] ⚠️  Correlativo {} NO ENCONTRADO en mapa", prereq_corr);
             }
         }
         ramo.requisitos_ids = converted_ids;
+        
+        if !ramo.requisitos_ids.is_empty() {
+            eprintln!("[DEBUG] {} (id={}) después de conversión: {:?}", 
+                      ramo.nombre, ramo.id, ramo.requisitos_ids);
+        }
     }
 
     eprintln!("✅ Prerequisitos convertidos de Correlativo a ID");

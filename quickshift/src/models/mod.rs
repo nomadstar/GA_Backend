@@ -17,8 +17,9 @@ pub struct UserFilters {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
 pub struct DiaHorariosLibres {
+    #[serde(default)]
     pub habilitado: bool,
     pub dias_libres_preferidos: Option<Vec<String>>, // ["LU", "MA", ..., "VI"]
     pub minimizar_ventanas: Option<bool>,
@@ -31,23 +32,26 @@ pub struct DiaHorariosLibres {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
 pub struct VentanaEntreActividades {
+    #[serde(default)]
     pub habilitado: bool,
     pub minutos_entre_clases: Option<i32>, // default: 15
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
 pub struct PreferenciasProfesores {
+    #[serde(default)]
     pub habilitado: bool,
     pub profesores_preferidos: Option<Vec<String>>,
     pub profesores_evitar: Option<Vec<String>>,
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
 pub struct BalanceLineas {
+    #[serde(default)]
     pub habilitado: bool,
     pub lineas: Option<std::collections::HashMap<String, f64>>, // {"informatica": 0.6, "telecomunicaciones": 0.4}
 }

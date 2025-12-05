@@ -655,7 +655,9 @@ pub fn get_clique_with_user_prefs(
     ramos_disponibles: &HashMap<String, RamoDisponible>,
     params: &InputParams,
 ) -> Vec<(Vec<(Seccion, i32)>, i64)> {
-    get_clique_max_pond_with_prefs(lista_secciones, ramos_disponibles, params)
+    // Usar enumerador exhaustivo limitado para generar combinaciones diversas
+    // max_size=6 (carga por semestre), limit=2000 combinaciones máximas
+    get_all_clique_combinations_with_pert(lista_secciones, ramos_disponibles, params, 6, 2000)
 }
 
 /// Wrapper para generar más soluciones con un máximo de iteraciones personalizado
@@ -694,4 +696,201 @@ pub fn get_clique_dependencies_only(
     ).collect();
     
     if sol.is_empty() { vec![] } else { vec![(sol, 300)] }
+}
+
+/// Backtracking enumerator: genera combinaciones compatibles (cliques) hasta `max_size`.
+/// - `limit` evita explosión combinatoria.
+fn enumerate_clique_combinations(
+    filtered: &Vec<Seccion>,
+    adj: &Vec<Vec<bool>>,
+    ramos_disponibles: &HashMap<String, RamoDisponible>,
+    params: &InputParams,
+    max_size: usize,
+    limit: usize,
+) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    let n = filtered.len();
+    let mut results: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    // Precompute candidate priorities to speed scoring
+    let mut pri_cache: Vec<i64> = Vec::with_capacity(n);
+    for s in filtered.iter() {
+        let candidate = ramos_disponibles.values().find(|r| {
+            if !r.codigo.is_empty() && !s.codigo.is_empty() {
+                if r.codigo.to_lowercase() == s.codigo.to_lowercase() { return true; }
+            }
+            normalize_name(&r.nombre) == normalize_name(&s.nombre)
+        });
+        let p = candidate.map(|r| compute_priority(r, s)).unwrap_or(0);
+        pri_cache.push(p);
+    }
+
+    // (no helper closure here because nested fn cannot capture environment)
+
+    // Recursive backtracking
+    fn dfs(
+        start: usize,
+        filtered: &Vec<Seccion>,
+        adj: &Vec<Vec<bool>>,
+        ramos_disponibles: &HashMap<String, RamoDisponible>,
+        params: &InputParams,
+        max_size: usize,
+        limit: usize,
+        pri_cache: &Vec<i64>,
+        current: &mut Vec<usize>,
+        passed_codes: &mut HashSet<String>,
+        results: &mut Vec<(Vec<(Seccion, i32)>, i64)>,
+        seen: &mut HashSet<String>,
+    ) {
+        if results.len() >= limit { return; }
+
+        // Record current (non-empty) solution
+        if !current.is_empty() {
+            // map to codes set key
+            let mut codes: Vec<String> = current.iter().map(|&i| filtered[i].codigo.to_uppercase()).collect();
+            codes.sort();
+            let key = codes.join("|");
+            if !seen.contains(&key) {
+                // build solution payload and score
+                let mut sol: Vec<(Seccion, i32)> = Vec::new();
+                let mut total: i64 = 0;
+                for &ix in current.iter() {
+                    let s = filtered[ix].clone();
+                    // find ramo
+                    if let Some(r) = ramos_disponibles.values().find(|r| {
+                        if !r.codigo.is_empty() && !s.codigo.is_empty() {
+                            if r.codigo.to_lowercase() == s.codigo.to_lowercase() { return true; }
+                        }
+                        normalize_name(&r.nombre) == normalize_name(&s.nombre)
+                    }) {
+                        let score = compute_priority(r, &s);
+                        sol.push((s.clone(), score as i32));
+                        total += score;
+                    } else {
+                        // fallback: push with zero score
+                        sol.push((s.clone(), 0));
+                    }
+                }
+                results.push((sol, total));
+                seen.insert(key);
+            }
+        }
+
+        if current.len() >= max_size { return; }
+
+        for i in start..filtered.len() {
+            if results.len() >= limit { break; }
+
+            // ensure compatibility with all in current
+            let mut ok = true;
+            for &u in current.iter() {
+                if !adj[u][i] { ok = false; break; }
+            }
+            if !ok { continue; }
+
+            // filters
+            if !seccion_cumple_filtros(&filtered[i], &params.filtros) { continue; }
+
+            // check prereqs given passed_codes + current
+            // build a copy of passed codes and include current's codes
+            let mut local_passed = passed_codes.clone();
+            for &u in current.iter() {
+                local_passed.insert(filtered[u].codigo.to_uppercase());
+            }
+            // Also include params.ramos_pasados
+            for rc in params.ramos_pasados.iter() {
+                local_passed.insert(rc.to_uppercase());
+            }
+
+            // find ramo for i
+            if let Some(ramo_i) = ramos_disponibles.values().find(|r| r.codigo.to_uppercase() == filtered[i].codigo.to_uppercase()) {
+                if !requisitos_cumplidos(&filtered[i], ramo_i, ramos_disponibles, &local_passed) { continue; }
+            } else {
+                // try match by name
+                let sec_nombre_norm = normalize_name(&filtered[i].nombre);
+                if let Some(ramo_i) = ramos_disponibles.values().find(|r| normalize_name(&r.nombre) == sec_nombre_norm) {
+                    if !requisitos_cumplidos(&filtered[i], ramo_i, ramos_disponibles, &local_passed) { continue; }
+                } else {
+                    // not in malla, skip
+                    continue;
+                }
+            }
+
+            // include i
+            current.push(i);
+            // add code to passed_codes
+            passed_codes.insert(filtered[i].codigo.to_uppercase());
+
+            // recurse next (i+1 ensures combinations without reuse)
+            dfs(i+1, filtered, adj, ramos_disponibles, params, max_size, limit, pri_cache, current, passed_codes, results, seen);
+
+            // backtrack
+            current.pop();
+            passed_codes.remove(&filtered[i].codigo.to_uppercase());
+
+            if results.len() >= limit { break; }
+        }
+    }
+
+    let mut current: Vec<usize> = Vec::new();
+    let mut passed_codes: HashSet<String> = params.ramos_pasados.iter().map(|s| s.to_uppercase()).collect();
+    dfs(0, filtered, adj, ramos_disponibles, params, max_size, limit, &pri_cache, &mut current, &mut passed_codes, &mut results, &mut seen);
+
+    results
+}
+
+/// Genera todas (hasta un límite) las combinaciones compatibles y devuelve las mejores ordenadas por score.
+pub fn get_all_clique_combinations_with_pert(
+    lista_secciones: &[Seccion],
+    ramos_disponibles: &HashMap<String, RamoDisponible>,
+    params: &InputParams,
+    max_size: usize,
+    limit: usize,
+) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    // Reuse initial filtering logic from get_clique_max_pond_with_prefs
+    // --- Filtrado inicial (semestre y ramos pasados) ---
+    let mut max_sem = 0;
+    for code in &params.ramos_pasados {
+        if let Some(r) = ramos_disponibles.values().find(|r| r.codigo == *code) {
+            if let Some(s) = r.semestre { max_sem = max_sem.max(s); }
+        }
+    }
+    let max_sem = max_sem + 2;
+
+    let passed: HashSet<_> = params.ramos_pasados.iter().cloned().collect();
+
+    let filtered: Vec<Seccion> = lista_secciones.iter().filter(|s| {
+        if passed.contains(&s.codigo_box) { return false; }
+        if let Some(r) = ramos_disponibles.values().find(|r| r.codigo == s.codigo) {
+            if let Some(sem) = r.semestre { return sem <= max_sem; } else { return true; }
+        }
+        let sec_nombre_norm = normalize_name(&s.nombre);
+        if let Some(r) = ramos_disponibles.values().find(|r| normalize_name(&r.nombre) == sec_nombre_norm) {
+            if let Some(sem) = r.semestre { return sem <= max_sem; } else { return true; }
+        }
+        false
+    }).cloned().collect();
+
+    // build adjacency
+    let n = filtered.len();
+    let mut adj = vec![vec![false; n]; n];
+    for i in 0..n {
+        for j in (i+1)..n {
+            let s1 = &filtered[i];
+            let s2 = &filtered[j];
+            let code_a = &s1.codigo[..std::cmp::min(7, s1.codigo.len())];
+            let code_b = &s2.codigo[..std::cmp::min(7, s2.codigo.len())];
+            if s1.codigo_box != s2.codigo_box && code_a != code_b && !sections_conflict(s1, s2) {
+                adj[i][j] = true; adj[j][i] = true;
+            }
+        }
+    }
+
+    // Run enumerator
+    let mut combos = enumerate_clique_combinations(&filtered, &adj, ramos_disponibles, params, max_size, limit);
+
+    // sort by score desc and truncate
+    combos.sort_by(|a, b| b.1.cmp(&a.1));
+    combos.truncate(80);
+    combos
 }
