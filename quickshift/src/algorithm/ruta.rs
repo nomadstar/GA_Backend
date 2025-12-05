@@ -52,7 +52,14 @@ pub fn ejecutar_ruta_critica_with_params(
     // 1b) Leer malla + porcentajes -> HashMap<String, RamoDisponible>
     eprintln!("   📥 Leyendo malla y porcentajes...");
     let mut ramos_disponibles: HashMap<String, RamoDisponible> = 
-        crate::excel::malla_optimizado::leer_malla_con_porcentajes_optimizado(&malla_str, &porcentajes_str)?;
+        if malla_str.to_uppercase().contains("MC") {
+            // Usar parser especial para MC (Malla Curricular)
+            eprintln!("   🔍 Detectado MC - usando parser especial");
+            crate::excel::leer_mc_con_porcentajes_optimizado(&malla_str, &porcentajes_str)?
+        } else {
+            // Usar parser estándar para Malla2020 / MiMalla
+            crate::excel::malla_optimizado::leer_malla_con_porcentajes_optimizado(&malla_str, &porcentajes_str)?
+        };
     eprintln!("   ✓ ramos cargados: {}", ramos_disponibles.len());
     
     // =========================================================================

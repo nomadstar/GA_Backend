@@ -42,6 +42,7 @@ pub use malla::leer_prerequisitos;
 pub use malla::leer_malla_con_porcentajes;
 pub use malla::normalize_codigo_nombre;
 pub use malla_optimizado::leer_malla_con_porcentajes_optimizado;
+pub use malla_optimizado::leer_mc_con_porcentajes_optimizado;
 pub use porcentajes::leer_porcentajes_aprobados;
 pub use porcentajes::leer_porcentajes_aprobados_con_nombres;
 pub use porcentajes::enrich_porcent_names_from_malla;

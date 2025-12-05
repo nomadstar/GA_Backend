@@ -262,3 +262,219 @@ pub fn leer_malla_con_porcentajes_optimizado(
     Ok(resultado)
 }
 
+/// NUEVA: Versión para MC (Malla Curricular) que usa Num Correlativo
+/// 
+/// MC tiene estructura diferente:
+/// - Num Correlativo, Código, Nombre Asignatura, Prerreq (número correlativo), Abre, Semestre
+/// - Prerreq es un número que refiere a otro Num Correlativo
+/// 
+/// Convertimos esto a la estructura estándar RamoDisponible
+pub fn leer_mc_con_porcentajes_optimizado(
+    malla_archivo: &str,
+    porcentajes_archivo: &str,
+) -> Result<HashMap<String, RamoDisponible>, Box<dyn Error>> {
+    eprintln!("🔍 [MC OPTIMIZED] Starting - malla_archivo={}", malla_archivo);
+    
+    fn normalize(s: &str) -> String {
+        let mut out = String::new();
+        for ch in s.chars() {
+            let c = match ch {
+                'Á' | 'À' | 'Ä' | 'Â' | 'Ã' | 'á' | 'à' | 'ä' | 'â' | 'ã' => 'a',
+                'É' | 'È' | 'Ë' | 'Ê' | 'é' | 'è' | 'ë' | 'ê' => 'e',
+                'Í' | 'Ì' | 'Ï' | 'Î' | 'í' | 'ì' | 'ï' | 'î' => 'i',
+                'Ó' | 'Ò' | 'Ö' | 'Ô' | 'Õ' | 'ó' | 'ò' | 'ö' | 'ô' | 'õ' => 'o',
+                'Ú' | 'Ù' | 'Ü' | 'Û' | 'ú' | 'ù' | 'ü' | 'û' => 'u',
+                'Ñ' | 'ñ' => 'n',
+                'Ç' | 'ç' => 'c',
+                other => other,
+            };
+            if c.is_alphanumeric() {
+                out.push(c.to_ascii_lowercase());
+            } else if c.is_whitespace() {
+                out.push(' ');
+            }
+        }
+        out.trim().to_string()
+    }
+
+    eprintln!("\n🚀 MC PARSER: Leyendo Malla Curricular");
+    eprintln!("=====================================");
+
+    // PASO 1: Leer MC
+    eprintln!("\n📖 PASO 1: Leyendo MC desde {}", malla_archivo);
+    
+    let sheet_name = "MallaCurricular2020"; // MC siempre usa esta hoja
+    eprintln!("   Usando hoja: '{}'", sheet_name);
+    
+    let malla_rows = crate::excel::io::read_sheet_via_zip(malla_archivo, sheet_name)?;
+    
+    let mut resultado: HashMap<String, RamoDisponible> = HashMap::new();
+    let mut correlativo_to_id: HashMap<i32, i32> = HashMap::new(); // Mapea Num Correlativo -> ID interno
+    
+    // Detectar columnas
+    let mut correlativo_col = 0usize;
+    let mut codigo_col = 1usize;
+    let mut nombre_col = 2usize;
+    let mut prerreq_col = 3usize;
+    let mut semestre_col = 5usize;
+    
+    // Escanear encabezado
+    if !malla_rows.is_empty() {
+        let header = &malla_rows[0];
+        for (i, cell) in header.iter().enumerate() {
+            let lower = cell.to_lowercase();
+            if lower.contains("correlativo") {
+                correlativo_col = i;
+            } else if lower.contains("código") {
+                codigo_col = i;
+            } else if lower.contains("nombre") {
+                nombre_col = i;
+            } else if lower.contains("prerreq") {
+                prerreq_col = i;
+            } else if lower.contains("semestre") {
+                semestre_col = i;
+            }
+        }
+    }
+
+    eprintln!("   Columnas detectadas: correlativo={}, codigo={}, nombre={}, prerreq={}, semestre={}", 
+              correlativo_col, codigo_col, nombre_col, prerreq_col, semestre_col);
+
+    let mut internal_id = 1i32;
+
+    // Leer filas de MC
+    for (idx, row) in malla_rows.iter().enumerate() {
+        if idx == 0 { continue; } // Skip header
+        if row.is_empty() { continue; }
+
+        let correlativo_str = row.get(correlativo_col).cloned().unwrap_or_default();
+        let correlativo = correlativo_str.parse::<i32>().unwrap_or(0);
+        
+        let codigo = row.get(codigo_col).cloned().unwrap_or_default();
+        let nombre = row.get(nombre_col).cloned().unwrap_or_default();
+        let prerreq_str = row.get(prerreq_col).cloned().unwrap_or_default();
+        let semestre_str = row.get(semestre_col).cloned().unwrap_or_default();
+        
+        if correlativo == 0 || nombre.is_empty() {
+            continue;
+        }
+
+        let semestre_opt = semestre_str.parse::<i32>().ok();
+
+        // Guardar mapeo correlativo -> internal_id
+        correlativo_to_id.insert(correlativo, internal_id);
+
+        // Parsear prerequisitos (puede ser un número correlativo, múltiples separados por comas, o vacío)
+        let mut requisitos_ids: Vec<i32> = Vec::new();
+        
+        // Si hay múltiples números separados por comas
+        if !prerreq_str.is_empty() && prerreq_str != "0" {
+            for part in prerreq_str.split(',') {
+                if let Ok(prereq_num) = part.trim().parse::<i32>() {
+                    if prereq_num > 0 {
+                        requisitos_ids.push(prereq_num);
+                    }
+                }
+            }
+        }
+
+        let norm_name = normalize(&nombre);
+        resultado.insert(norm_name.clone(), RamoDisponible {
+            id: internal_id,
+            nombre,
+            codigo: codigo.clone(),
+            holgura: 0,
+            numb_correlativo: correlativo,
+            critico: false,
+            requisitos_ids,  // Aún contiene correlativo, será convertido después
+            dificultad: None,
+            electivo: false,
+            semestre: semestre_opt,
+        });
+
+        internal_id += 1;
+    }
+
+    eprintln!("✅ MC: {} cursos cargados", resultado.len());
+
+    // PASO 2: Convertir Num Correlativo a IDs internos en requisitos_ids
+    for ramo in resultado.values_mut() {
+        let mut converted_ids = Vec::new();
+        for &prereq_corr in &ramo.requisitos_ids {
+            if let Some(&internal_id) = correlativo_to_id.get(&prereq_corr) {
+                converted_ids.push(internal_id);
+            }
+        }
+        ramo.requisitos_ids = converted_ids;
+    }
+
+    eprintln!("✅ Prerequisitos convertidos de Correlativo a ID");
+
+    // PASO 3: Leer OA2024
+    eprintln!("\n📖 PASO 2: Leyendo OA desde OA2024.xlsx");
+    
+    let base_path = std::path::Path::new(malla_archivo)
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new(""));
+    let oa_path = base_path.join("OA2024.xlsx").to_string_lossy().to_string();
+    
+    let oa_rows = crate::excel::io::read_sheet_via_zip(&oa_path, "")?;
+    
+    let mut oa_matched = 0;
+    for (idx, row) in oa_rows.iter().enumerate() {
+        if idx == 0 { continue; }
+        if row.len() < 3 { continue; }
+        
+        let codigo_oa = row.get(1).cloned().unwrap_or_default();
+        let nombre_oa = row.get(2).cloned().unwrap_or_default();
+        let norm_oa = normalize(&nombre_oa);
+        
+        if let Some(ramo) = resultado.get_mut(&norm_oa) {
+            if ramo.codigo.is_empty() && !codigo_oa.is_empty() {
+                ramo.codigo = codigo_oa;
+                oa_matched += 1;
+            }
+        }
+    }
+    eprintln!("✅ OA: {} secciones matcheadas", oa_matched);
+
+    // PASO 4: Leer PA
+    eprintln!("\n📖 PASO 3: Leyendo PA desde {}", porcentajes_archivo);
+    let pa_rows = crate::excel::io::read_sheet_via_zip(porcentajes_archivo, "")?;
+    
+    let mut pa_matched = 0;
+    let mut pa_index: HashMap<String, f64> = HashMap::new();
+    
+    for (idx, row) in pa_rows.iter().enumerate() {
+        if idx == 0 { continue; }
+        if row.len() < 9 { continue; }
+        
+        let nombre_asignatura = row.get(4).cloned().unwrap_or_default();
+        let pct_str = row.get(8).cloned().unwrap_or_else(|| "0".to_string());
+        
+        let pct_str_clean = pct_str.replace(",", ".");
+        let pct = pct_str_clean.parse::<f64>().unwrap_or(0.0);
+        
+        if !nombre_asignatura.is_empty() && pct > 0.0 {
+            let norm_nombre = normalize(&nombre_asignatura);
+            pa_index.insert(norm_nombre, pct);
+        }
+    }
+
+    for ramo in resultado.values_mut() {
+        let norm_ramo_nombre = normalize(&ramo.nombre);
+        if let Some(pct) = pa_index.get(&norm_ramo_nombre) {
+            ramo.dificultad = Some(*pct);
+            pa_matched += 1;
+        }
+    }
+    eprintln!("✅ PA: {} porcentajes matcheados", pa_matched);
+
+    eprintln!("\n✅ MC PARSER COMPLETADO:");
+    eprintln!("  - Ramos de MC: {}", resultado.len());
+    eprintln!("  - Con OA actualizado: {}", oa_matched);
+    eprintln!("  - Con PA (porcentaje): {}", pa_matched);
+
+    Ok(resultado)
+}
+
