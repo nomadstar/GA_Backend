@@ -676,29 +676,25 @@ pub fn get_clique_max_pond_with_prefs(
         }
         
         if !sol.is_empty() {
-            // Verificar que no es solución duplicada
-            let sol_codes: Vec<String> = sol.iter().map(|(s, _)| s.codigo.to_uppercase()).collect();
+            // Verificar que no es solución duplicada (comparar por `codigo_box` de las secciones
+            // para permitir variaciones de sección dentro del mismo ramo)
+            let sol_section_keys: Vec<String> = sol.iter().map(|(s, _)| s.codigo_box.clone()).collect();
+            let mut sol_section_keys_sorted = sol_section_keys.clone();
+            sol_section_keys_sorted.sort();
             let is_duplicate = all_solutions.iter().any(|(prev_sol, _)| {
-                let prev_codes: Vec<String> = prev_sol.iter().map(|(s, _)| s.codigo.to_uppercase()).collect();
-                sol_codes == prev_codes
+                let mut prev_keys: Vec<String> = prev_sol.iter().map(|(s, _)| s.codigo_box.clone()).collect();
+                prev_keys.sort();
+                prev_keys == sol_section_keys_sorted
             });
-            
+
             if !is_duplicate {
                 all_solutions.push((sol, total));
                 consecutive_empty_resets = 0;  // Reset el contador
                 
-                // IMPORTANTE: Remover TODO el clique Y sus secciones adicionales
-                // Extrae los códigos de los cursos que están en la clique actual
-                let mut courses_in_clique = std::collections::HashSet::new();
-                for &idx in clique.iter() {
-                    let codigo = &filtered[idx].codigo;
-                    courses_in_clique.insert(codigo.clone());
+                // IMPORTANTE: Remover solo los índices de las secciones ya usadas en esta solución
+                for &used_idx in clique.iter() {
+                    remaining_indices.remove(&used_idx);
                 }
-                
-                // Remover TODAS las secciones de estos cursos
-                remaining_indices.retain(|&idx| {
-                    !courses_in_clique.contains(&filtered[idx].codigo)
-                });
             } else {
                 remaining_indices.remove(&seed_idx);
             }
@@ -823,9 +819,11 @@ fn enumerate_clique_combinations(
 
         // Record current (non-empty) solution
         if !current.is_empty() {
-            let mut codes: Vec<String> = current.iter().map(|&i| filtered[i].codigo.to_uppercase()).collect();
-            codes.sort();
-            let key = codes.join("|");
+            // Use `codigo_box` (identificador de sección) so different sections of same course
+            // are considered distinct solutions by the enumerator
+            let mut keys: Vec<String> = current.iter().map(|&i| filtered[i].codigo_box.clone()).collect();
+            keys.sort();
+            let key = keys.join("|");
             if !seen.contains(&key) {
                 let mut sol: Vec<(Seccion, i32)> = Vec::new();
                 let mut total: i64 = 0;
