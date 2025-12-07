@@ -92,6 +92,11 @@ pub struct InputParams {
 	/// Si está deshabilitado, se ignora completamente.
 	#[serde(default)]
 	pub filtros: Option<UserFilters>,
+
+	/// Optimizaciones de horario: ['no-fridays', 'morning-classes', 'afternoon-classes', 'compact-days', 'spread-days', 'minimize-gaps']
+	/// Se aplican como modificadores de puntuación al generar soluciones.
+	#[serde(default)]
+	pub optimizations: Vec<String>,
 }
 
 pub fn parse_json_input(json_str: &str) -> Result<InputParams, serde_json::Error> {

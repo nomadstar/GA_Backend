@@ -135,13 +135,14 @@ pub async fn solve_get_handler(query: web::Query<std::collections::HashMap<Strin
         ramos_pasados,
         ramos_prioritarios,
         horarios_preferidos,
-            horarios_prohibidos: Vec::new(),
+        horarios_prohibidos: Vec::new(),
         malla,
         sheet: None,
         ranking: None,
         student_ranking: None,
-            anio: None,
+        anio: None,
         filtros: None,
+        optimizations: Vec::new(),
     };
 
     let json_str = match serde_json::to_string(&input) {

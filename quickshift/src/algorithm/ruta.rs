@@ -317,6 +317,7 @@ pub fn run_ruta_critica_solutions() -> Result<Vec<(Vec<(Seccion, i32)>, i64)>, B
         student_ranking: None,
         ranking: None,
         filtros: None,
+        optimizations: Vec::new(),
     };
     ejecutar_ruta_critica_with_params(params)
 }

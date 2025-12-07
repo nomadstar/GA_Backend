@@ -65,14 +65,16 @@ pub async fn rutacritica_run_handler(body: web::Json<serde_json::Value>) -> impl
         Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("invalid JSON body: {}", e)})),
     };
 
-    eprintln!("[rutacritica_run_handler] raw JSON received: {}", json_str);
-
     let params = match crate::api_json::parse_and_resolve_ramos(&json_str, Some(".")) {
         Ok(p) => p,
         Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to parse input: {}", e)})),
     };
 
-    eprintln!("[rutacritica_run_handler] params.horarios_prohibidos = {:?}", params.horarios_prohibidos);
+    // DEBUG: incluir optimizations en response para verificar que se parsea
+    let debug_info = json!({
+        "optimizations_received": params.optimizations.clone(),
+        "horarios_prohibidos_count": params.horarios_prohibidos.len(),
+    });
 
     match crate::algorithm::ejecutar_ruta_critica_with_params(params) {
         Ok(soluciones) => {
@@ -84,7 +86,7 @@ pub async fn rutacritica_run_handler(body: web::Json<serde_json::Value>) -> impl
                 }
                 out.push(json!({"total_score": total_score, "secciones": secciones_json}));
             }
-            HttpResponse::Ok().json(json!({"status": "ok", "soluciones": out}))
+            HttpResponse::Ok().json(json!({"status": "ok", "debug": debug_info, "soluciones": out}))
         }
         Err(e) => HttpResponse::InternalServerError().json(json!({"status": "error", "error": format!("{}", e)})),
     }

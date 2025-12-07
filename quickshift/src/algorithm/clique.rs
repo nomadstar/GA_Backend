@@ -5,6 +5,130 @@ use crate::models::{Seccion, RamoDisponible};
 use crate::excel::normalize_name;
 use crate::api_json::InputParams;
 
+/// Extrae hora en minutos desde inicio del día de un string "HH:MM"
+fn parse_time_to_minutes(time_str: &str) -> Option<i32> {
+    let parts: Vec<&str> = time_str.split(':').collect();
+    if parts.len() != 2 { return None; }
+    let hours = parts[0].trim().parse::<i32>().ok()?;
+    let minutes = parts[1].trim().parse::<i32>().ok()?;
+    Some(hours * 60 + minutes)
+}
+
+/// Extrae el rango de horas de un string como "08:30 - 10:00" o "08:30-10:00"
+fn parse_horario_range(horario: &str) -> Option<(i32, i32)> {
+    // Normalizar guiones (reemplazar múltiples tipos de dash por "-")
+    let normalized = horario
+        .replace("–", "-") // en-dash
+        .replace("—", "-") // em-dash
+        .replace("−", "-") // minus sign
+        .replace("‐", "-") // hyphen
+        .replace(" - ", "-"); // space-dash-space
+    
+    let parts: Vec<&str> = normalized.split('-').collect();
+    if parts.len() < 2 { return None; }
+    
+    let start = parse_time_to_minutes(parts[0])?;
+    let end = parse_time_to_minutes(parts[1])?;
+    
+    Some((start, end))
+}
+
+/// Extrae day symbols (LU, MA, MI, JU, VI) de un horario como "LU MA MI 08:30 - 10:00"
+fn extract_days_from_horario(horario: &str) -> Vec<String> {
+    let parts: Vec<&str> = horario.split_whitespace().collect();
+    let mut days = Vec::new();
+    
+    for part in parts {
+        let upper = part.to_uppercase();
+        if matches!(upper.as_str(), "LU" | "MA" | "MI" | "JU" | "VI") {
+            days.push(upper);
+        }
+    }
+    
+    days
+}
+
+/// Calcula el "compactness score" de una solución (0-100).
+/// 
+/// Una solución es más compacta si:
+/// - Las clases se concentran en menos días
+/// - Dentro de cada día, la duración (último horario - primer horario) es ≤ 5 horas
+///
+/// compactness_score = (compact_days / total_days_with_class) * 100
+fn calculate_compactness_score(solution: &[(Seccion, i32)]) -> f64 {
+    if solution.is_empty() { return 0.0; }
+    
+    // Mapear día a (start_min, end_min)
+    let mut day_ranges: HashMap<String, (i32, i32)> = HashMap::new();
+    
+    for (seccion, _) in solution {
+        for horario in &seccion.horario {
+            let days = extract_days_from_horario(horario);
+            if let Some((start, end)) = parse_horario_range(horario) {
+                for day in days {
+                    let entry = day_ranges.entry(day).or_insert((i32::MAX, 0));
+                    entry.0 = entry.0.min(start);
+                    entry.1 = entry.1.max(end);
+                }
+            }
+        }
+    }
+    
+    if day_ranges.is_empty() { return 0.0; }
+    
+    // Contar días compactos (duración ≤ 5 horas = 300 minutos)
+    let compact_days = day_ranges.values()
+        .filter(|(start, end)| end - start <= 300)
+        .count() as f64;
+    
+    let total_days = day_ranges.len() as f64;
+    (compact_days / total_days) * 100.0
+}
+
+/// Calcula total de gap/ventana entre clases en minutos para una solución.
+/// 
+/// Para cada día:
+/// - Ordena horarios por hora inicio
+/// - Suma los gaps entre horarios consecutivos
+fn calculate_total_gaps(solution: &[(Seccion, i32)]) -> i32 {
+    if solution.is_empty() { return 0; }
+    
+    // Mapear día a lista de (start, end) minutos
+    let mut day_slots: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+    
+    for (seccion, _) in solution {
+        for horario in &seccion.horario {
+            let days = extract_days_from_horario(horario);
+            if let Some((start, end)) = parse_horario_range(horario) {
+                for day in days {
+                    day_slots.entry(day)
+                        .or_insert_with(Vec::new)
+                        .push((start, end));
+                }
+            }
+        }
+    }
+    
+    let mut total_gaps = 0;
+    
+    for slots in day_slots.values_mut() {
+        if slots.len() <= 1 { continue; }
+        
+        // Ordenar por start time
+        slots.sort_by_key(|k| k.0);
+        
+        // Calcular gaps entre consecutivos
+        for i in 0..slots.len()-1 {
+            let gap = slots[i+1].0 - slots[i].1;
+            if gap > 0 {
+                total_gaps += gap;
+            }
+        }
+    }
+    
+    total_gaps
+}
+
 // Extrae la clave base de un curso (quita sufijos tipo 'laboratorio', 'taller', 'práctica')
 fn base_course_key(nombre: &str) -> String {
     let mut s = nombre.to_lowercase();
@@ -47,6 +171,49 @@ fn compute_priority(ramo: &RamoDisponible, sec: &Seccion) -> i64 {
 
 fn sections_conflict(s1: &Seccion, s2: &Seccion) -> bool {
     s1.horario.iter().any(|h1| s2.horario.iter().any(|h2| h1 == h2))
+}
+
+/// Aplica modificadores de puntuación basados en optimizaciones seleccionadas
+fn apply_optimization_modifiers(base_score: i64, solution: &[(Seccion, i32)], params: &InputParams) -> i64 {
+    let mut score = base_score;
+    
+    // DEBUG: siempre registrar que la función fue llamada
+    let compactness = calculate_compactness_score(solution);
+    let total_gaps = calculate_total_gaps(solution) as i64;
+    
+    eprintln!("[OPT-DEBUG] CALLED! opts={:?}, compactness={:.2}%, gaps={}", params.optimizations, compactness, total_gaps);
+    
+    if params.optimizations.is_empty() {
+        eprintln!("[OPT-DEBUG] No optimizations, returning base_score");
+        return score;
+    }
+    
+    for opt in &params.optimizations {
+        eprintln!("[OPT-DEBUG] Processing optimization: {}", opt);
+        match opt.as_str() {
+            "compact-days" => {
+                let modifier = (compactness as i64) * 10000;
+                eprintln!("[OPT] compact-days: +{}", modifier);
+                score += modifier;
+            }
+            "spread-days" => {
+                let modifier = (compactness as i64) * 10000;
+                eprintln!("[OPT] spread-days: -{}", modifier);
+                score -= modifier;
+            }
+            "minimize-gaps" => {
+                let modifier = total_gaps * 100;
+                eprintln!("[OPT] minimize-gaps: -{}", modifier);
+                score -= modifier;
+            }
+            _ => {
+                eprintln!("[OPT-DEBUG] Unknown optimization: {}", opt);
+            }
+        }
+    }
+    
+    eprintln!("[OPT-DEBUG] final_score={}", score);
+    score
 }
 
 /// Verifica si los requisitos previos de una sección están cumplidos
@@ -885,7 +1052,9 @@ fn enumerate_clique_combinations(
                         sol.push((s.clone(), 0));
                     }
                 }
-                results.push((sol, total));
+                // Aplicar modificadores de optimización
+                let optimized_total = apply_optimization_modifiers(total, &sol, params);
+                results.push((sol, optimized_total));
                 seen.insert(key);
             }
         }
@@ -974,6 +1143,9 @@ fn enumerate_clique_combinations(
 
     let mut current: Vec<usize> = Vec::new();
     let mut passed_codes: HashSet<String> = params.ramos_pasados.iter().map(|s| s.to_uppercase()).collect();
+    
+    eprintln!("🚀 [clique] Llamando a dfs con params.optimizations={:?}", params.optimizations);
+    
     dfs(0, &order, filtered, adj, ramos_disponibles, params, max_size, limit, &pri_cache, &prefix, &mut current, 0, &mut passed_codes, &mut results, &mut seen);
 
     results
