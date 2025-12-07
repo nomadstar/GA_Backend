@@ -526,9 +526,16 @@ pub fn get_clique_max_pond_with_prefs(
     }
     
     let should_allow_reuse = n < 6;  // Si hay menos de 6 secciones viables, permitir reutilización
-    // OPTIMIZACIÓN: Reducir max_iterations agresivamente. Solo 20-30 iteraciones para encontrar soluciones ÓPTIMAS
-    let max_iterations = if should_allow_reuse { 30 } else { 20 };  // MUCHO MÁS BAJO (was 200/80)
-    
+    // OPTIMIZACIÓN: aumentar iteraciones de búsqueda en modo optimizado pero con límites
+    // - Si hay muy pocas secciones viables permitimos más reutilización/iteraciones
+    // - El valor dinámico evita que en casos moderados la búsqueda quede demasiado limitada
+    let max_iterations = if should_allow_reuse {
+        200usize
+    } else {
+        let computed = std::cmp::max(100usize, n.saturating_mul(10));
+        std::cmp::min(computed, 2000usize)
+    };
+
     eprintln!("   [DEBUG] n={}, should_allow_reuse={}, max_iterations={} (OPTIMIZED)", n, should_allow_reuse, max_iterations);
     
     let mut remaining_indices: HashSet<usize> = (0..n).collect();
@@ -694,6 +701,33 @@ pub fn get_clique_max_pond_with_prefs(
             // Si no hay solución válida, remover el seed
             remaining_indices.remove(&seed_idx);
         }
+    }
+
+    // Si la búsqueda greedy no produjo suficientes soluciones, usar el enumerador
+    // exhaustivo como fallback para aumentar diversidad (hasta 10 soluciones).
+    if all_solutions.len() < 10 {
+        eprintln!("   [FALLBACK] Solo {} soluciones desde greedy; ejecutando enumerador exhaustivo para aumentar diversidad...", all_solutions.len());
+        // Generar combinaciones adicionales (limit razonable para tiempo)
+        let mut extras = get_all_clique_combinations_with_pert(&filtered, ramos_disponibles, params, 6usize, 2000usize);
+        // Mezclar sin duplicados (comparando por codigo_box ordenado)
+        for (sol, total) in extras.drain(..) {
+            let mut keys: Vec<String> = sol.iter().map(|(s, _)| s.codigo_box.clone()).collect();
+            keys.sort();
+            let key = keys.join("|");
+            let mut is_dup = false;
+            for (prev, _) in all_solutions.iter() {
+                let mut prev_keys: Vec<String> = prev.iter().map(|(s, _)| s.codigo_box.clone()).collect();
+                prev_keys.sort();
+                if prev_keys.join("|") == key {
+                    is_dup = true; break;
+                }
+            }
+            if !is_dup {
+                all_solutions.push((sol, total));
+            }
+            if all_solutions.len() >= 10 { break; }
+        }
+        eprintln!("   [FALLBACK] now have {} solutions after merging extras", all_solutions.len());
     }
 
     // ordenar por score y aplicar estrategia de OPTIMIZACIÓN

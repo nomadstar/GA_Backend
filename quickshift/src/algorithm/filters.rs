@@ -143,29 +143,77 @@ fn parse_hora_minutos(s: &str) -> Option<i32> {
 }
 
 /// Extrae rango "HH:MM - HH:MM" (soporta espacios alrededor del guion)
+/// Maneja múltiples variantes de guiones Unicode: - – — ―
 fn parse_rango(s: &str) -> Option<(i32,i32)> {
-    let s = s.replace('–', "-");
-    let parts: Vec<&str> = s.split('-').map(|t| t.trim()).collect();
-    if parts.len() != 2 { return None; }
+    // Normalizar todos los tipos de guiones Unicode a ASCII '-'
+    let normalized = s
+        .replace('–', "-")  // en-dash
+        .replace('—', "-")  // em-dash
+        .replace('―', "-")  // horizontal bar
+        .replace('‐', "-")  // hyphen
+        .replace('−', "-"); // minus sign
+    
+    let parts: Vec<&str> = normalized.split('-').map(|t| t.trim()).collect();
+    
+    if parts.len() != 2 {
+        eprintln!("[parse_rango DEBUG] Esperaba 2 partes, obtuve: {} - input: '{}'", parts.len(), s);
+        return None;
+    }
+    
     let a = parse_hora_minutos(parts[0])?;
     let b = parse_hora_minutos(parts[1])?;
+    
+    eprintln!("[parse_rango SUCCESS] '{}' -> ({}, {})", s, a, b);
     Some((a,b))
 }
 
 /// Expande una entrada de horario como "LU JU 14:30 - 15:50" a vectores (dia, inicio, fin)
 pub fn expand_horario_entry(entry: &str) -> Vec<(String, i32, i32)> {
-    // tokens, buscar primer token que contenga ':' (inicio de la hora)
-    let tokens: Vec<&str> = entry.split_whitespace().collect();
-    let time_idx = tokens.iter().position(|t| t.contains(':'));
-    if time_idx.is_none() {
+    eprintln!("[expand_horario_entry START] input: '{}'", entry);
+    
+    if entry.trim().is_empty() {
+        eprintln!("[expand_horario_entry] Entrada vacía");
         return vec![];
     }
+    
+    // Tokens divididos por espacios en blanco
+    let tokens: Vec<&str> = entry.split_whitespace().collect();
+    eprintln!("[expand_horario_entry] tokens: {:?}", tokens);
+    
+    if tokens.is_empty() {
+        eprintln!("[expand_horario_entry] Sin tokens después de split");
+        return vec![];
+    }
+    
+    // Buscar el primer token que contenga ':'
+    let time_idx = tokens.iter().position(|t| t.contains(':'));
+    
+    if time_idx.is_none() {
+        eprintln!("[expand_horario_entry] No se encontró ':' en los tokens");
+        return vec![];
+    }
+    
     let ti = time_idx.unwrap();
+    eprintln!("[expand_horario_entry] time_idx: {}", ti);
+    
     let day_tokens = &tokens[..ti];
     let time_part = tokens[ti..].join(" ");
-    if let Some((s,e)) = parse_rango(&time_part) {
-        day_tokens.iter().map(|d| (d.to_uppercase(), s, e)).collect()
+    
+    eprintln!("[expand_horario_entry] day_tokens: {:?}, time_part: '{}'", day_tokens, time_part);
+    
+    if let Some((s, e)) = parse_rango(&time_part) {
+        let result: Vec<(String, i32, i32)> = day_tokens
+            .iter()
+            .map(|d| {
+                let d_upper = d.to_uppercase();
+                eprintln!("[expand_horario_entry] -> ({}, {}, {})", d_upper, s, e);
+                (d_upper, s, e)
+            })
+            .collect();
+        eprintln!("[expand_horario_entry SUCCESS] Retornando {} entradas", result.len());
+        result
     } else {
+        eprintln!("[expand_horario_entry FAILED] parse_rango falló para: '{}'", time_part);
         vec![]
     }
 }
@@ -179,23 +227,42 @@ fn intervals_overlap(a0: i32, a1: i32, b0: i32, b1: i32) -> bool {
 /// Comprueba si alguna de las horas de la sección solapa con alguna franja prohibida.
 /// Ambos arrays contienen strings tipo "LU 08:30 - 09:50" o combinados "LU JU 14:30 - 15:50".
 pub fn solapan_horarios(horarios_actuales: &[String], franjas_prohibidas: &[String]) -> bool {
-    // expandir todas las franjas prohibidas a (dia, s,e)
-    let mut prohibidos: Vec<(String,i32,i32)> = Vec::new();
+    eprintln!("[solapan_horarios START] horarios_actuales: {:?}, franjas_prohibidas: {:?}", 
+              horarios_actuales, franjas_prohibidas);
+    
+    // Expandir todas las franjas prohibidas a (dia, s, e)
+    let mut prohibidos: Vec<(String, i32, i32)> = Vec::new();
     for p in franjas_prohibidas {
-        prohibidos.extend(expand_horario_entry(p));
+        eprintln!("[solapan_horarios] Expandiendo franja prohibida: '{}'", p);
+        let expanded = expand_horario_entry(p);
+        eprintln!("[solapan_horarios]   -> Expandida a: {:?}", expanded);
+        prohibidos.extend(expanded);
     }
-    if prohibidos.is_empty() { return false; }
+    
+    eprintln!("[solapan_horarios] Total franjas prohibidas expandidas: {} entradas", prohibidos.len());
+    
+    if prohibidos.is_empty() {
+        eprintln!("[solapan_horarios] No hay franjas prohibidas después de expandir -> retornando false");
+        return false;
+    }
 
     for h in horarios_actuales {
+        eprintln!("[solapan_horarios] Verificando horario: '{}'", h);
         let segs = expand_horario_entry(h);
+        eprintln!("[solapan_horarios]   -> Expandido a: {:?}", segs);
+        
         for (d1, s1, e1) in segs {
             for (d2, s2, e2) in &prohibidos {
                 if d1 == *d2 && intervals_overlap(s1, e1, *s2, *e2) {
+                    eprintln!("[solapan_horarios] ¡SOLAPAMIENTO! {} {} ({}-{}) vs {} ({}-{})", 
+                              d1, d1, s1, e1, d2, s2, e2);
                     return true;
                 }
             }
         }
     }
+    
+    eprintln!("[solapan_horarios] No se encontraron solapamientos -> retornando false");
     false
 }
 

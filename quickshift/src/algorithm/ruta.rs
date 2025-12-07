@@ -68,6 +68,9 @@ pub fn ejecutar_ruta_critica_with_params(
     // PHASE 2: extract_viable_sections
     // =========================================================================
     eprintln!("📋 PHASE 2: extract_viable_sections");
+    // DEBUG: mostrar filtros y franjas recibidas para diagnóstico
+    eprintln!("   [DEBUG] params.filtros={:?}", params.filtros);
+    eprintln!("   [DEBUG] params.horarios_prohibidos={:?}", params.horarios_prohibidos);
     
     // 2a) Leer oferta académica -> Vec<Seccion>
     eprintln!("   📥 Leyendo oferta académica...");
@@ -111,6 +114,7 @@ pub fn ejecutar_ruta_critica_with_params(
 
             // Excluir si solapa con cualquier bloque prohibido pasado por el usuario
             if !params.horarios_prohibidos.is_empty() {
+                eprintln!("   [DEBUG] Comprobando solapamiento contra franjas_prohibidas: {:?}", params.horarios_prohibidos);
                 // sec.horario es Vec<String>
                 if solapan_horarios(&sec.horario, &params.horarios_prohibidos) {
                     eprintln!("   ⊘ Excluyendo {} (solapa con franja prohibida)", sec.codigo);

@@ -65,10 +65,14 @@ pub async fn rutacritica_run_handler(body: web::Json<serde_json::Value>) -> impl
         Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("invalid JSON body: {}", e)})),
     };
 
+    eprintln!("[rutacritica_run_handler] raw JSON received: {}", json_str);
+
     let params = match crate::api_json::parse_and_resolve_ramos(&json_str, Some(".")) {
         Ok(p) => p,
         Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("failed to parse input: {}", e)})),
     };
+
+    eprintln!("[rutacritica_run_handler] params.horarios_prohibidos = {:?}", params.horarios_prohibidos);
 
     match crate::algorithm::ejecutar_ruta_critica_with_params(params) {
         Ok(soluciones) => {
