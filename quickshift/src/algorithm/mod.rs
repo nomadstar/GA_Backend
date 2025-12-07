@@ -252,3 +252,12 @@ pub fn resolve_datafile_paths(
 // Nota: la API pública principal es `ruta::ejecutar_ruta_critica_with_params` y
 // se reexporta arriba. Eliminamos la función wrapper para evitar lints
 // en builds donde no se usa el helper genérico.
+
+pub struct InputParams {
+    /*...*/
+    // antes: pub horarios_preferidos: Vec<String>,
+    // Ahora: bloques prohibidos (p. ej. ["LU 08:30 - 10:00", "MA 10:00 - 12:30"])
+    #[serde(default)]
+    pub horarios_prohibidos: Vec<String>,
+    /*...*/
+}

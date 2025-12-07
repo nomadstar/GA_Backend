@@ -25,6 +25,8 @@
 use std::error::Error;
 use crate::api_json::InputParams;
 use crate::models::{Seccion, RamoDisponible};
+// Nuevo import para comprobar solapamiento contra bloques prohibidos
+use crate::algorithm::filters::solapan_horarios;
 use std::collections::{HashMap, HashSet};
 
 pub fn ejecutar_ruta_critica_with_params(
@@ -101,13 +103,21 @@ pub fn ejecutar_ruta_critica_with_params(
         .iter()
         .filter(|sec| {
             let sec_codigo_upper = sec.codigo.to_uppercase();
-            
+
             // Excluir si ya fue aprobado - ESTO ES OBLIGATORIO
             if passed_set.contains(&sec_codigo_upper) {
                 eprintln!("   ⊘ Excluyendo {} (ya aprobado)", sec.codigo);
                 return false;
             }
-            
+
+            // Excluir si solapa con cualquier bloque prohibido pasado por el usuario
+            if !params.horarios_prohibidos.is_empty() {
+                if solapan_horarios(&sec.horario, &params.horarios_prohibidos) {
+                    eprintln!("   ⊘ Excluyendo {} (solapa con franja prohibida)", sec.codigo);
+                    return false;
+                }
+            }
+
             // Incluir todo lo demás - clique.rs manejará semestre y requisitos
             true
         })

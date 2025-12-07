@@ -138,7 +138,7 @@ fn filtro_preferencias_profesores(
 
 /// Detecta si algún horario en `horarios_actuales` solapan con alguno en `franjas_prohibidas`
 /// Formato esperado: "LU 08:30-10:00", "MA VI 14:00-18:00", etc.
-fn solapan_horarios(horarios_actuales: &[String], franjas_prohibidas: &[String]) -> bool {
+pub fn solapan_horarios(horarios_actuales: &[String], franjas_prohibidas: &[String]) -> bool {
     for horario_actual in horarios_actuales {
         for franja_prohibida in franjas_prohibidas {
             if horarios_se_solapan(horario_actual, franja_prohibida) {

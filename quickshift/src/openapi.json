@@ -52,6 +52,12 @@
             "in": "query",
             "schema": { "type": "string" },
             "description": "Nombre de hoja dentro de la malla (ej: Malla 2020)"
+          },
+          {
+            "name": "horarios_prohibidos",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Lista de franjas horarias prohibidas, separadas por comas. Ej: 'LU 08:30 - 10:00,MA 10:00 - 12:30'"
           }
         ],
         "responses": {
