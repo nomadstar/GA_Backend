@@ -135,6 +135,7 @@ pub async fn solve_get_handler(query: web::Query<std::collections::HashMap<Strin
         ramos_pasados,
         ramos_prioritarios,
         horarios_preferidos,
+            horarios_prohibidos: Vec::new(),
         malla,
         sheet: None,
         ranking: None,

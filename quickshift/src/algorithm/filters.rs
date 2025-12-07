@@ -61,10 +61,15 @@ fn filtro_dias_horarios_libres(
     solucion: &[(Seccion, i32)],
     filtro: &crate::models::DiaHorariosLibres,
 ) -> bool {
-    // Si hay franjas prohibidas, verificar que ninguna sección solape
+    // Si hay franjas prohibidas (estructuradas), convertir a strings y comprobar solapamiento
     if let Some(ref franjas_prohibidas) = filtro.franjas_prohibidas {
+        let mut fps: Vec<String> = Vec::with_capacity(franjas_prohibidas.len());
+        for f in franjas_prohibidas.iter() {
+            let s = format!("{} {} - {}", f.dia.to_uppercase(), f.inicio.trim(), f.fin.trim());
+            fps.push(s);
+        }
         for (seccion, _) in solucion {
-            if solapan_horarios_franja(&seccion.horario, franjas_prohibidas) {
+            if solapan_horarios(&seccion.horario, &fps) {
                 eprintln!("   ⊘ Excluyendo solución: sección {} solapan con franjas prohibidas", seccion.codigo);
                 return false;
             }
@@ -148,7 +153,7 @@ fn parse_rango(s: &str) -> Option<(i32,i32)> {
 }
 
 /// Expande una entrada de horario como "LU JU 14:30 - 15:50" a vectores (dia, inicio, fin)
-fn expand_horario_entry(entry: &str) -> Vec<(String, i32, i32)> {
+pub fn expand_horario_entry(entry: &str) -> Vec<(String, i32, i32)> {
     // tokens, buscar primer token que contenga ':' (inicio de la hora)
     let tokens: Vec<&str> = entry.split_whitespace().collect();
     let time_idx = tokens.iter().position(|t| t.contains(':'));

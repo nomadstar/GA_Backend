@@ -120,24 +120,16 @@ pub fn ejecutar_ruta_critica_with_params(
 
             // Si existen filtros adicionales, aplicarlos aquí (ej: dias_horarios_libres estrictos)
             if let Some(ref filtros) = params.filtros {
-                if let Some(dhl) = filtros.get("dias_horarios_libres") {
-                    // si el filtro exige días libres concretos (dias_libres_preferidos)
-                    // y el día aparece en la sección, excluirla (modo estricto)
-                    if let Some(dias) = dhl.get("dias_libres_preferidos") {
-                        if let Some(array_dias) = dias.as_array() {
-                            for dia_val in array_dias {
-                                if let Some(dia_str) = dia_val.as_str() {
-                                    // convertir a código (ej. "LU") y comprobar
-                                    let dia_code = dia_str.to_uppercase();
-                                    // comprobar si la sección tiene horario en ese día
-                                    for h in &sec.horario {
-                                        let segs = expand_horario_entry(h); // reusar parser
-                                        for (d, _s, _e) in segs.iter() {
-                                            if &dia_code == d {
-                                                eprintln!("   ⊘ Excluyendo {} (tiene clase en día que debe ser libre {})", sec.codigo, dia_code);
-                                                return false;
-                                            }
-                                        }
+                if let Some(ref dhl) = filtros.dias_horarios_libres {
+                    if let Some(ref dias) = dhl.dias_libres_preferidos {
+                        for dia_str in dias.iter() {
+                            let dia_code = dia_str.to_uppercase();
+                            for h in &sec.horario {
+                                let segs = crate::algorithm::filters::expand_horario_entry(h); // reusar parser público
+                                for (d, _s, _e) in segs.iter() {
+                                    if &dia_code == d {
+                                        eprintln!("   ⊘ Excluyendo {} (tiene clase en día que debe ser libre {})", sec.codigo, dia_code);
+                                        return false;
                                     }
                                 }
                             }
@@ -235,24 +227,38 @@ pub fn ejecutar_ruta_critica_with_params(
         soluciones_filtradas = apply_all_filters(soluciones_filtradas, &params.filtros);
     }
 
-    // Ahora, priorizar soluciones por CANTIDAD DE RAMOS (debemos maximizar cantidad, <=6)
-    // Encontrar la longitud máxima presente, cap en 6
-    let max_len = soluciones_filtradas
-        .iter()
-        .map(|(sol, _)| sol.len())
-        .max()
-        .map(|v| std::cmp::min(v, 6))
-        .unwrap_or(0);
+    // Ahora, seleccionar soluciones intentando maximizar cantidad de ramos,
+    // pero siendo permisivos si no alcanzamos 10 resultados: intentar k=6..1
+    let mut seleccionadas: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
 
-    if max_len > 0 {
-        soluciones_filtradas.retain(|(sol, _)| sol.len() == max_len);
+    // Agrupar por longitud y recorrer desde 6 descendente hasta 1
+    for k in (1..=6).rev() {
+        // tomar las soluciones de longitud k, ordenar por score desc
+        let mut grupo: Vec<_> = soluciones_filtradas
+            .iter()
+            .filter(|(sol, _)| sol.len() == k)
+            .cloned()
+            .collect();
+        grupo.sort_by(|a, b| b.1.cmp(&a.1));
+
+        for item in grupo.into_iter() {
+            if seleccionadas.len() >= 10 { break; }
+            seleccionadas.push(item);
+        }
+
+        if seleccionadas.len() >= 10 { break; }
     }
-    
-    let soluciones_filtradas_count = soluciones_filtradas.len();
-    eprintln!("   ✓ soluciones que cumplen filtros: {}", soluciones_filtradas_count);
-    
-    // Retornar máximo 10 soluciones
-    let resultado: Vec<_> = soluciones_filtradas.into_iter().take(10).collect();
+
+    // Si no se seleccionó nada (caso extremo), mantener las mejores hasta 10
+    if seleccionadas.is_empty() {
+        eprintln!("   ⚠️  No se encontraron soluciones por longitud; devolviendo las mejores disponibles");
+        seleccionadas = soluciones_filtradas.into_iter().take(10).collect();
+    }
+
+    let soluciones_filtradas_count = seleccionadas.len();
+    eprintln!("   ✓ soluciones que cumplen filtros (seleccionadas): {}", soluciones_filtradas_count);
+
+    let resultado: Vec<_> = seleccionadas.into_iter().take(10).collect();
     
     // =====================================================================
     // VALIDACIÓN CRÍTICA - LEY FUNDAMENTAL
@@ -300,6 +306,7 @@ pub fn run_ruta_critica_solutions() -> Result<Vec<(Vec<(Seccion, i32)>, i64)>, B
         ramos_pasados: Vec::new(),
         ramos_prioritarios: Vec::new(),
         horarios_preferidos: Vec::new(),
+        horarios_prohibidos: Vec::new(),
         malla: "MiMalla.xlsx".to_string(),
         anio: None,
         sheet: None,

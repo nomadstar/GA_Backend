@@ -8,6 +8,7 @@ pub async fn help_handler() -> impl Responder {
         ramos_pasados: vec!["CIT3313".to_string(), "CIT3211".to_string()],
         ramos_prioritarios: vec!["CIT3313".to_string(), "CIT3413".to_string()],
         horarios_preferidos: vec!["08:00-10:00".to_string(), "14:00-16:00".to_string()],
+        horarios_prohibidos: Vec::new(),
             malla: "malla.xlsx".to_string(),
             anio: None,
         sheet: None,
