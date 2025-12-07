@@ -6,6 +6,7 @@
 
 use crate::models::{Seccion, UserFilters};
 use std::collections::HashSet;
+use std::str::FromStr;
 
 /// Aplica todos los filtros habilitados a una lista de soluciones
 /// Retorna solo las soluciones que pasan todos los filtros
@@ -49,16 +50,6 @@ pub fn apply_all_filters(
                 .collect();
         }
     }
-
-    // Filtro 6: Balance entre líneas (no implementado aquí, requeriría mapeo de ramos a líneas)
-    // if let Some(ref balance_filter) = filters.balance_lineas {
-    //     if balance_filter.habilitado {
-    //         resultado = resultado
-    //             .into_iter()
-    //             .filter(|(sol, _)| filtro_balance_lineas(sol, balance_filter))
-    //             .collect();
-    //     }
-    // }
 
     resultado
 }
@@ -136,113 +127,86 @@ fn filtro_preferencias_profesores(
     true
 }
 
-/// Detecta si algún horario en `horarios_actuales` solapan con alguno en `franjas_prohibidas`
-/// Formato esperado: "LU 08:30-10:00", "MA VI 14:00-18:00", etc.
+/// Convierte "HH:MM" -> minutos desde 00:00
+fn parse_hora_minutos(s: &str) -> Option<i32> {
+    let s = s.trim();
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() != 2 { return None; }
+    let h = i32::from_str(parts[0]).ok()?;
+    let m = i32::from_str(parts[1]).ok()?;
+    Some(h * 60 + m)
+}
+
+/// Extrae rango "HH:MM - HH:MM" (soporta espacios alrededor del guion)
+fn parse_rango(s: &str) -> Option<(i32,i32)> {
+    let s = s.replace('–', "-");
+    let parts: Vec<&str> = s.split('-').map(|t| t.trim()).collect();
+    if parts.len() != 2 { return None; }
+    let a = parse_hora_minutos(parts[0])?;
+    let b = parse_hora_minutos(parts[1])?;
+    Some((a,b))
+}
+
+/// Expande una entrada de horario como "LU JU 14:30 - 15:50" a vectores (dia, inicio, fin)
+fn expand_horario_entry(entry: &str) -> Vec<(String, i32, i32)> {
+    // tokens, buscar primer token que contenga ':' (inicio de la hora)
+    let tokens: Vec<&str> = entry.split_whitespace().collect();
+    let time_idx = tokens.iter().position(|t| t.contains(':'));
+    if time_idx.is_none() {
+        return vec![];
+    }
+    let ti = time_idx.unwrap();
+    let day_tokens = &tokens[..ti];
+    let time_part = tokens[ti..].join(" ");
+    if let Some((s,e)) = parse_rango(&time_part) {
+        day_tokens.iter().map(|d| (d.to_uppercase(), s, e)).collect()
+    } else {
+        vec![]
+    }
+}
+
+/// True si dos intervalos de minutos se solapan
+fn intervals_overlap(a0: i32, a1: i32, b0: i32, b1: i32) -> bool {
+    // intervalo abierto/cerrado: solapan si start < other_end && other_start < end
+    a0 < b1 && b0 < a1
+}
+
+/// Comprueba si alguna de las horas de la sección solapa con alguna franja prohibida.
+/// Ambos arrays contienen strings tipo "LU 08:30 - 09:50" o combinados "LU JU 14:30 - 15:50".
 pub fn solapan_horarios(horarios_actuales: &[String], franjas_prohibidas: &[String]) -> bool {
-    for horario_actual in horarios_actuales {
-        for franja_prohibida in franjas_prohibidas {
-            if horarios_se_solapan(horario_actual, franja_prohibida) {
-                return true;
+    // expandir todas las franjas prohibidas a (dia, s,e)
+    let mut prohibidos: Vec<(String,i32,i32)> = Vec::new();
+    for p in franjas_prohibidas {
+        prohibidos.extend(expand_horario_entry(p));
+    }
+    if prohibidos.is_empty() { return false; }
+
+    for h in horarios_actuales {
+        let segs = expand_horario_entry(h);
+        for (d1, s1, e1) in segs {
+            for (d2, s2, e2) in &prohibidos {
+                if d1 == *d2 && intervals_overlap(s1, e1, *s2, *e2) {
+                    return true;
+                }
             }
         }
     }
     false
 }
 
-/// Verifica solapamiento entre horarios actuales y franjas prohibidas (nueva estructura)
-fn solapan_horarios_franja(horarios_actuales: &[String], franjas_prohibidas: &[crate::models::FranjaProhibida]) -> bool {
-    for horario_actual in horarios_actuales {
-        for franja in franjas_prohibidas {
-            // Construir una cadena franja compatible con horarios_se_solapan
-            // Formato esperado: "DIA HH:MM-HH:MM"
-            let franja_str = format!("{} {}-{}", franja.dia, franja.inicio, franja.fin);
-            if horarios_se_solapan(horario_actual, &franja_str) {
-                return true;
-            }
-        }
-    }
-    false
+// --- Wrappers/compatibilidad con nombres usados en otros módulos/tests ---
+
+/// Nombre legacy usado por filtro_dias_horarios_libres y otros módulos
+pub fn solapan_horarios_franja(horarios_actuales: &[String], franjas_prohibidas: &[String]) -> bool {
+    solapan_horarios(horarios_actuales, franjas_prohibidas)
 }
 
-/// Compara dos horarios para detectar solapamiento
-/// Formato: "LU MA JU 08:30-09:50" o "VI 14:30-15:50"
-fn horarios_se_solapan(horario1: &str, horario2: &str) -> bool {
-    // Extraer días y horas de ambos horarios
-    let (dias1, horas1) = parse_horario(horario1);
-    let (dias2, horas2) = parse_horario(horario2);
-
-    // Si no comparten días, no hay solapamiento
-    if !dias1.iter().any(|d| dias2.contains(d)) {
-        return false;
-    }
-
-    // Si comparten días, verificar si las horas se solapan
-    horas_se_solapan(&horas1, &horas2)
+/// Wrapper público para tests/llamadas externas: "hora_a_minutos"
+pub fn hora_a_minutos(s: &str) -> Option<i32> {
+    parse_hora_minutos(s)
 }
 
-/// Parsea un horario en (conjunto de días, (hora_inicio, hora_fin))
-/// Ejemplo: "LU MA JU 08:30-09:50" -> ({"LU", "MA", "JU"}, (830, 950))
-fn parse_horario(horario: &str) -> (Vec<String>, (i32, i32)) {
-    let partes: Vec<&str> = horario.split_whitespace().collect();
-
-    // Último elemento debería ser el rango horario
-    let horas_str = partes.last().unwrap_or(&"");
-    let (inicio, fin) = if let Some((h1, h2)) = horas_str.split_once('-') {
-        let h1_mins = hora_a_minutos(h1).unwrap_or(0);
-        let h2_mins = hora_a_minutos(h2).unwrap_or(2400);
-        (h1_mins, h2_mins)
-    } else {
-        (0, 2400)
-    };
-
-    // El resto son días
-    let dias: Vec<String> = partes[0..partes.len().saturating_sub(1)]
-        .iter()
-        .map(|d| d.to_uppercase())
-        .collect();
-
-    (dias, (inicio, fin))
-}
-
-/// Convierte "HH:MM" a minutos desde medianoche
-fn hora_a_minutos(hora: &str) -> Option<i32> {
-    let partes: Vec<&str> = hora.split(':').collect();
-    if partes.len() == 2 {
-        let hh = partes[0].parse::<i32>().ok()?;
-        let mm = partes[1].parse::<i32>().ok()?;
-        Some(hh * 60 + mm)
-    } else {
-        None
-    }
-}
-
-/// Verifica si dos rangos de horas se solapan
-/// (inicio1, fin1) y (inicio2, fin2) en minutos
-fn horas_se_solapan(h1: &(i32, i32), h2: &(i32, i32)) -> bool {
-    !(h1.1 <= h2.0 || h2.1 <= h1.0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_horas_se_solapan() {
-        // 08:30-09:50 y 09:00-10:00 se solapan
-        let h1 = (510, 590); // 08:30-09:50
-        let h2 = (540, 600); // 09:00-10:00
-        assert!(horas_se_solapan(&h1, &h2));
-
-        // 08:00-09:00 y 09:00-10:00 no se solapan (límite)
-        let h3 = (480, 540); // 08:00-09:00
-        let h4 = (540, 600); // 09:00-10:00
-        assert!(!horas_se_solapan(&h3, &h4));
-    }
-
-    #[test]
-    fn test_hora_a_minutos() {
-        assert_eq!(hora_a_minutos("08:30"), Some(510));
-        assert_eq!(hora_a_minutos("14:00"), Some(840));
-        assert_eq!(hora_a_minutos("23:59"), Some(1439));
-    }
+/// Wrapper público para tests/llamadas externas: "horas_se_solapan"
+pub fn horas_se_solapan(a: &(i32,i32), b: &(i32,i32)) -> bool {
+    intervals_overlap(a.0, a.1, b.0, b.1)
 }

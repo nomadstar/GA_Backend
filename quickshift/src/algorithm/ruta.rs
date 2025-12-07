@@ -104,7 +104,6 @@ pub fn ejecutar_ruta_critica_with_params(
         .filter(|sec| {
             let sec_codigo_upper = sec.codigo.to_uppercase();
 
-            // Excluir si ya fue aprobado - ESTO ES OBLIGATORIO
             if passed_set.contains(&sec_codigo_upper) {
                 eprintln!("   ⊘ Excluyendo {} (ya aprobado)", sec.codigo);
                 return false;
@@ -112,13 +111,41 @@ pub fn ejecutar_ruta_critica_with_params(
 
             // Excluir si solapa con cualquier bloque prohibido pasado por el usuario
             if !params.horarios_prohibidos.is_empty() {
+                // sec.horario es Vec<String>
                 if solapan_horarios(&sec.horario, &params.horarios_prohibidos) {
                     eprintln!("   ⊘ Excluyendo {} (solapa con franja prohibida)", sec.codigo);
                     return false;
                 }
             }
 
-            // Incluir todo lo demás - clique.rs manejará semestre y requisitos
+            // Si existen filtros adicionales, aplicarlos aquí (ej: dias_horarios_libres estrictos)
+            if let Some(ref filtros) = params.filtros {
+                if let Some(dhl) = filtros.get("dias_horarios_libres") {
+                    // si el filtro exige días libres concretos (dias_libres_preferidos)
+                    // y el día aparece en la sección, excluirla (modo estricto)
+                    if let Some(dias) = dhl.get("dias_libres_preferidos") {
+                        if let Some(array_dias) = dias.as_array() {
+                            for dia_val in array_dias {
+                                if let Some(dia_str) = dia_val.as_str() {
+                                    // convertir a código (ej. "LU") y comprobar
+                                    let dia_code = dia_str.to_uppercase();
+                                    // comprobar si la sección tiene horario en ese día
+                                    for h in &sec.horario {
+                                        let segs = expand_horario_entry(h); // reusar parser
+                                        for (d, _s, _e) in segs.iter() {
+                                            if &dia_code == d {
+                                                eprintln!("   ⊘ Excluyendo {} (tiene clase en día que debe ser libre {})", sec.codigo, dia_code);
+                                                return false;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             true
         })
         .cloned()
@@ -180,8 +207,46 @@ pub fn ejecutar_ruta_critica_with_params(
         })
         .unwrap_or(false);
     
-    // Las soluciones ya cumplen los filtros porque se validaron en el clique
-    let mut soluciones_filtradas = soluciones.clone();
+    // Aplicar FILTRADO ESTRICTO: eliminar soluciones que violen franjas prohibidas
+    use crate::algorithm::filters::{apply_all_filters, solapan_horarios};
+
+    // Función auxiliar: verifica si una solución contiene alguna sección que solape con
+    // cualquiera de las franjas_prohibidas representadas como strings en params.horarios_prohibidos
+    let solution_violates_prohibidos = |sol: &Vec<(Seccion, i32)>| -> bool {
+        if params.horarios_prohibidos.is_empty() {
+            return false;
+        }
+        for (s, _) in sol.iter() {
+            if solapan_horarios(&s.horario, &params.horarios_prohibidos) {
+                return true;
+            }
+        }
+        false
+    };
+
+    // Primero, eliminar soluciones que violen directamente las cadenas de franjas prohibidas
+    let mut soluciones_filtradas: Vec<(Vec<(Seccion, i32)>, i64)> = soluciones
+        .into_iter()
+        .filter(|(sol, _)| !solution_violates_prohibidos(sol))
+        .collect();
+
+    // Luego, si hay filtros estructurados en params.filtros, aplicarlos estrictamente
+    if params.filtros.is_some() {
+        soluciones_filtradas = apply_all_filters(soluciones_filtradas, &params.filtros);
+    }
+
+    // Ahora, priorizar soluciones por CANTIDAD DE RAMOS (debemos maximizar cantidad, <=6)
+    // Encontrar la longitud máxima presente, cap en 6
+    let max_len = soluciones_filtradas
+        .iter()
+        .map(|(sol, _)| sol.len())
+        .max()
+        .map(|v| std::cmp::min(v, 6))
+        .unwrap_or(0);
+
+    if max_len > 0 {
+        soluciones_filtradas.retain(|(sol, _)| sol.len() == max_len);
+    }
     
     let soluciones_filtradas_count = soluciones_filtradas.len();
     eprintln!("   ✓ soluciones que cumplen filtros: {}", soluciones_filtradas_count);

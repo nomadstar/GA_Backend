@@ -59,7 +59,14 @@ pub struct InputParams {
 	pub email: String,
 	pub ramos_pasados: Vec<String>,
 	pub ramos_prioritarios: Vec<String>,
-	pub horarios_preferidos: Vec<String>,
+    /// Franjas horarias preferidas (legacy). Formato: ["08:00-10:00", ...]
+    #[serde(default)]
+    pub horarios_preferidos: Vec<String>,
+
+    /// Franjas horarias prohibidas. Formato esperado: ["LU 08:30-10:00", "MA 10:00-12:30"]
+    /// Se acepta que el cliente envíe este campo y el algoritmo lo usará para excluir secciones.
+    #[serde(default)]
+    pub horarios_prohibidos: Vec<String>,
 	// Required: which curricular map to use. Example values: "MallaCurricular2010.xlsx", "MallaCurricular2018.xlsx", "MallaCurricular2020.xlsx"
 	pub malla: String,
     /// Año objetivo: si se especifica, se intentará seleccionar la Malla/MC del año dado.
