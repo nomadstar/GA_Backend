@@ -407,10 +407,25 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
             ev == "true" || ev == "1" || ev == "sí" || ev == "si"
         };
         
-        // Leer columna Semestre (column 4)
+        // Leer columna Semestre (column 4) con tolerancia a formatos como "1.0", "1°", etc.
         let semestre_opt = {
-            let sem_str = data_to_string(row.get(4).unwrap_or(&Data::Empty)).trim().to_string();
-            sem_str.parse::<i32>().ok()
+            let sem_str_raw = data_to_string(row.get(4).unwrap_or(&Data::Empty)).trim().to_string();
+            if sem_str_raw.is_empty() {
+                None
+            } else {
+                // 1) intento directo entero
+                sem_str_raw.parse::<i32>().ok()
+                    // 2) float tipo "1.0" o con coma
+                    .or_else(|| {
+                        let cleaned = sem_str_raw.replace(',', '.');
+                        cleaned.parse::<f64>().ok().map(|v| v.round() as i32)
+                    })
+                    // 3) extraer dígitos por si viene "1°" u otro sufijo
+                    .or_else(|| {
+                        let digits: String = sem_str_raw.chars().filter(|c| c.is_ascii_digit()).collect();
+                        if digits.is_empty() { None } else { digits.parse::<i32>().ok() }
+                    })
+            }
         };
         
         if nombre.is_empty() || id == 0 {
