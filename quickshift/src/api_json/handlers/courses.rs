@@ -3,7 +3,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 
-use crate::excel::{leer_malla_excel_with_sheet, normalize_name, resolve_datafile_paths};
+use crate::excel::{
+    leer_malla_con_porcentajes_optimizado,
+    leer_mc_con_porcentajes_optimizado,
+    normalize_name,
+    resolve_datafile_paths,
+};
 use crate::models::RamoDisponible;
 
 #[derive(Debug, Serialize, Clone)]
@@ -42,15 +47,27 @@ fn ramo_to_dto(r: &RamoDisponible) -> CursoDto {
     }
 }
 
-fn load_malla_map(malla_id: &str, sheet: Option<String>) -> Result<HashMap<String, RamoDisponible>, String> {
-    let (malla_path, _, _) = resolve_datafile_paths(malla_id)
+fn load_malla_map(malla_id: &str, _sheet: Option<String>) -> Result<HashMap<String, RamoDisponible>, String> {
+    let (malla_path, _oferta_path, porcent_path) = resolve_datafile_paths(malla_id)
         .map_err(|e| format!("failed to resolve malla '{}': {}", malla_id, e))?;
+
     let malla_path_str = malla_path
         .to_str()
         .ok_or_else(|| "invalid UTF-8 in malla path".to_string())?;
+    let porcent_path_str = porcent_path
+        .to_str()
+        .ok_or_else(|| "invalid UTF-8 in porcent path".to_string())?;
 
-    leer_malla_excel_with_sheet(malla_path_str, sheet.as_deref())
-        .map_err(|e| format!("failed to read malla '{}': {}", malla_path_str, e))
+    let malla_lower = malla_path_str.to_lowercase();
+    let is_mc = malla_lower.contains("mc");
+
+    let res = if is_mc {
+        leer_mc_con_porcentajes_optimizado(malla_path_str, porcent_path_str)
+    } else {
+        leer_malla_con_porcentajes_optimizado(malla_path_str, porcent_path_str)
+    };
+
+    res.map_err(|e| format!("failed to read malla '{}': {}", malla_path_str, e))
 }
 
 fn sort_cursos(cursos: &mut Vec<CursoDto>) {

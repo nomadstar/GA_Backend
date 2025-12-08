@@ -370,16 +370,8 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
     // Contador para asignación secuencial de electivos sin repetir
     let mut contador_electivos = 0;
     
-    // Seleccionar hoja de malla: priorizar nombres que contengan "malla"
-    let sheet_names: Vec<String> = workbook.sheet_names().to_vec();
-    let target_sheet = sheet_names
-        .iter()
-        .find(|name| name.to_lowercase().contains("malla"))
-        .or_else(|| sheet_names.first())
-        .cloned()
-        .ok_or("No se encontraron hojas en la malla")?;
-
-    let range = workbook.worksheet_range(&target_sheet)?;
+    // Usar hoja "Malla2020"
+    let range = workbook.worksheet_range("Malla2020")?;
 
     // Debug: mostrar primeras filas crudas y los valores percibidos según los índices actuales
     {
@@ -399,14 +391,6 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
         }
     }
     
-    // Detectar columna de semestre desde el encabezado (fallback: col 4)
-    let semestre_col_idx = range.rows().next().and_then(|row| {
-        row.iter().position(|cell| {
-            let val = data_to_string(cell).to_lowercase();
-            val.contains("semestre") || val == "sem"
-        })
-    }).unwrap_or(4);
-
     for (row_idx, row) in range.rows().enumerate() {
         if row_idx == 0 { continue; }  // Saltar encabezado
         
@@ -423,25 +407,10 @@ pub fn leer_malla_con_porcentajes(malla_archivo: &str, porcentajes_archivo: &str
             ev == "true" || ev == "1" || ev == "sí" || ev == "si"
         };
         
-        // Leer columna Semestre con tolerancia a formatos como "1.0", "1°", etc.
+        // Leer columna Semestre (column 4)
         let semestre_opt = {
-            let sem_str_raw = data_to_string(row.get(semestre_col_idx).unwrap_or(&Data::Empty)).trim().to_string();
-            if sem_str_raw.is_empty() {
-                None
-            } else {
-                // 1) intento directo entero
-                sem_str_raw.parse::<i32>().ok()
-                    // 2) float tipo "1.0" o con coma
-                    .or_else(|| {
-                        let cleaned = sem_str_raw.replace(',', '.');
-                        cleaned.parse::<f64>().ok().map(|v| v.round() as i32)
-                    })
-                    // 3) extraer dígitos por si viene "1°" u otro sufijo
-                    .or_else(|| {
-                        let digits: String = sem_str_raw.chars().filter(|c| c.is_ascii_digit()).collect();
-                        if digits.is_empty() { None } else { digits.parse::<i32>().ok() }
-                    })
-            }
+            let sem_str = data_to_string(row.get(4).unwrap_or(&Data::Empty)).trim().to_string();
+            sem_str.parse::<i32>().ok()
         };
         
         if nombre.is_empty() || id == 0 {
