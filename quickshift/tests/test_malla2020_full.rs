@@ -12,12 +12,14 @@ fn test_malla2020_con_calculo_i_aprobado() {
         ramos_pasados: vec!["CBM1001".to_string()], // ✅ Cálculo I
         ramos_prioritarios: vec![],
         horarios_preferidos: vec![],
+        horarios_prohibidos: vec![],
         malla: "Malla2020.xlsx".to_string(),
         anio: None,
         sheet: None,
         student_ranking: Some(0.75),
         ranking: None,
         filtros: None,
+        optimizations: vec![],
     };
 
     println!("\n📋 Parámetros:");
@@ -84,12 +86,14 @@ fn test_malla2020_con_primer_semestre_completo() {
         ],
         ramos_prioritarios: vec![],
         horarios_preferidos: vec![],
+        horarios_prohibidos: vec![],
         malla: "Malla2020.xlsx".to_string(),
         anio: None,
         sheet: None,
         student_ranking: Some(0.75),
         ranking: None,
         filtros: None,
+        optimizations: vec![],
     };
 
     println!("\n📋 Parámetros:");
