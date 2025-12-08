@@ -130,6 +130,9 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
             .route("/datafiles/download", web::get().to(datafiles_download_handler))
             .route("/datafiles/content", web::get().to(datafiles_content_handler))
             .route("/datafiles/oferta/summary", web::get().to(oferta_summary_handler))
+            .route("/api/mallas/{malla_id}/semestres/{semestre}/cursos", web::get().to(malla_cursos_semestre_handler))
+            .route("/api/mallas/{malla_id}/cursos", web::get().to(malla_cursos_all_handler))
+            .route("/api/cursos/recomendados", web::post().to(cursos_recomendados_handler))
             .route("/datafiles/debug/pa-names", web::get().to(debug_pa_names_handler))
             .route("/help", web::get().to(help_handler))
             // Registrar rutas de documentación SWAGGER
@@ -194,4 +197,24 @@ async fn help_handler() -> impl Responder {
 /// Muestra un sample del índice de nombres normalizados extraídos del PA para diagnóstico
 async fn debug_pa_names_handler(query: web::Query<std::collections::HashMap<String, String>>) -> impl Responder {
     crate::api_json::handlers::debug::debug_pa_names_handler(query).await
+}
+
+async fn malla_cursos_semestre_handler(
+    path: web::Path<(String, i32)>,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    crate::api_json::handlers::courses::cursos_por_semestre_handler(path, query).await
+}
+
+async fn malla_cursos_all_handler(
+    path: web::Path<String>,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    crate::api_json::handlers::courses::cursos_todos_handler(path, query).await
+}
+
+async fn cursos_recomendados_handler(
+    body: web::Json<crate::api_json::handlers::courses::CursosRecomendadosRequest>,
+) -> impl Responder {
+    crate::api_json::handlers::courses::cursos_recomendados_handler(body).await
 }
