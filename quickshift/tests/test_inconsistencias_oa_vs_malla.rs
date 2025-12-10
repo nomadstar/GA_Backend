@@ -26,29 +26,89 @@ fn read_courses_from_xlsx(path: &PathBuf) -> Result<HashMap<String, String>, Box
     let mut map: HashMap<String, String> = HashMap::new();
 
     for sheet_name in workbook.sheet_names().to_owned() {
-        match workbook.worksheet_range(&sheet_name) {
-            Ok(range) => {
-                for row in range.rows() {
-                    if row.iter().all(|c| matches!(c, Data::Empty)) { continue; }
-                    let mut code: Option<String> = None;
-                    let mut name: Option<String> = None;
-                    for cell in row.iter().take(8) {
-                        let s = data_to_string(cell).trim().to_string();
-                        if s.is_empty() { continue; }
-                        if code.is_none() {
-                            code = Some(s);
-                        } else if name.is_none() {
-                            name = Some(s);
+        let range = match workbook.worksheet_range(&sheet_name) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        // Try to detect header row and indices for code/name columns
+        let mut header_row_idx: Option<usize> = None;
+        let mut code_idx: Option<usize> = None;
+        let mut name_idx: Option<usize> = None;
+
+        for (ridx, row) in range.rows().enumerate() {
+            let row_texts: Vec<String> = row.iter().map(|c| data_to_string(c).to_lowercase()).collect();
+            let has_codigo = row_texts.iter().any(|s| s.contains("codigo") || s.contains("código") || s.contains("cod"));
+            let has_nombre = row_texts.iter().any(|s| s.contains("nombre") || s.contains("asignatura") || s.contains("descripcion"));
+            let has_seccion = row_texts.iter().any(|s| s.contains("sección") || s.contains("seccion"));
+
+            if (has_codigo && has_nombre) || (has_seccion && has_nombre) {
+                header_row_idx = Some(ridx);
+                // Prefer an exact/simple "codigo" column if present (avoids picking "Código Plan Estudio")
+                for (ci, cell) in row.iter().enumerate() {
+                    let txt = data_to_string(cell).to_lowercase();
+                    let ttrim = txt.trim().to_string();
+                    if code_idx.is_none() && (ttrim == "codigo" || ttrim == "código") {
+                        code_idx = Some(ci);
+                    }
+                    if name_idx.is_none() && (txt.contains("nombre") || txt.contains("asignatura") || txt.contains("descripcion")) {
+                        name_idx = Some(ci);
+                    }
+                }
+                // If we didn't find a clean "codigo" header, fall back to looser detection
+                if code_idx.is_none() {
+                    for (ci, cell) in row.iter().enumerate() {
+                        let txt = data_to_string(cell).to_lowercase();
+                        if txt.contains("codigo") || txt.contains("código") || txt.contains("cod") || txt.contains("seccion") || txt.contains("sección") {
+                            code_idx = Some(ci);
                             break;
                         }
                     }
-                    if let Some(c) = code {
-                        let n = name.unwrap_or_default();
-                        map.insert(c.trim().to_string(), n.trim().to_string());
-                    }
+                }
+                break;
+            }
+        }
+
+        for (row_idx, row) in range.rows().enumerate() {
+            if row.iter().all(|c| matches!(c, Data::Empty)) { continue; }
+
+            // If header detected, prefer using the identified columns
+            if let Some(h) = header_row_idx {
+                if row_idx == h { continue; }
+                let code = code_idx.and_then(|i| row.get(i)).map(|c| data_to_string(c).trim().to_string()).unwrap_or_default();
+                let name = name_idx.and_then(|i| row.get(i)).map(|c| data_to_string(c).trim().to_string()).unwrap_or_default();
+                if code.is_empty() { continue; }
+                let lowc = code.to_lowercase();
+                if lowc.contains("sección") || lowc.contains("num") || lowc.contains("tipo") || lowc.contains("codigo plan") || lowc == "final" { continue; }
+                map.insert(code, name);
+                continue;
+            }
+
+            // Fallback heuristic when no header: take first two non-empty cells but validate
+            let mut code: Option<String> = None;
+            let mut name: Option<String> = None;
+            for cell in row.iter().take(12) {
+                let s = data_to_string(cell).trim().to_string();
+                if s.is_empty() { continue; }
+                let slow = s.to_lowercase();
+                if slow.starts_with("sección") || slow.starts_with("num") || slow.starts_with("tipo") || slow.starts_with("codigo plan") || slow == "final" {
+                    code = None;
+                    name = None;
+                    break;
+                }
+                if code.is_none() {
+                    code = Some(s);
+                } else if name.is_none() {
+                    name = Some(s);
+                    break;
                 }
             }
-            Err(_) => continue,
+            if let Some(c) = code {
+                let is_code_like = c.chars().any(|ch| ch.is_ascii_digit()) || c.contains('_') || c.contains('-');
+                if !is_code_like { continue; }
+                let n = name.unwrap_or_else(|| "".to_string());
+                map.insert(c.trim().to_string(), n.trim().to_string());
+            }
         }
     }
 

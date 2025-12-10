@@ -49,38 +49,100 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
         
         for sheet in sheet_names.iter() {
             if let Ok(range) = workbook.worksheet_range(sheet) {
-                for (row_idx, row) in range.rows().enumerate() {
-                    if row_idx == 0 { continue; }  // skip header
-                    if row.is_empty() { continue; }
-                    
-                    // Para OA2024: Columna 2 = Codigo, Columna 3 = Nombre, Columna 4 = Sección
-                    let codigo = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
-                    let base_codigo = base_course_code(&codigo);
-                    if codigo.is_empty() { continue; }
-                    
-                    let nombre = data_to_string(row.get(2).unwrap_or(&Data::Empty)).trim().to_string();
-                    let seccion = data_to_string(row.get(3).unwrap_or(&Data::Empty)).trim().to_string();
-                    let horario_str = data_to_string(row.get(7).unwrap_or(&Data::Empty)).trim().to_string();
-                    let profesor = data_to_string(row.get(9).unwrap_or(&Data::Empty)).trim().to_string();
-                    
-                    // codigo_box es el ID del paquete de clases
-                    let codigo_box = data_to_string(row.get(18).unwrap_or(&Data::Empty)).trim().to_string();
-                    let codigo_box = if codigo_box.is_empty() { 
-                        codigo.clone() 
-                    } else { 
-                        codigo_box 
-                    };
-                    
-                    let horario: Vec<String> = if horario_str.is_empty() { 
-                        vec!["Sin horario".to_string()] 
-                    } else { 
-                        horario_str.split(|c| c == ',' || c == ';')
-                            .map(|s| s.trim().to_string())
-                            .filter(|s| !s.is_empty())
-                            .collect() 
-                    };
+                // Primero buscamos una fila de encabezado (header) y determinamos índices
+                let mut header_row_idx: Option<usize> = None;
+                let mut code_idx: Option<usize> = None;
+                let mut name_idx: Option<usize> = None;
+                let mut seccion_idx: Option<usize> = None;
+                let mut horario_idx: Option<usize> = None;
+                let mut profesor_idx: Option<usize> = None;
+                let mut codigo_box_idx: Option<usize> = None;
 
-                    raw_rows.push(RawRow { codigo: codigo.clone(), nombre: nombre.clone(), seccion: seccion.clone(), horario, profesor, codigo_box: codigo_box.clone() });
+                for (ridx, row) in range.rows().enumerate().take(8) {
+                    let row_texts: Vec<String> = row.iter().map(|c| data_to_string(c).to_lowercase()).collect();
+                    let has_codigo = row_texts.iter().any(|s| s.contains("codigo") || s.contains("código") || s.contains("cod") || s.contains("asignatura") || s.contains("asig"));
+                    let has_nombre = row_texts.iter().any(|s| s.contains("nombre") || s.contains("asignatura") || s.contains("descripcion"));
+                    let has_seccion = row_texts.iter().any(|s| s.contains("sección") || s.contains("seccion"));
+                    if (has_codigo && has_nombre) || (has_seccion && has_nombre) {
+                        header_row_idx = Some(ridx);
+                        for (ci, cell) in row.iter().enumerate() {
+                            let txt = data_to_string(cell).to_lowercase();
+                            let ttrim = txt.trim();
+                            if code_idx.is_none() && (ttrim == "codigo" || ttrim == "código" || ttrim == "asignatura" || ttrim == "asig") { code_idx = Some(ci); }
+                            // Priority: "nombre asig" > "nombre" > "asignatura" > "descripcion" for name column
+                            if name_idx.is_none() && (txt.contains("nombre asig") || ttrim.contains("nombre asig.")) { name_idx = Some(ci); }
+                            if name_idx.is_none() && (txt.contains("nombre") || txt.contains("descripcion")) { name_idx = Some(ci); }
+                            if seccion_idx.is_none() && (ttrim == "sección" || ttrim == "seccion") { seccion_idx = Some(ci); }
+                            if horario_idx.is_none() && (txt.contains("horario") || txt.contains("hora") || txt.contains("hor.")) { horario_idx = Some(ci); }
+                            if profesor_idx.is_none() && txt.contains("profesor") { profesor_idx = Some(ci); }
+                            if codigo_box_idx.is_none() && (txt.contains("codigo_box") || txt.contains("id_box") || txt.contains("id_paquete")) { codigo_box_idx = Some(ci); }
+                        }
+                        if code_idx.is_none() {
+                            for (ci, cell) in row.iter().enumerate() {
+                                let txt = data_to_string(cell).to_lowercase();
+                                if txt.contains("codigo")|| txt.contains("código") || txt.contains("cod") || txt.contains("seccion") || txt.contains("sección") { code_idx = Some(ci); break; }
+                            }
+                        }
+                        // Validate that the candidate code column contains code-like tokens in the rows below
+                        if let Some(ci) = code_idx {
+                            let mut has_digits = false;
+                            for validate_row in range.rows().skip(ridx+1).take(6) {
+                                if let Some(cell) = validate_row.get(ci) {
+                                    let s = data_to_string(cell);
+                                    if s.chars().any(|ch| ch.is_ascii_digit()) {
+                                        has_digits = true; break;
+                                    }
+                                }
+                            }
+                            if !has_digits {
+                                // Try to find another column with digits in rows below
+                                code_idx = None;
+                                for (ci2, _) in row.iter().enumerate() {
+                                    let mut found = false;
+                                    for validate_row in range.rows().skip(ridx+1).take(6) {
+                                        if let Some(cell) = validate_row.get(ci2) {
+                                            let s = data_to_string(cell);
+                                            if s.chars().any(|ch| ch.is_ascii_digit()) {
+                                                found = true; break;
+                                            }
+                                        }
+                                    }
+                                    if found { code_idx = Some(ci2); break; }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                for (row_idx, row) in range.rows().enumerate() {
+                    if row.is_empty() { continue; }
+                    if let Some(h) = header_row_idx {
+                        if row_idx == h { continue; }
+                        let codigo = code_idx.and_then(|i| row.get(i)).map(|c| data_to_string(c).trim().to_string()).unwrap_or_default();
+                        let base_codigo = base_course_code(&codigo);
+                        if codigo.is_empty() { continue; }
+                        let nombre = name_idx.and_then(|i| row.get(i)).map(|c| data_to_string(c).trim().to_string()).unwrap_or_default();
+                        let seccion = seccion_idx.and_then(|i| row.get(i)).map(|c| data_to_string(c).trim().to_string()).unwrap_or_else(|| "1".to_string());
+                        let horario_str = horario_idx.and_then(|i| row.get(i)).map(|c| data_to_string(c).trim().to_string()).unwrap_or_default();
+                        let profesor = profesor_idx.and_then(|i| row.get(i)).map(|c| data_to_string(c).trim().to_string()).unwrap_or_else(|| "Sin asignar".to_string());
+                        let codigo_box = codigo_box_idx.and_then(|i| row.get(i)).map(|c| data_to_string(c).trim().to_string()).unwrap_or_else(|| codigo.clone());
+                        let horario: Vec<String> = if horario_str.is_empty() { vec!["Sin horario".to_string()] } else { horario_str.split(|c| c == ',' || c == ';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect() };
+                        raw_rows.push(RawRow { codigo: codigo.clone(), nombre: nombre.clone(), seccion: seccion.clone(), horario, profesor, codigo_box: codigo_box.clone() });
+                    } else {
+                        // fallback: same as before
+                        let codigo = data_to_string(row.get(1).unwrap_or(&Data::Empty)).trim().to_string();
+                        let base_codigo = base_course_code(&codigo);
+                        if codigo.is_empty() { continue; }
+                        let nombre = data_to_string(row.get(2).unwrap_or(&Data::Empty)).trim().to_string();
+                        let seccion = data_to_string(row.get(3).unwrap_or(&Data::Empty)).trim().to_string();
+                        let horario_str = data_to_string(row.get(7).unwrap_or(&Data::Empty)).trim().to_string();
+                        let profesor = data_to_string(row.get(9).unwrap_or(&Data::Empty)).trim().to_string();
+                        let codigo_box = data_to_string(row.get(18).unwrap_or(&Data::Empty)).trim().to_string();
+                        let codigo_box = if codigo_box.is_empty() { codigo.clone() } else { codigo_box };
+                        let horario: Vec<String> = if horario_str.is_empty() { vec!["Sin horario".to_string()] } else { horario_str.split(|c| c == ',' || c == ';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect() };
+                        raw_rows.push(RawRow { codigo: codigo.clone(), nombre: nombre.clone(), seccion: seccion.clone(), horario, profesor, codigo_box: codigo_box.clone() });
+                    }
                 }
                 // Agrupar y construir secciones si recolectamos filas
                 if !raw_rows.is_empty() {
@@ -125,30 +187,87 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
 
             if let Ok(rows_vec) = read_sheet_via_zip(&resolved, fname) {
                 let mut raw_rows_zip: Vec<RawRow> = Vec::new();
+                // detect header for zip data (first few rows)
+                let mut header_row_idx: Option<usize> = None;
+                let mut code_idx: Option<usize> = None;
+                let mut name_idx: Option<usize> = None;
+                let mut seccion_idx: Option<usize> = None;
+                let mut horario_idx: Option<usize> = None;
+                let mut profesor_idx: Option<usize> = None;
+                let mut codigo_box_idx: Option<usize> = None;
+                for (ridx, row) in rows_vec.iter().enumerate().take(8) {
+                    let texts: Vec<String> = row.iter().map(|c| c.to_lowercase()).collect();
+                    let has_codigo = texts.iter().any(|s| s.contains("codigo") || s.contains("código") || s.contains("cod"));
+                    let has_nombre = texts.iter().any(|s| s.contains("nombre") || s.contains("asignatura") || s.contains("descripcion"));
+                    let has_seccion = texts.iter().any(|s| s.contains("sección") || s.contains("seccion"));
+                    if (has_codigo && has_nombre) || (has_seccion && has_nombre) {
+                        header_row_idx = Some(ridx);
+                        for (ci, cell) in row.iter().enumerate() {
+                            let txt = cell.to_lowercase();
+                            let ttrim = txt.trim();
+                            if code_idx.is_none() && (ttrim == "codigo" || ttrim == "código") { code_idx = Some(ci); }
+                            if name_idx.is_none() && (txt.contains("nombre") || txt.contains("asignatura") || txt.contains("descripcion")) { name_idx = Some(ci); }
+                            if seccion_idx.is_none() && (ttrim == "sección" || ttrim == "seccion") { seccion_idx = Some(ci); }
+                            if horario_idx.is_none() && (txt.contains("horario") || txt.contains("hora")) { horario_idx = Some(ci); }
+                            if profesor_idx.is_none() && txt.contains("profesor") { profesor_idx = Some(ci); }
+                            if codigo_box_idx.is_none() && (txt.contains("codigo_box") || txt.contains("id_box") || txt.contains("id_paquete")) { codigo_box_idx = Some(ci); }
+                        }
+                        if code_idx.is_none() {
+                            for (ci, cell) in row.iter().enumerate() {
+                                let txt = cell.to_lowercase();
+                                if txt.contains("codigo") || txt.contains("código") || txt.contains("cod") || txt.contains("seccion") || txt.contains("sección") { code_idx = Some(ci); break; }
+                            }
+                        }
+                        // Validate the detected column by checking later rows for digit presence
+                        if let Some(ci) = code_idx {
+                            let mut has_digits = false;
+                            for validate_row in rows_vec.iter().skip(ridx+1).take(6) {
+                                if let Some(cell) = validate_row.get(ci) {
+                                    if cell.chars().any(|ch| ch.is_ascii_digit()) { has_digits = true; break; }
+                                }
+                            }
+                            if !has_digits {
+                                code_idx = None;
+                                for (ci2, _) in row.iter().enumerate() {
+                                    let mut found = false;
+                                    for validate_row in rows_vec.iter().skip(ridx+1).take(6) {
+                                        if let Some(cell) = validate_row.get(ci2) {
+                                            if cell.chars().any(|ch| ch.is_ascii_digit()) { found = true; break; }
+                                        }
+                                    }
+                                    if found { code_idx = Some(ci2); break; }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
                 for (row_idx, row) in rows_vec.iter().enumerate() {
-                    if row_idx == 0 { continue; }  // skip header
                     if row.iter().all(|c| c.trim().is_empty()) { continue; }
-
-                    // Para OA2024: Columna 2 = Codigo, Columna 3 = Nombre, Columna 4 = Sección
+                    if let Some(h) = header_row_idx {
+                        if row_idx == h { continue; }
+                        let codigo = code_idx.and_then(|i| row.get(i)).map(|c| c.trim().to_string()).unwrap_or_default();
+                        let base_codigo = base_course_code(&codigo);
+                        if codigo.is_empty() { continue; }
+                        let nombre = name_idx.and_then(|i| row.get(i)).map(|c| c.trim().to_string()).unwrap_or_default();
+                        let seccion = seccion_idx.and_then(|i| row.get(i)).map(|c| c.trim().to_string()).unwrap_or_else(|| "1".to_string());
+                        let horario_str = horario_idx.and_then(|i| row.get(i)).map(|c| c.trim().to_string()).unwrap_or_default();
+                        let profesor = profesor_idx.and_then(|i| row.get(i)).map(|c| c.trim().to_string()).unwrap_or_else(|| "Sin asignar".to_string());
+                        let codigo_box = codigo_box_idx.and_then(|i| row.get(i)).map(|c| c.trim().to_string()).unwrap_or_else(|| codigo.clone());
+                        let horario: Vec<String> = if horario_str.is_empty() { vec!["Sin horario".to_string()] } else { horario_str.split(|c| c == ',' || c == ';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect() };
+                        raw_rows_zip.push(RawRow { codigo: codigo.clone(), nombre: nombre.clone(), seccion: seccion.clone(), horario, profesor, codigo_box: codigo_box.clone() });
+                        continue;
+                    }
+                    // fallback to fixed indexes
                     let codigo = row.get(1).cloned().unwrap_or_default().trim().to_string();
                     let base_codigo = base_course_code(&codigo);
                     if codigo.is_empty() { continue; }
-
                     let nombre = row.get(2).cloned().unwrap_or_else(|| "Sin nombre".to_string());
                     let seccion = row.get(3).cloned().unwrap_or_else(|| "1".to_string());
                     let horario_str = row.get(7).cloned().unwrap_or_default();
                     let profesor = row.get(9).cloned().unwrap_or_else(|| "Sin asignar".to_string());
                     let codigo_box = row.get(18).cloned().unwrap_or_else(|| codigo.clone());
-
-                    let horario: Vec<String> = if horario_str.is_empty() { 
-                        vec!["Sin horario".to_string()] 
-                    } else { 
-                        horario_str.split(|c| c == ',' || c == ';')
-                            .map(|s| s.trim().to_string())
-                            .filter(|s| !s.is_empty())
-                            .collect() 
-                    };
-
+                    let horario: Vec<String> = if horario_str.is_empty() { vec!["Sin horario".to_string()] } else { horario_str.split(|c| c == ',' || c == ';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect() };
                     raw_rows_zip.push(RawRow { codigo: codigo.clone(), nombre: nombre.clone(), seccion: seccion.clone(), horario, profesor, codigo_box: codigo_box.clone() });
                 }
 

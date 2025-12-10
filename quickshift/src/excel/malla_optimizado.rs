@@ -178,25 +178,25 @@ pub fn leer_malla_con_porcentajes_optimizado(
     }
 
     // PASO 2: Leer OA y validar existencia (no actualizamos código, solo verificamos match)
-    eprintln!("\n📖 PASO 2: Leyendo OA desde src/datafiles/OA2024.xlsx");
+    eprintln!("\n📖 PASO 2: Leyendo OA desde src/datafiles/OA20251.xlsx");
     
-    // Construir ruta correcta para OA2024 desde datafiles
+    // Construir ruta correcta para OA20251 desde datafiles
     let data_dir = crate::excel::get_datafiles_dir();
-    let oa_path = data_dir.join("OA2024.xlsx").to_string_lossy().to_string();
+    let oa_path = data_dir.join("OA20251.xlsx").to_string_lossy().to_string();
     
     let oa_rows = match crate::excel::io::read_sheet_via_zip(&oa_path, "") {
         Ok(rows) => rows,
         Err(e) => {
-            eprintln!("⚠️  OA2024.xlsx no encontrado en {}: {:?}", oa_path, e);
+            eprintln!("⚠️  OA20251.xlsx no encontrado en {}: {:?}", oa_path, e);
             eprintln!("   Continuando sin actualizar códigos desde OA");
             Vec::new()
         }
     };
     
     let mut oa_matched = 0;
-    // OA2024 tiene 1 encabezado (Row 0)
-    // Estructura: [Código Plan Estudio, Código, Nombre, Sección, ...]
-    // Índices: [0, 1, 2, 3, ...]
+    // OA20251 tiene 1 encabezado (Row 0)
+    // Estructura: [Asignatura, Nombre Asig., Créditos Asignatura, Asig. Referenciadas, Sección, Descrip. Evento, Horario, Profesor, ...]
+    // Índices: [0, 1, 2, 3, 4, 5, 6, 7, ...]
     for (idx, row) in oa_rows.iter().enumerate() {
         if idx == 0 { continue; } // Saltear encabezado
         if row.is_empty() || row.len() < 3 { continue; }
@@ -428,13 +428,13 @@ pub fn leer_mc_con_porcentajes_optimizado(
 
     eprintln!("✅ Prerequisitos convertidos de Correlativo a ID");
 
-    // PASO 3: Leer OA2024
-    eprintln!("\n📖 PASO 2: Leyendo OA desde OA2024.xlsx");
+    // PASO 3: Leer OA20251
+    eprintln!("\n📖 PASO 2: Leyendo OA desde OA20251.xlsx");
     
     let base_path = std::path::Path::new(malla_archivo)
         .parent()
         .unwrap_or_else(|| std::path::Path::new(""));
-    let oa_path = base_path.join("OA2024.xlsx").to_string_lossy().to_string();
+    let oa_path = base_path.join("OA20251.xlsx").to_string_lossy().to_string();
     
     let oa_rows = crate::excel::io::read_sheet_via_zip(&oa_path, "")?;
     
