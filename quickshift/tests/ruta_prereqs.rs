@@ -10,9 +10,9 @@ fn test_prereqs_produce_pert_edges() {
     let (ramos_map, nombre_malla, malla_leida) = get_ramo_critico();
     assert!(malla_leida, "La malla por defecto no fue leída, no se puede ejecutar el test");
 
-    let pr_map = match excel::get_prereqs_cached(&nombre_malla) {
-        Ok(arc_map) => (*arc_map).clone(),
-        Err(e) => panic!("falló get_prereqs_cached para {}: {}", nombre_malla, e),
+    let pr_map = match excel::leer_prerequisitos(&nombre_malla) {
+        Ok(map) => map,
+        Err(e) => panic!("falló leer_prerequisitos para {}: {}", nombre_malla, e),
     };
 
     if pr_map.is_empty() {

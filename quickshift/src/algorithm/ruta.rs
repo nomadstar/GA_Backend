@@ -30,20 +30,38 @@ use crate::algorithm::filters::solapan_horarios;
 use std::collections::{HashMap, HashSet};
 
 pub fn ejecutar_ruta_critica_with_params(
-    params: InputParams,
+    mut params: InputParams,
 ) -> Result<Vec<(Vec<(Seccion, i32)>, i64)>, Box<dyn Error>> {
     eprintln!("🔁 [ruta::ejecutar_ruta_critica_with_params] iniciando pipeline de 4 fases...");
+
+    // =========================================================================
+    // PHASE 0: Mapear códigos de ramos aprobados usando equivalencias
+    // =========================================================================
+    // Cargar equivalencias y mapear ramos_pasados
+    let (malla_pathbuf, oferta_pathbuf, porcentajes_pathbuf) = 
+        crate::excel::resolve_datafile_paths(&params.malla)?;
+    let malla_str = malla_pathbuf.to_string_lossy().to_string();
+    
+    match crate::excel::cargar_equivalencias(&malla_str) {
+        Ok(equivalencias) => {
+            if !equivalencias.is_empty() {
+                eprintln!("📋 PHASE 0: Mapeando ramos aprobados con equivalencias");
+                eprintln!("   ✓ {} equivalencias cargadas", equivalencias.len());
+                params.ramos_pasados = crate::excel::aplicar_equivalencias(&params.ramos_pasados, &equivalencias);
+                eprintln!("   ✓ Ramos pasados mapeados a códigos de malla actual");
+            }
+        }
+        Err(e) => {
+            eprintln!("   ⚠️  No se pudieron cargar equivalencias: {}", e);
+        }
+    }
 
     // =========================================================================
     // PHASE 1: getRamoCritico + PERT
     // =========================================================================
     eprintln!("📋 PHASE 1: getRamoCritico + PERT");
     
-    // 1a) Resolver paths de datafiles
-    let (malla_pathbuf, oferta_pathbuf, porcentajes_pathbuf) = 
-        crate::excel::resolve_datafile_paths(&params.malla)?;
-
-    let malla_str = malla_pathbuf.to_string_lossy().to_string();
+    // 1a) Resolver paths de datafiles (ya hecho arriba, reutilizar)
     let oferta_str = oferta_pathbuf.to_string_lossy().to_string();
     let porcentajes_str = porcentajes_pathbuf.to_string_lossy().to_string();
 

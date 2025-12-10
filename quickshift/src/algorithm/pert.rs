@@ -112,10 +112,9 @@ pub fn build_and_run_pert(
 
     let malla_path = malla_pathbuf.to_str().unwrap_or(malla_name).to_string();
 
-    // Intentar obtener prerequisitos desde el caché en memoria; si falla,
+    // Intentar obtener prerequisitos directamente sin caché; si falla,
     // el error se propaga y no añadimos aristas por prereqs.
-    if let Ok(pr_map_arc) = crate::excel::get_prereqs_cached(&malla_path) {
-        let pr_map: &std::collections::HashMap<String, Vec<String>> = &*pr_map_arc;
+    if let Ok(pr_map) = crate::excel::leer_prerequisitos(&malla_path) {
         // construir índice: ID (i32) -> NodeIndex
         let mut id_to_node: HashMap<i32, NodeIndex> = HashMap::new();
         for (id, idx) in node_map.iter() {

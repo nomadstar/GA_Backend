@@ -36,6 +36,7 @@ mod asignatura;
 // Re-exports: helpers de IO son internos al crate; exponemos sólo las funciones de alto nivel
 // helpers internos — no exportarlos públicamente
 // funciones de alto nivel que sí usa `algorithm`
+pub use io::normalize_name;
 pub use malla::leer_malla_excel;
 pub use malla::leer_malla_excel_with_sheet;
 pub use malla::leer_prerequisitos;
@@ -51,15 +52,6 @@ pub use oferta::resumen_oferta_academica;
 pub use asignatura::asignatura_from_nombre;
 pub use mapeo_builder::construir_mapeo_maestro;
 pub use mapeo::{MapeoMaestro, MapeoAsignatura};
-// Caché para lecturas pesadas de Excel (prerequisitos por malla)
-pub mod cache;
-pub use cache::get_prereqs_cached;
-pub use cache::get_prereq_cache_stats;
-pub use cache::persist_cache_stats_to_db;
-// Normalizadores expuestos para que otros módulos (algorithm, ruta) los puedan usar
-// Re-exportar los helpers de normalización desde el submódulo `io` para que sean
-// accesibles fuera del módulo `excel` sin exponer el módulo `io` completo.
-pub use io::normalize_name;
 
 use std::path::{Path, PathBuf};
 use std::fs;
@@ -483,3 +475,69 @@ pub fn enrich_ramo_with_congruencias(
         }
     }
 }
+
+/// Carga las equivalencias entre códigos de cursos desde la hoja "Equivalencias" de una malla Excel.
+/// 
+/// Retorna un HashMap donde la clave es el código "antiguo" (ej: CIG1014)
+/// y el valor es el código "nuevo" en la malla actual (ej: CIG1003).
+pub fn cargar_equivalencias(ruta_malla: &str) -> Result<std::collections::HashMap<String, String>, Box<dyn Error>> {
+    use calamine::{open_workbook_auto, Reader, Data};
+    use std::collections::HashMap;
+    
+    let mut workbook = open_workbook_auto(ruta_malla)?;
+    let mut equivalencias = HashMap::new();
+    
+    // Intentar cargar la hoja "Equivalencias"
+    match workbook.worksheet_range("Equivalencias") {
+        Ok(range) => {
+            for row in range.rows().skip(1) { // Saltar encabezado
+                if row.len() >= 2 {
+                    let col0 = match &row[0] {
+                        Data::String(s) => Some(s.clone()),
+                        Data::Int(i) => Some(i.to_string()),
+                        _ => None,
+                    };
+                    let col1 = match &row[1] {
+                        Data::String(s) => Some(s.clone()),
+                        Data::Int(i) => Some(i.to_string()),
+                        _ => None,
+                    };
+                    
+                    if let (Some(codigo_antiguo), Some(codigo_nuevo)) = (col0, col1) {
+                        equivalencias.insert(
+                            codigo_antiguo.to_uppercase().trim().to_string(),
+                            codigo_nuevo.to_uppercase().trim().to_string(),
+                        );
+                    }
+                }
+            }
+            eprintln!("✅ {} equivalencias cargadas desde hoja 'Equivalencias'", equivalencias.len());
+        }
+        Err(_) => {
+            eprintln!("⚠️  No se encontró hoja 'Equivalencias' en {}", ruta_malla);
+        }
+    }
+    
+    Ok(equivalencias)
+}
+
+/// Mapea códigos de cursos aprobados a sus equivalentes en la malla actual.
+/// Si un código está en las equivalencias, lo reemplaza por su equivalente.
+/// Si no tiene equivalencia, lo deja como está.
+pub fn aplicar_equivalencias(
+    codigos: &[String],
+    equivalencias: &std::collections::HashMap<String, String>,
+) -> Vec<String> {
+    // Procesamiento secuencial directo
+    codigos
+        .iter()
+        .map(|codigo| {
+            let codigo_upper = codigo.to_uppercase();
+            equivalencias
+                .get(&codigo_upper)
+                .cloned()
+                .unwrap_or(codigo_upper)
+        })
+        .collect()
+}
+
