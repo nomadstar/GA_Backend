@@ -256,13 +256,13 @@ pub fn ejecutar_ruta_critica_with_params(
     // Si no se seleccionó nada (caso extremo), mantener las mejores hasta 10
     if seleccionadas.is_empty() {
         eprintln!("   ⚠️  No se encontraron soluciones por longitud; devolviendo las mejores disponibles");
-        seleccionadas = soluciones_filtradas.into_iter().take(10).collect();
+        seleccionadas = soluciones_filtradas.into_iter().take(20).collect();
     }
 
     let soluciones_filtradas_count = seleccionadas.len();
     eprintln!("   ✓ soluciones que cumplen filtros (seleccionadas): {}", soluciones_filtradas_count);
 
-    let resultado: Vec<_> = seleccionadas.into_iter().take(10).collect();
+    let resultado: Vec<_> = seleccionadas.into_iter().take(20).collect();
     
     // =====================================================================
     // VALIDACIÓN CRÍTICA - LEY FUNDAMENTAL

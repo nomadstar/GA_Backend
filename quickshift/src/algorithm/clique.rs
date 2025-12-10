@@ -697,10 +697,10 @@ pub fn get_clique_max_pond_with_prefs(
     // - Si hay muy pocas secciones viables permitimos más reutilización/iteraciones
     // - El valor dinámico evita que en casos moderados la búsqueda quede demasiado limitada
     let max_iterations = if should_allow_reuse {
-        200usize
+        400usize  // Aumentado de 200
     } else {
-        let computed = std::cmp::max(100usize, n.saturating_mul(10));
-        std::cmp::min(computed, 2000usize)
+        let computed = std::cmp::max(200usize, n.saturating_mul(15));  // Multiplicador aumentado
+        std::cmp::min(computed, 5000usize)  // Límite máximo aumentado de 2000
     };
 
     eprintln!("   [DEBUG] n={}, should_allow_reuse={}, max_iterations={} (OPTIMIZED)", n, should_allow_reuse, max_iterations);
@@ -710,21 +710,21 @@ pub fn get_clique_max_pond_with_prefs(
     
     for _iteration in 0..max_iterations {
         // EARLY TERMINATION LOGIC:
-        // Si tenemos 10 soluciones con 6 cursos cada una -> PARAR (son ÓPTIMAS)
+        // Si tenemos 15+ soluciones con 6 cursos cada una -> PARAR (son ÓPTIMAS, garantizamos mínimo 10)
         let optimal_solutions_count = all_solutions.iter().filter(|(sol, _)| sol.len() == 6).count();
-        if optimal_solutions_count >= 10 {
+        if optimal_solutions_count >= 15 {
             eprintln!("   [OPTIMIZATION] Early termination: {} optimal 6-course solutions found", optimal_solutions_count);
             break;
         }
         
-        // O si tenemos 10+ soluciones totales (para casos donde no hay 6-course solutions posibles)
-        if all_solutions.len() >= 10 {
-            break;  // Ya tenemos suficientes soluciones
+        // O si tenemos 15+ soluciones totales (para casos donde no hay 6-course solutions posibles)
+        if all_solutions.len() >= 15 {
+            break;  // Ya tenemos suficientes soluciones (15+ para retornar 10)
         }
         
         if remaining_indices.is_empty() {
             // Si permitimos reutilización y no hay más nodos únicos, reinicializar
-            if should_allow_reuse && all_solutions.len() < 10 && n > 0 {
+            if should_allow_reuse && all_solutions.len() < 15 && n > 0 {
                 remaining_indices = (0..n).collect();
                 consecutive_empty_resets += 1;
                 
@@ -871,11 +871,11 @@ pub fn get_clique_max_pond_with_prefs(
     }
 
     // Si la búsqueda greedy no produjo suficientes soluciones, usar el enumerador
-    // exhaustivo como fallback para aumentar diversidad (hasta 10 soluciones).
-    if all_solutions.len() < 10 {
+    // exhaustivo como fallback para aumentar diversidad (hasta 15 soluciones para garantizar 10).
+    if all_solutions.len() < 15 {
         eprintln!("   [FALLBACK] Solo {} soluciones desde greedy; ejecutando enumerador exhaustivo para aumentar diversidad...", all_solutions.len());
-        // Generar combinaciones adicionales (limit razonable para tiempo)
-        let mut extras = get_all_clique_combinations_with_pert(&filtered, ramos_disponibles, params, 6usize, 2000usize);
+        // Generar combinaciones adicionales (limit aumentado para garantizar 10+)
+        let mut extras = get_all_clique_combinations_with_pert(&filtered, ramos_disponibles, params, 6usize, 5000usize);
         // Mezclar sin duplicados (comparando por codigo_box ordenado)
         for (sol, total) in extras.drain(..) {
             let mut keys: Vec<String> = sol.iter().map(|(s, _)| s.codigo_box.clone()).collect();
@@ -892,7 +892,7 @@ pub fn get_clique_max_pond_with_prefs(
             if !is_dup {
                 all_solutions.push((sol, total));
             }
-            if all_solutions.len() >= 10 { break; }
+            if all_solutions.len() >= 15 { break; }
         }
         eprintln!("   [FALLBACK] now have {} solutions after merging extras", all_solutions.len());
     }
@@ -901,17 +901,40 @@ pub fn get_clique_max_pond_with_prefs(
     all_solutions.sort_by(|a, b| b.1.cmp(&a.1));
     
     // ESTRATEGIA DE FILTRADO INTELIGENTE:
-    // Si hay soluciones con 6 cursos (ÓPTIMAS), mantener SOLO esas (máximo 10)
-    // Si no, mantener las mejores diversas (máximo 10)
+    // Si hay soluciones con 6 cursos (ÓPTIMAS), mantener SOLO esas si hay >= 10
+    // Si hay óptimas pero < 10, complementar con subóptimas hasta llegar a 10
+    // Si no hay óptimas, mantener las mejores diversas (mínimo 10, máximo 20)
     let has_six_course_solutions = all_solutions.iter().any(|(sol, _)| sol.len() == 6);
     if has_six_course_solutions {
-        // Filtrar: mantener solo soluciones con 6 cursos, máximo 10
-        all_solutions.retain(|(sol, _)| sol.len() == 6);
-        all_solutions.truncate(10);
-        eprintln!("✅ [clique] {} soluciones ÓPTIMAS (6 ramos cada una, STRATEGY=MAX_COURSES)", all_solutions.len());
+        // Separar soluciones óptimas y subóptimas
+        let optimal: Vec<_> = all_solutions.iter().cloned().filter(|(sol, _)| sol.len() == 6).collect();
+        let mut suboptimal: Vec<_> = all_solutions.iter().cloned().filter(|(sol, _)| sol.len() != 6).collect();
+        let optimal_count = optimal.len();
+        
+        // Si tenemos >= 10 óptimas, usar solo esas (máximo 20)
+        if optimal.len() >= 10 {
+            let mut result = optimal;
+            if result.len() > 20 {
+                result.truncate(20);
+            }
+            all_solutions = result;
+            eprintln!("✅ [clique] {} soluciones ÓPTIMAS (6 ramos cada una, STRATEGY=MAX_COURSES)", all_solutions.len());
+        } else {
+            // Si tenemos < 10 óptimas, complementar con subóptimas
+            suboptimal.sort_by(|a, b| b.1.cmp(&a.1));  // Ordenar subóptimas por score
+            let mut result = optimal;
+            for (sol, score) in suboptimal {
+                if result.len() >= 20 { break; }
+                result.push((sol, score));
+            }
+            eprintln!("✅ [clique] {} soluciones ({} ÓPTIMAS + {} subóptimas)", result.len(), optimal_count, result.len() - optimal_count);
+            all_solutions = result;
+        }
     } else {
-        // Si no hay soluciones con 6 cursos, mantener las mejores 10
-        all_solutions.truncate(10);
+        // Si no hay soluciones con 6 cursos, mantener las mejores, mínimo 10 máximo 20
+        if all_solutions.len() > 20 {
+            all_solutions.truncate(20);
+        }
         eprintln!("✅ [clique] {} soluciones (max_weight_clique, max 6 ramos, sin 6-ramo solutions)", all_solutions.len());
     }
     
@@ -928,7 +951,7 @@ pub fn get_clique_with_user_prefs(
     // max_size=6 (carga por semestre), limit aumentado para mayor variedad
     // pero determinista: enumerador usa orden fijo basado en prioridades PERT
     let max_size = 6usize;
-    let limit = 2000usize; // aumentar para diversidad sin explotar tiempo
+    let limit = 5000usize; // aumentado de 2000 para garantizar 10+ soluciones
     get_all_clique_combinations_with_pert(lista_secciones, ramos_disponibles, params, max_size, limit)
 }
 

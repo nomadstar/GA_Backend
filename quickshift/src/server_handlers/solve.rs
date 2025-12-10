@@ -80,7 +80,7 @@ pub async fn solve_handler(req: HttpRequest, body: web::Json<serde_json::Value>)
 
     // Convertir Vec<(Vec<(Seccion, i32)>, i64)> a Vec<SolutionEntry>
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
-    for (sol_with_prefs, score) in soluciones.iter().take(10) {
+    for (sol_with_prefs, score) in soluciones.iter().take(20) {
         let final_secs: Vec<Seccion> = sol_with_prefs.iter()
             .map(|(sec, _pref)| sec.clone())
             .collect();
@@ -162,7 +162,7 @@ pub async fn solve_get_handler(query: web::Query<std::collections::HashMap<Strin
     };
 
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
-    for (sol_with_prefs, score) in soluciones.iter().take(10) {
+    for (sol_with_prefs, score) in soluciones.iter().take(20) {
         let final_secs: Vec<Seccion> = sol_with_prefs.iter()
             .map(|(sec, _pref)| sec.clone())
             .collect();
