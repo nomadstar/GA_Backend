@@ -12,12 +12,14 @@ fn test_malla2020_sin_ramos_aprobados() {
         ramos_pasados: vec![], // ❌ VACÍO
         ramos_prioritarios: vec![],
         horarios_preferidos: vec![],
+        horarios_prohibidos: vec![],
         malla: "Malla2020.xlsx".to_string(), // ⚠️ Malla2020, no MiMalla
         anio: None,
         sheet: None,
         student_ranking: Some(0.75),
         ranking: None,
         filtros: None,
+        optimizations: vec![],
     };
 
     println!("\n📋 Parámetros:");

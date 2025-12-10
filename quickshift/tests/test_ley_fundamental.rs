@@ -223,12 +223,14 @@ mod test_ley_fundamental {
             ramos_pasados: ramos_aprobados.clone(),
             ramos_prioritarios: vec![],
             horarios_preferidos: vec![],
+            horarios_prohibidos: vec![],
             malla: "MiMalla.xlsx".to_string(),
             anio: None,
             sheet: None,
             student_ranking: Some(0.75),
             ranking: None,
             filtros: None,
+            optimizations: vec![],
         };
 
         let soluciones_sin_filtros = match ejecutar_ruta_critica_with_params(params_sin_filtros) {
@@ -270,12 +272,14 @@ mod test_ley_fundamental {
             ramos_pasados: ramos_aprobados.clone(),
             ramos_prioritarios: vec![],
             horarios_preferidos: vec![],
+            horarios_prohibidos: vec![],
             malla: "MiMalla.xlsx".to_string(),
             anio: None,
             sheet: None,
             student_ranking: Some(0.75),
             ranking: None,
             filtros: Some(filtros_con_restriccion),
+            optimizations: vec![],
         };
 
         let soluciones_con_filtros = match ejecutar_ruta_critica_with_params(params_con_filtros) {
@@ -405,12 +409,14 @@ mod test_ley_fundamental {
             ramos_pasados: ramos_aprobados,
             ramos_prioritarios: vec![],
             horarios_preferidos: vec![],
+            horarios_prohibidos: vec![],
             malla: "MiMalla.xlsx".to_string(),
             anio: None,
             sheet: None,
             student_ranking: Some(0.75),
             ranking: None,
             filtros: Some(filtros),
+            optimizations: vec![],
         };
 
         println!("📋 Parámetros:");

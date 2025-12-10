@@ -11,12 +11,14 @@ fn test_solutions_have_section_diversity() {
         ramos_pasados: vec![],
         ramos_prioritarios: vec![],
         horarios_preferidos: vec![],
+        horarios_prohibidos: vec![],
         malla: "MC2020.xlsx".to_string(),
         anio: None,
         sheet: None,
         student_ranking: Some(0.5),
         ranking: None,
         filtros: None,
+        optimizations: vec![],
     };
 
     let soluciones = match ejecutar_ruta_critica_with_params(params) {

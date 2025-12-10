@@ -12,12 +12,14 @@ fn test_debug_sin_ramos_aprobados() {
         ramos_pasados: vec![], // ❌ VACÍO
         ramos_prioritarios: vec![],
         horarios_preferidos: vec![],
+        horarios_prohibidos: vec![],
         malla: "MiMalla.xlsx".to_string(),
         anio: None,
         sheet: None,
         student_ranking: Some(0.75),
         ranking: None,
         filtros: None,
+        optimizations: vec![],
     };
 
     println!("\n📋 Parámetros:");
@@ -75,12 +77,14 @@ fn test_debug_con_calculo_i() {
         ramos_pasados: vec!["CBM1001".to_string()], // ✅ Cálculo I
         ramos_prioritarios: vec![],
         horarios_preferidos: vec![],
+        horarios_prohibidos: vec![],
         malla: "MiMalla.xlsx".to_string(),
         anio: None,
         sheet: None,
         student_ranking: Some(0.75),
         ranking: None,
         filtros: None,
+        optimizations: vec![],
     };
 
     println!("\n📋 Parámetros:");

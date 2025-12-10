@@ -20,12 +20,14 @@ fn test_clique_filters_courses_without_prerequisites() {
         ramos_pasados: vec!["CBM1000".to_string(), "CBM1001".to_string(), "CBQ1000".to_string()], 
         ramos_prioritarios: vec![],
         horarios_preferidos: vec![],
+        horarios_prohibidos: vec![],
         malla: "MiMalla.xlsx".to_string(),
         anio: None,
         sheet: None,
         student_ranking: Some(0.75),
         ranking: None,
         filtros: None,
+        optimizations: vec![],
     };
     
     eprintln!("📋 Parámetros:");
@@ -96,12 +98,14 @@ fn test_clique_includes_courses_with_met_prerequisites() {
         ramos_pasados: vec!["CBM1000".to_string()], // Álgebra aprobada
         ramos_prioritarios: vec![], // Sin preferencias
         horarios_preferidos: vec![],
+        horarios_prohibidos: vec![],
         malla: "MiMalla.xlsx".to_string(),
         anio: None,
         sheet: None,
         student_ranking: Some(0.75),
         ranking: None,
         filtros: None,
+        optimizations: vec![],
     };
     
     eprintln!("📋 Parámetros:");
