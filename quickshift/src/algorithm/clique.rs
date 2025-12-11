@@ -520,7 +520,7 @@ pub fn get_clique_max_pond_with_prefs(
     let passed: HashSet<_> = params.ramos_pasados.iter().cloned().collect();
 
     let mut filtered: Vec<Seccion> = lista_secciones.iter().filter(|s| {
-        if passed.contains(&s.codigo_box) { return false; }
+        if passed.contains(&s.codigo) { return false; }  // Filtrar por código de curso, NO por codigo_box (package ID)
         
         // Intentar encontrar el ramo por CÓDIGO primero
         if let Some(r) = ramos_disponibles.values().find(|r| r.codigo == s.codigo) {

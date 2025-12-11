@@ -188,16 +188,20 @@ pub fn leer_prerequisitos(nombre_archivo: &str) -> Result<HashMap<String, Vec<St
             // Detectar índices de columnas en la hoja de prereqs (si existe header)
             let mut codigo_col: usize = 0;
             let mut prereq_col: usize = 1; // fallback histórico
+            let mut abre_col: Option<usize> = None; // Para "Abre la/s asignatura/s:" (inverso)
             let rows: Vec<_> = range.rows().collect();
             if !rows.is_empty() {
                 let header = rows[0];
                 for (i, cell) in header.iter().enumerate() {
                     let s = data_to_string(cell).to_lowercase();
-                    if s.contains("código") || s.contains("codigo") || s.contains("id") {
+                    if s.contains("código") || s.contains("codigo") || s.contains("num") {
                         codigo_col = i;
                     }
                     if s.contains("requisito") || s.contains("requisitos") || s.contains("requerimiento") {
                         prereq_col = i;
+                    }
+                    if s.contains("abre") {
+                        abre_col = Some(i);
                     }
                 }
             }
@@ -205,15 +209,37 @@ pub fn leer_prerequisitos(nombre_archivo: &str) -> Result<HashMap<String, Vec<St
             for (row_idx, row) in range.rows().enumerate() {
                 if row_idx == 0 { continue; }
                 let codigo = data_to_string(row.get(codigo_col).unwrap_or(&Data::Empty));
-                let raw_pr = data_to_string(row.get(prereq_col).unwrap_or(&Data::Empty));
-                if codigo.is_empty() || raw_pr.is_empty() { continue; }
-                // separar por comas o punto y coma
-                let mut list: Vec<String> = raw_pr.split(|c| c==',' || c==';')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                if !list.is_empty() {
-                    map.entry(codigo.clone()).or_insert_with(Vec::new).append(&mut list);
+                
+                if codigo.is_empty() { continue; }
+                
+                // CASO 1: Si existe columna "Abre", es relación inversa (Malla2020 style)
+                // "Abre la/s asignatura/s:" contiene IDs que ESTE curso abre
+                // Por lo tanto, ESTE curso es prerequisito de esos
+                if let Some(ac) = abre_col {
+                    let raw_abre = data_to_string(row.get(ac).unwrap_or(&Data::Empty));
+                    if !raw_abre.is_empty() && raw_abre != "0" {
+                        let abre_ids: Vec<String> = raw_abre.split(|c| c==',' || c==';')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty() && s != "0")
+                            .collect();
+                        
+                        // Por cada ID que este curso abre, ese ID REQUIERE este curso
+                        for abre_id in abre_ids {
+                            map.entry(abre_id).or_insert_with(Vec::new).push(codigo.clone());
+                        }
+                    }
+                } else {
+                    // CASO 2: Si no hay "Abre", leer columna de prerequisitos normalmente
+                    let raw_pr = data_to_string(row.get(prereq_col).unwrap_or(&Data::Empty));
+                    if !raw_pr.is_empty() {
+                        let mut list: Vec<String> = raw_pr.split(|c| c==',' || c==';')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        if !list.is_empty() {
+                            map.entry(codigo.clone()).or_insert_with(Vec::new).append(&mut list);
+                        }
+                    }
                 }
             }
         }
