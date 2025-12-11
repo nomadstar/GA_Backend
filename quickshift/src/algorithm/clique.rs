@@ -999,10 +999,18 @@ pub fn get_clique_with_user_prefs(
     params: &InputParams,
 ) -> Vec<(Vec<(Seccion, i32)>, i64)> {
     // Usar enumerador exhaustivo limitado para generar combinaciones diversas
-    // max_size=6 (carga por semestre), limit aumentado para mayor variedad
-    // pero determinista: enumerador usa orden fijo basado en prioridades PERT
+    // Optimizar el límite de iteraciones según el número de secciones
+    // para respuestas rápidas (< 5 segundos en clique)
     let max_size = 6usize;
-    let limit = 5000usize; // aumentado de 2000 para garantizar 10+ soluciones
+    let n_secciones = lista_secciones.len();
+    let limit = if n_secciones < 50 {
+        5000usize  // Pocos cursos = buscar más
+    } else if n_secciones < 150 {
+        2000usize  // Moderado = balancear rapidez vs diversidad
+    } else {
+        1000usize  // Muchos cursos = priorizar rapidez
+    };
+    eprintln!("   [CLIQUE-OPT] secciones={}, limit={}", n_secciones, limit);
     get_all_clique_combinations_with_pert(lista_secciones, ramos_disponibles, params, max_size, limit)
 }
 
