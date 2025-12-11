@@ -262,11 +262,11 @@ fn requisitos_cumplidos(
     }
     
     // Todos los requisitos están cumplidos
-    eprintln!(
-        "✅ [prerequisitos] {} ✓ todos los {} requisitos cumplidos",
-        ramo.nombre,
-        ramo.requisitos_ids.len()
-    );
+    // eprintln!(
+    //     "✅ [prerequisitos] {} ✓ todos los {} requisitos cumplidos",
+    //     ramo.nombre,
+    //     ramo.requisitos_ids.len()
+    // );
     true
 }
 

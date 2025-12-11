@@ -65,6 +65,7 @@ pub fn leer_malla_con_porcentajes_optimizado(
     let mut id_col_idx: usize = 0; // fallback antiguo
     let mut semestre_col_idx: Option<usize> = None; // Nueva columna
     let mut requisitos_col_idx: Option<usize> = None; // Columna para leer requisitos previos
+    let mut abre_col_idx: Option<usize> = None; // Columna "Abre la/s asignatura/s:" (inversa)
     
     eprintln!("DEBUG: malla_rows.len()={}", malla_rows.len());
     if !malla_rows.is_empty() {
@@ -86,7 +87,7 @@ pub fn leer_malla_con_porcentajes_optimizado(
                     name_col_idx = j;
                 }
             }
-            if lower.contains("id") || lower.contains("ident") || lower.contains("codigo") || lower.contains("código") {
+            if lower.contains("id") || lower.contains("ident") || lower.contains("codigo") || lower.contains("código") || lower.contains("correlativo") {
                 header_row_idx = Some(i);
                 // si aún no tenemos id_col, tomar este
                 id_col_idx = j;
@@ -96,10 +97,16 @@ pub fn leer_malla_con_porcentajes_optimizado(
                 semestre_col_idx = Some(j);
                 eprintln!("DEBUG: Found 'semestre' at row {} col {}", i, j);
             }
-            if lower.contains("requisito") {
+            if lower.contains("requisito") && !lower.contains("abre") {
                 header_row_idx = Some(i);
                 requisitos_col_idx = Some(j);
                 eprintln!("DEBUG: Found 'requisitos' at row {} col {}", i, j);
+            }
+            // NUEVA: detectar columna "Abre" (relación inversa)
+            if lower.contains("abre") {
+                header_row_idx = Some(i);
+                abre_col_idx = Some(j);
+                eprintln!("DEBUG: Found 'abre' at row {} col {}", i, j);
             }
         }
     }
@@ -127,12 +134,15 @@ pub fn leer_malla_con_porcentajes_optimizado(
         });
         
         // Leer requisitos si está disponible (IDs de ramos prerequisitos)
-        // Formato: puede ser "1", "1.2", "1,2", etc.
-        let requisitos_ids = requisitos_col_idx.and_then(|col| {
+        // Existen dos formas:
+        // 1. Columna directa "requisito" → IDs que este ramo requiere
+        // 2. Columna "Abre" → IDs que ESTE RAMO ABRE (relación inversa: esos IDs nos requieren)
+        let requisitos_ids = if let Some(col) = requisitos_col_idx {
+            // CASO 1: Columna directa de requisitos
             row.get(col).and_then(|req_str| {
                 let trimmed = req_str.trim();
-                // Si es "—" o vacío, no hay requisito
-                if trimmed.is_empty() || trimmed == "—" {
+                // Si es "—" o "0" o vacío, no hay requisito
+                if trimmed.is_empty() || trimmed == "—" || trimmed == "0" {
                     return Some(vec![]);
                 }
                 
@@ -147,8 +157,19 @@ pub fn leer_malla_con_porcentajes_optimizado(
                 } else {
                     Some(ids)
                 }
-            })
-        }).unwrap_or_default();
+            }).unwrap_or_default()
+        } else if let Some(col) = abre_col_idx {
+            // CASO 2: Columna "Abre" (relación inversa)
+            // Si ESTE ramo ABRE cursos [7, 8, 28], significa:
+            // - Ramo 7 REQUIERE este ramo
+            // - Ramo 8 REQUIERE este ramo
+            // - Ramo 28 REQUIERE este ramo
+            // Pero en el contexto actual, lo que queremos es: este ramo es prerequisito de [7,8,28]
+            // Por ahora, ignora esto a nivel de requisitos_ids (se maneja después en PERT)
+            vec![]
+        } else {
+            vec![]
+        };
 
         let norm_name = normalize(&nombre_real);
         if !norm_name.is_empty() && norm_name != "—" {
