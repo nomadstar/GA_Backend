@@ -6,7 +6,6 @@ use std::sync::OnceLock;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use num_cpus;
-use std::thread;
 
 #[derive(serde::Deserialize)]
 struct SolveRequest {
@@ -79,56 +78,29 @@ pub async fn solve_handler(req: HttpRequest, body: web::Json<serde_json::Value>)
         Err(err_msg) => return HttpResponse::InternalServerError().json(json!({"error": err_msg})),
     };
 
-    // Cargar códigos disponibles
-    let available_codes = Arc::new(match crate::excel::oferta::get_available_course_codes("OA20251_normalizado.xlsx") {
+    // Cargar códigos disponibles UNA SOLA VEZ (lo más rápido posible)
+    let available_codes = match crate::excel::oferta::get_available_course_codes("OA20251_normalizado.xlsx") {
         Ok(codes) => codes,
         Err(e) => {
             eprintln!("Warning: Could not load available course codes: {}", e);
             std::collections::HashSet::new()
         }
-    });
+    };
 
-    // Procesar soluciones en threads paralelos
-    let num_threads = num_cpus::get().min(4); // Limitar a 4 threads máximo
-    let chunk_size = (soluciones.len() + num_threads - 1) / num_threads;
-    
-    let mut handles = Vec::new();
-    for chunk in soluciones.chunks(chunk_size) {
-        let available_codes_clone = available_codes.clone();
-        let chunk_vec = chunk.to_vec();
+    // Convertir Vec<(Vec<(Seccion, i32)>, i64)> a Vec<SolutionEntry> con filtrado rápido
+    let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
+    for (sol_with_prefs, score) in soluciones.iter().take(20) {
+        // Filtrar solo las secciones cuyo código existe en la oferta académica
+        let final_secs: Vec<Seccion> = sol_with_prefs.iter()
+            .filter(|(sec, _pref)| available_codes.contains(&sec.codigo))
+            .map(|(sec, _pref)| sec.clone())
+            .collect();
         
-        let handle = thread::spawn(move || {
-            chunk_vec
-                .iter()
-                .take(20)
-                .filter_map(|(sol_with_prefs, score)| {
-                    let final_secs: Vec<Seccion> = sol_with_prefs
-                        .iter()
-                        .filter(|(sec, _pref)| available_codes_clone.contains(&sec.codigo))
-                        .map(|(sec, _pref)| sec.clone())
-                        .collect();
-                    
-                    if !final_secs.is_empty() {
-                        Some(SolutionEntry { total_score: *score, secciones: final_secs })
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-        });
-        handles.push(handle);
-    }
-    
-    // Recolectar resultados
-    let mut soluciones_serial = Vec::new();
-    for handle in handles {
-        if let Ok(chunk_results) = handle.join() {
-            soluciones_serial.extend(chunk_results);
+        // Solo agregar la solución si tiene al menos una sección válida
+        if !final_secs.is_empty() {
+            soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
         }
     }
-    
-    // Limitar a 20 soluciones finales
-    soluciones_serial.truncate(20);
 
     let documentos = 2usize;
 
@@ -204,56 +176,28 @@ pub async fn solve_get_handler(query: web::Query<std::collections::HashMap<Strin
         Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("ruta_critica failed: {}", e)})),
     };
 
-    // Cargar códigos disponibles
-    let available_codes = Arc::new(match crate::excel::oferta::get_available_course_codes("OA20251_normalizado.xlsx") {
+    // Cargar códigos disponibles UNA SOLA VEZ (lo más rápido posible)
+    let available_codes = match crate::excel::oferta::get_available_course_codes("OA20251_normalizado.xlsx") {
         Ok(codes) => codes,
         Err(e) => {
             eprintln!("Warning: Could not load available course codes: {}", e);
             std::collections::HashSet::new()
         }
-    });
+    };
 
-    // Procesar soluciones en threads paralelos
-    let num_threads = num_cpus::get().min(4); // Limitar a 4 threads máximo
-    let chunk_size = (soluciones.len() + num_threads - 1) / num_threads;
-    
-    let mut handles = Vec::new();
-    for chunk in soluciones.chunks(chunk_size) {
-        let available_codes_clone = available_codes.clone();
-        let chunk_vec = chunk.to_vec();
+    let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
+    for (sol_with_prefs, score) in soluciones.iter().take(20) {
+        // Filtrar solo las secciones cuyo código existe en la oferta académica
+        let final_secs: Vec<Seccion> = sol_with_prefs.iter()
+            .filter(|(sec, _pref)| available_codes.contains(&sec.codigo))
+            .map(|(sec, _pref)| sec.clone())
+            .collect();
         
-        let handle = thread::spawn(move || {
-            chunk_vec
-                .iter()
-                .take(20)
-                .filter_map(|(sol_with_prefs, score)| {
-                    let final_secs: Vec<Seccion> = sol_with_prefs
-                        .iter()
-                        .filter(|(sec, _pref)| available_codes_clone.contains(&sec.codigo))
-                        .map(|(sec, _pref)| sec.clone())
-                        .collect();
-                    
-                    if !final_secs.is_empty() {
-                        Some(SolutionEntry { total_score: *score, secciones: final_secs })
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-        });
-        handles.push(handle);
-    }
-    
-    // Recolectar resultados
-    let mut soluciones_serial = Vec::new();
-    for handle in handles {
-        if let Ok(chunk_results) = handle.join() {
-            soluciones_serial.extend(chunk_results);
+        // Solo agregar la solución si tiene al menos una sección válida
+        if !final_secs.is_empty() {
+            soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
         }
     }
-    
-    // Limitar a 20 soluciones finales
-    soluciones_serial.truncate(20);
 
     let documentos = 2usize;
 
