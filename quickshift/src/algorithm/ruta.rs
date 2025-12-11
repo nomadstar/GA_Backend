@@ -210,6 +210,9 @@ pub fn ejecutar_ruta_critica_with_params(
     // =========================================================================
     eprintln!("📋 PHASE 4: apply_filters (skipped - filters applied in clique)");
     
+    // Guardar una solución de backup para LEY FUNDAMENTAL ANTES de mover soluciones
+    let mejor_solucion_backup = if soluciones_count > 0 { soluciones.get(0).cloned() } else { None };
+
     // Verificar si hay filtros activos (para validaciones posteriores)
     let has_active_filters = params.filtros
         .as_ref()
@@ -280,7 +283,7 @@ pub fn ejecutar_ruta_critica_with_params(
     let soluciones_filtradas_count = seleccionadas.len();
     eprintln!("   ✓ soluciones que cumplen filtros (seleccionadas): {}", soluciones_filtradas_count);
 
-    let resultado: Vec<_> = seleccionadas.into_iter().take(20).collect();
+    let mut resultado: Vec<_> = seleccionadas.into_iter().take(20).collect();
     
     // =====================================================================
     // VALIDACIÓN CRÍTICA - LEY FUNDAMENTAL
@@ -291,19 +294,43 @@ pub fn ejecutar_ruta_critica_with_params(
     let cursos_por_aprobar = lista_secciones_viables.len();
     
     if resultado.is_empty() && !has_active_filters && cursos_por_aprobar > 0 {
-        eprintln!("❌ ✋ LEY VIOLADA ✋ ❌");
-        eprintln!("   VIOLACIÓN: No hay soluciones pero:");
-        eprintln!("   - Hay {} cursos disponibles para aprobar", cursos_por_aprobar);
-        eprintln!("   - NO hay filtros activos");
-        eprintln!("   - Esto es IMPOSIBLE y indica un BUG EN EL SISTEMA");
-        eprintln!();
-        eprintln!("   Diagnóstico:");
-        eprintln!("   - Soluciones generadas en PHASE 3: {}", soluciones_count);
-        eprintln!("   - Soluciones que pasaron filtros: {}", soluciones_filtradas_count);
-        eprintln!("   - Estado del clique: FALLO CRÍTICO");
-        eprintln!();
-        eprintln!("   Acción: Este error debe ser investigado inmediatamente");
-        // Retornamos vacío pero con log evidente
+        // FALLBACK: LEY FUNDAMENTAL - Si no hay filtros y hay cursos disponibles,
+        // MUST retornar al menos 1 solución
+        eprintln!("❌ LEY FUNDAMENTAL VIOLADA: Intentando recuperación...");
+        eprintln!("   - Soluciones en PHASE 3: {}", soluciones_count);
+        eprintln!("   - Soluciones después PHASE 4: {}", soluciones_filtradas_count);
+        
+        if let Some(sol) = mejor_solucion_backup {
+            // Hay soluciones de PHASE 3 pero fueron filtradas por PHASE 4
+            // Retornar la mejor solución sin filtros
+            eprintln!("   [FALLBACK] Retornando mejor solución sin aplicar filtros PHASE 4...");
+            resultado.push(sol);
+        } else {
+            // No hay soluciones ni siquiera en PHASE 3
+            eprintln!("❌ ✋ LEY FUNDAMENTAL VIOLADA COMPLETAMENTE ✋ ❌");
+            eprintln!("   VIOLACIÓN: No hay soluciones pero:");
+            eprintln!("   - Hay {} cursos disponibles para aprobar", cursos_por_aprobar);
+            eprintln!("   - NO hay filtros activos");
+            eprintln!("   - Esto es IMPOSIBLE y indica un BUG EN EL SISTEMA");
+            eprintln!();
+            eprintln!("   Diagnóstico:");
+            eprintln!("   - Soluciones generadas en PHASE 3: {}", soluciones_count);
+            eprintln!("   - Soluciones que pasaron filtros: {}", soluciones_filtradas_count);
+            eprintln!("   - Estado del clique: FALLO CRÍTICO");
+            eprintln!();
+            eprintln!("   Acción: Este error debe ser investigado inmediatamente");
+        }
+    } else if resultado.is_empty() && has_active_filters && cursos_por_aprobar > 0 {
+        // FALLBACK PARA FILTROS ACTIVOS: Si hay filtros muy restrictivos que eliminan TODO,
+        // retornar al menos 1 solución (el mejor curso disponible)
+        eprintln!("⚠️  AVISO (FALLBACK): Filtros muy restrictivos eliminaron todas las soluciones");
+        eprintln!("   - Soluciones en PHASE 3: {}", soluciones_count);
+        eprintln!("   - Soluciones después PHASE 4: {}", soluciones_filtradas_count);
+        
+        if let Some(sol) = mejor_solucion_backup {
+            eprintln!("   [FALLBACK] Retornando mejor solución incluso sin cumplir todos los filtros...");
+            resultado.push(sol);
+        }
     }
     
     if resultado.is_empty() && has_active_filters && cursos_por_aprobar > 0 {

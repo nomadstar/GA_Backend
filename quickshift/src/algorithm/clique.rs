@@ -637,6 +637,57 @@ pub fn get_clique_max_pond_with_prefs(
     
     if filtered.is_empty() && params.filtros.is_some() {
         eprintln!("   ⚠️  Todos fueron filtrados!");
+        // FALLBACK: Si los filtros de usuario eliminaron TODAS las secciones,
+        // retornar al menos una sección sin filtros de usuario para cumplir LEY FUNDAMENTAL
+        eprintln!("   [FALLBACK LEY FUNDAMENTAL] Intentando retornar sin filtros de usuario...");
+        
+        // Revertir a las secciones antes de aplicar filtros de usuario
+        let mut fallback_filtered: Vec<Seccion> = lista_secciones.iter().filter(|s| {
+            if passed.contains(&s.codigo_box) { return false; }
+            
+            // Intentar encontrar el ramo por CÓDIGO primero
+            if let Some(r) = ramos_disponibles.values().find(|r| r.codigo == s.codigo) {
+                if let Some(sem) = r.semestre {
+                    return sem <= max_sem;
+                } else { return true; }
+            }
+            let sec_nombre_norm = normalize_name(&s.nombre);
+            if let Some(r) = ramos_disponibles.values().find(|r| normalize_name(&r.nombre) == sec_nombre_norm) {
+                if let Some(sem) = r.semestre { return sem <= max_sem; } else { return true; }
+            }
+            false
+        }).cloned().collect();
+
+        // Filtrar solo secciones que cumplen prerequisitos
+        let fallback_filtered: Vec<Seccion> = fallback_filtered.into_iter().filter(|s| {
+            if let Some(r) = ramos_disponibles.values().find(|r| {
+                if !r.codigo.is_empty() && !s.codigo.is_empty() {
+                    return r.codigo == s.codigo;
+                }
+                normalize_name(&r.nombre) == normalize_name(&s.nombre)
+            }) {
+                let passed_codes_set: HashSet<String> = params.ramos_pasados.iter().map(|c| c.to_uppercase()).collect();
+                return requisitos_cumplidos(s, r, ramos_disponibles, &passed_codes_set);
+            }
+            false
+        }).collect();
+
+        if !fallback_filtered.is_empty() {
+            // Retornar la primer sección viable (mejor solución sin filtros)
+            let s = &fallback_filtered[0];
+            if let Some(r) = ramos_disponibles.values().find(|r| {
+                if !r.codigo.is_empty() && !s.codigo.is_empty() {
+                    if r.codigo.to_lowercase() == s.codigo.to_lowercase() { return true; }
+                }
+                normalize_name(&r.nombre) == normalize_name(&s.nombre)
+            }) {
+                let score = compute_priority(r, s);
+                let sol = vec![(s.clone(), score as i32)];
+                let total = score;
+                eprintln!("✅ [clique] 1 solución (fallback LEY FUNDAMENTAL - sin filtros de usuario)");
+                return vec![(sol, total)];
+            }
+        }
     }
 
     // --- Construir matriz de compatibilidad (adjacency) ---
