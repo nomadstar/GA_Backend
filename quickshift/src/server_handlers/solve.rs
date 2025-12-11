@@ -78,13 +78,29 @@ pub async fn solve_handler(req: HttpRequest, body: web::Json<serde_json::Value>)
         Err(err_msg) => return HttpResponse::InternalServerError().json(json!({"error": err_msg})),
     };
 
+    // Cargar el conjunto de códigos disponibles en la oferta académica
+    let available_codes = match crate::excel::oferta::get_available_course_codes("OA20251_normalizado.xlsx") {
+        Ok(codes) => codes,
+        Err(e) => {
+            eprintln!("Warning: Could not load available course codes: {}", e);
+            // Continuar sin filtrado si hay error
+            std::collections::HashSet::new()
+        }
+    };
+
     // Convertir Vec<(Vec<(Seccion, i32)>, i64)> a Vec<SolutionEntry>
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
     for (sol_with_prefs, score) in soluciones.iter().take(20) {
+        // Filtrar solo las secciones cuyo código existe en la oferta académica
         let final_secs: Vec<Seccion> = sol_with_prefs.iter()
+            .filter(|(sec, _pref)| available_codes.is_empty() || available_codes.contains(&sec.codigo))
             .map(|(sec, _pref)| sec.clone())
             .collect();
-        soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
+        
+        // Solo agregar la solución si tiene al menos una sección válida
+        if !final_secs.is_empty() {
+            soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
+        }
     }
 
     let documentos = 2usize;
@@ -161,12 +177,28 @@ pub async fn solve_get_handler(query: web::Query<std::collections::HashMap<Strin
         Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("ruta_critica failed: {}", e)})),
     };
 
+    // Cargar el conjunto de códigos disponibles en la oferta académica
+    let available_codes = match crate::excel::oferta::get_available_course_codes("OA20251_normalizado.xlsx") {
+        Ok(codes) => codes,
+        Err(e) => {
+            eprintln!("Warning: Could not load available course codes: {}", e);
+            // Continuar sin filtrado si hay error
+            std::collections::HashSet::new()
+        }
+    };
+
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
     for (sol_with_prefs, score) in soluciones.iter().take(20) {
+        // Filtrar solo las secciones cuyo código existe en la oferta académica
         let final_secs: Vec<Seccion> = sol_with_prefs.iter()
+            .filter(|(sec, _pref)| available_codes.is_empty() || available_codes.contains(&sec.codigo))
             .map(|(sec, _pref)| sec.clone())
             .collect();
-        soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
+        
+        // Solo agregar la solución si tiene al menos una sección válida
+        if !final_secs.is_empty() {
+            soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
+        }
     }
 
     let documentos = 2usize;

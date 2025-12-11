@@ -2,7 +2,7 @@ use calamine::{open_workbook_auto, Data, Reader};
 use crate::models::Seccion;
 use crate::excel::io::{data_to_string, read_sheet_via_zip};
 use zip;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // Extrae el código base de un código de asignatura eliminando sufijos de evento
 // Ej: "CBF1000_LA01" -> "CBF1000"
@@ -324,4 +324,16 @@ pub fn resumen_oferta_academica(nombre_archivo: &str) -> Result<Vec<(String, usi
     });
     
     Ok(result)
+}
+
+/// Extrae el conjunto de códigos de cursos disponibles en la oferta académica
+pub fn get_available_course_codes(nombre_archivo: &str) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
+    let secciones = leer_oferta_academica_excel(nombre_archivo)?;
+    let mut codes = std::collections::HashSet::new();
+    
+    for seccion in secciones.iter() {
+        codes.insert(seccion.codigo.clone());
+    }
+    
+    Ok(codes)
 }
