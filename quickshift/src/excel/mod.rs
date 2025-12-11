@@ -154,6 +154,7 @@ fn latest_file_matching(dir: &Path, keywords: &[&str]) -> Option<PathBuf> {
     };
 
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    let mut files_matching: Vec<(std::time::SystemTime, PathBuf, String)> = Vec::new();
 
     for entry in read.flatten() {
         let p = entry.path();
@@ -166,16 +167,65 @@ fn latest_file_matching(dir: &Path, keywords: &[&str]) -> Option<PathBuf> {
         if keywords.iter().any(|kw| name.contains(&kw.to_lowercase())) {
             if let Ok(meta) = entry.metadata() {
                 if let Ok(modified) = meta.modified() {
-                    match &best {
-                        Some((best_time, _)) if *best_time >= modified => (),
-                        _ => best = Some((modified, p.clone())),
-                    }
+                    files_matching.push((modified, p.clone(), name_raw.clone()));
                 }
             }
         }
     }
 
-    best.map(|(_, p)| p)
+    // Si hay múltiples archivos, priorizar por:
+    // 1. Archivos con patrón OA[4-dígitos] (e.g., OA20251.xlsx) con mayor número
+    // 2. Ignorar archivos *_TEST
+    // 3. Luego por fecha de modificación más reciente
+    
+    if !files_matching.is_empty() {
+        // Separar archivos por tipo
+        let mut priority_files: Vec<_> = files_matching.iter()
+            .filter(|(_, _, name)| !name.to_uppercase().contains("_TEST"))
+            .collect();
+        
+        // Ordenar por año/semestre extraído del nombre (e.g., OA20251 = 2025-1)
+        priority_files.sort_by(|a, b| {
+            let extract_year_sem = |n: &str| -> (u32, u32) {
+                let upper = n.to_uppercase();
+                if upper.contains("OA") {
+                    // Try to extract patterns like OA20251, OA2024, etc.
+                    if let Some(start) = upper.find("OA") {
+                        let after_oa = &upper[start + 2..];
+                        if let Some(end) = after_oa.find(|c: char| !c.is_ascii_digit()) {
+                            if let Ok(num) = after_oa[..end].parse::<u32>() {
+                                return (num / 10, num % 10); // e.g., 20251 -> (2025, 1)
+                            }
+                        } else if let Ok(num) = after_oa.parse::<u32>() {
+                            return (num / 10, num % 10);
+                        }
+                    }
+                }
+                (0, 0)
+            };
+            
+            let (year_a, sem_a) = extract_year_sem(&a.2);
+            let (year_b, sem_b) = extract_year_sem(&b.2);
+            
+            // Ordenar descendente por año, luego por semestre
+            match year_b.cmp(&year_a) {
+                std::cmp::Ordering::Equal => sem_b.cmp(&sem_a),
+                other => other,
+            }
+        });
+        
+        if let Some((modified, p, _)) = priority_files.first() {
+            return Some((*p).clone());
+        }
+        
+        // Si solo hay archivos _TEST, usar el más reciente
+        if !files_matching.is_empty() {
+            files_matching.sort_by(|a, b| b.0.cmp(&a.0));
+            return Some(files_matching[0].1.clone());
+        }
+    }
+
+    None
 }
 
 /// Exponer un helper público que devuelve el fichero más reciente que coincida con
