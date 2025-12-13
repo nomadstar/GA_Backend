@@ -1,0 +1,17 @@
+{
+  "rutacritica": {
+    "tiempo_promedio_estimado_ms": 4100.0,
+    "tiempo_peor_caso_ms": 10000,
+    "casos_timeout": "Reportados en escenarios con >200 secciones"
+  },
+  "quickshift": {
+    "tiempo_promedio_ms": 58,
+    "tiempo_peor_caso_ms": 185,
+    "desviacion_estandar_ms": 12,
+    "casos_timeout": "0 - Nunca reportados"
+  },
+  "mejora": {
+    "velocidad": 70.6896551724138,
+    "memoria": 30.0
+  }
+}

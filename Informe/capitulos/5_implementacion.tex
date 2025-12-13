@@ -24,7 +24,7 @@ Este capítulo describe la materialización de la propuesta teórica en un artef
 \draw[arrow] (greedy) -- (json);
 \end{tikzpicture}
 \caption{Pipeline del motor de optimización. Cada etapa reduce drásticamente el espacio de búsqueda antes de la construcción del horario.}
-\label{fig:pipeline_completo}
+\\label{fig:pipeline_fase1}
 \end{figure}
 
 \subsection{Análisis de Ruta Crítica}
@@ -71,7 +71,7 @@ Este puntaje permite ordenar las secciones para guiar la estrategia greedy.
 \subsection{Construcción de cliques}
 
 
-El motor realiza una combinación de análisis estructural (PERT), filtrado académico, evaluación de preferencias y construcción de cliques compatibles. El flujo completo se muestra en la Figura \ref{fig:pipeline_completo}.
+El motor realiza una combinación de análisis estructural (PERT), filtrado académico, evaluación de preferencias y construcción de cliques compatibles. El flujo completo se muestra en la Figura \ref{fig:pipeline_fase1}.
 
 % Pipeline (idéntico, con mejor explicación en caption)
 \begin{figure}[H]
@@ -94,7 +94,7 @@ El motor realiza una combinación de análisis estructural (PERT), filtrado acad
 \draw[arrow] (greedy) -- (json);
 \end{tikzpicture}
 \caption{Pipeline del motor de optimización. Cada etapa reduce drásticamente el espacio de búsqueda antes de la construcción del horario.}
-\label{fig:pipeline_completo}
+\label{fig:pipeline_fase2}
 \end{figure}
 
 
@@ -137,7 +137,7 @@ La generación de horarios se modela como la construcción de un \textit{clique}
 
 \section{Resultados experimentales}
 
-El sistema fue evaluado sobre 692 secciones reales. La mejora obtenida se resume en la Figura \ref{fig:benchmark} y en la Tabla \ref{tab:metricas}.
+El sistema fue evaluado sobre 692 secciones reales. La mejora obtenida se resume en la Figura \ref{fig:benchmark} y en la Tabla \ref{tab:metricas_implementacion}.
 
 % Figura de benchmark igual
 \begin{figure}[H]
@@ -170,7 +170,7 @@ El sistema fue evaluado sobre 692 secciones reales. La mejora obtenida se resume
 \begin{table}[H]
 \centering
 \caption{Impacto de la optimización en métricas operativas.}
-\label{tab:metricas}
+\label{tab:metricas_implementacion}
 \begin{tabular}{@{}lcc@{}}
 \toprule
 \textbf{Indicador} & \textbf{Sistema Legado} & \textbf{Quickshift} \\ \midrule

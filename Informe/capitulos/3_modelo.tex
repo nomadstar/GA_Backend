@@ -28,13 +28,106 @@ Sujeto a:
 Sin embargo, aunque el método garantiza matemáticamente encontrar el óptimo global, además de integrar reglas complejas mediante ecuaciones lineales adicionales su viabilidad técnica fue descartada debido a la imprevisibilidad de la latencia según el número de restricciones (preferencias del estudiante).
 
 
-\subsection{Modelo Greedy}
-La opción de un modelo de Heurística constructiva voraz (Greedy) que, a diferencia de los métodos exactos que exploran el espacio de búsqueda completo, este modelo construye la solución incrementalmente. Para poder mitigar el riesgo de convergencia a óptimos locales, se implementó una ejecución paralela de $k$ iteraciones, forzando puntos de partida distintos en el grafo de búsqueda permitiendo obtener garantía estadística en tiempo lineal $O(N \cdot k)$, eliminando la construcción de la matriz de adyacencia cuadrática. El modelo fue elegido ya que aunque se sacrifica la garantía de optimalidad matemática absoluta, se tiene a favor tres ventajas operativas críticas para la experiencia del usuario (según los requisitos de usabilidad de Urzúa, 2022)
+\subsection{Modelo Greedy implementado en Quickshift}
+La alternativa aplicada en el presente proyecto parte de las mismas ideas conceptuales validadas por \texttt{RutaCritica} (prioridad posicional, uso de PERT, modelado por grafos) y las traslada a una solución orientada a producción denominada \texttt{Quickshift}. La implementación real en \texttt{src/algorithm/} ejecuta un pipeline de 4 fases:
 
+\subsubsection{Pipeline de ejecución (ruta.rs)}
+\begin{enumerate}
+    \item \textbf{PHASE 0 - Mapeo de equivalencias:} Carga del archivo de equivalencias desde Excel y aplicación a \texttt{ramos\_pasados}. Por ejemplo, si el estudiante aprobó CIG1014 (código antiguo), se mapea a CIG1003 (código actual) para evitar recomendar cursos equivalentes.
+    
+    \item \textbf{PHASE 1 - Análisis PERT:} 
+    \begin{itemize}
+        \item Lectura de malla curricular y porcentajes de aprobación desde Excel
+        \item Construcción de grafo PERT con prerequisitos
+        \item Cálculo de ES (Earliest Start), EF (Earliest Finish), LS (Latest Start), LF (Latest Finish) y H (Holgura)
+        \item Identificación de ramos críticos (H=0) y asignación de \texttt{numb\_correlativo}
+    \end{itemize}
+    
+    \item \textbf{PHASE 2 - Filtrado de secciones viables:}
+    \begin{itemize}
+        \item Lectura de oferta académica desde Excel (\texttt{lista\_secciones})
+        \item Exclusión de ramos ya aprobados (verificación contra \texttt{ramos\_pasados})
+        \item Validación de prerequisitos: se excluyen cursos cuyos prerequisitos no están en \texttt{ramos\_pasados}
+        \item Aplicación de filtros de usuario: franjas prohibidas, profesores a evitar, días libres
+        \item Output: \texttt{lista\_secciones\_viables} (subconjunto filtrado)
+    \end{itemize}
+    
+    \item \textbf{PHASE 3 - Búsqueda de cliques (clique.rs):}
+    \begin{itemize}
+        \item Ordenamiento de secciones por prioridad (función \texttt{compute\_priority})
+        \item Algoritmo greedy multi-seed con límite de 6 ramos por solución
+        \item Aplicación de filtros estructurados (\texttt{apply\_all\_filters})
+        \item Selección de top 10-20 soluciones por score y diversidad
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{Función de prioridad (compute\_priority en clique.rs)}
+La función heredada de \texttt{RutaCritica} calcula la prioridad como la concatenación de cuatro campos claramente definidos:
+\[
+\text{priority} = \text{CC} \,\|\, \text{UU} \,\|\, \text{KK} \,\|\, \text{SS}
+\]
+Donde:
 \begin{itemize}
-    \item \textbf{Latencia} Garantiza respuestas sub-200ms independientemente de la carga.
-    \item \textbf{Diversidad de soluciones} Entrega múltiples opciones válidas (ej: "mañana compacta" vs "carga distribuida")
-    \item \textbf{Estabilidad} Al utilizar Rust se eliminan los crashes por recursión que afectan al sistema anterior.
+    \item CC = "10" si \verb|critico| es verdadero, en caso contrario "00".
+    \item UU = holgura codificada con dos dígitos, calculada con \verb|format!("{:02}", 10 - holgura)| (rango: 00--10).
+    \item KK = semestre correlativo codificado con dos dígitos, calculada con \verb|format!("{:02}", 60 - numb_correlativo)| (rango: 00--60).
+    \item SS = número de sección con dos dígitos (rango: 00--99).
+\end{itemize}
+Ejemplo: un ramo crítico (CC=10) del semestre 1 (por lo que KK=59) con holgura 0 (UU=10) y sección 01 (SS=01) produce la prioridad 10105901 (entero de 8 dígitos).
+
+\subsubsection{Algoritmo greedy multi-seed (get\_clique\_max\_pond\_with\_prefs)}
+Implementación real en \texttt{src/algorithm/clique.rs} líneas 720-930:
+\begin{enumerate}
+    \item \textbf{Inicialización:}
+    \begin{itemize}
+        \item Construcción de matriz de adyacencia booleana \texttt{adj[N][N]} donde \texttt{adj[i][j] = !sections\_conflict(i, j)}
+        \item Ordenamiento de candidatos por prioridad descendente
+        \item Inicialización de \texttt{remaining\_indices} (set de índices disponibles)
+    \end{itemize}
+    
+    \item \textbf{Bucle de semillas:} Mientras haya índices disponibles:
+    \begin{itemize}
+        \item Seleccionar \texttt{seed\_idx} como el índice con mayor prioridad en \texttt{remaining\_indices}
+        \item Inicializar \texttt{clique = [seed\_idx]}
+        \item \textbf{Expansión voraz:} Para cada candidato \texttt{cand} en orden de prioridad:
+        \begin{itemize}
+            \item Si \texttt{clique.len() >= 6}: break (límite de carga)
+            \item Si \texttt{clique.iter().all(|u| adj[u][cand])}: agregar \texttt{cand} a \texttt{clique}
+            \item Verificar que no se repite el mismo código de curso
+            \item Validar prerequisitos con \texttt{requisitos\_cumplidos}
+            \item Emparejar laboratorios/talleres por número de sección
+        \end{itemize}
+        \item Convertir clique a solución: \texttt{Vec<(Seccion, i32)>} con scores individuales
+        \item Remover índices usados de \texttt{remaining\_indices}
+    \end{itemize}
+    
+    \item \textbf{Fallback exhaustivo:} Si se generaron <15 soluciones, ejecutar \texttt{get\_all\_clique\_combinations\_with\_pert} (enumerador acotado con límite de 5000 combinaciones) para aumentar diversidad.
+    
+    \item \textbf{Selección final:} Ordenar por score descendente y retornar top 10-20.
+\end{enumerate}
+
+\subsubsection{Complejidad práctica}
+\begin{itemize}
+    \item Preprocesado (matriz de adyacencia): $O(N^2)$ donde N = número de secciones viables (típicamente <200)
+    \item Expansión por semilla: $O(N)$ por iteración
+    \item Total greedy: $O(k \cdot N)$ donde k = número de semillas (típicamente 20-50)
+    \item Fallback exhaustivo: $O(\binom{N}{6})$ acotado a 5000 combinaciones
+\end{itemize}
+
+\subsubsection{Validación y garantías}
+Implementación de LEY FUNDAMENTAL (líneas 320-380 en ruta.rs):
+\begin{itemize}
+    \item Si no hay filtros activos Y hay cursos disponibles, \textbf{SIEMPRE} debe retornar al menos 1 solución
+    \item Si filtros eliminan todas las soluciones, retornar la mejor solución sin filtros (fallback)
+    \item Logging detallado para diagnóstico de violaciones
+\end{itemize}
+
+Ventajas operativas verificadas (tests en \texttt{tests/}):
+\begin{itemize}
+    \item \textbf{Determinismo:} Ordenamiento estable garantiza reproducibilidad
+    \item \textbf{Cobertura mínima:} Test \texttt{test\_minimum\_10\_solutions} valida ≥10 soluciones
+    \item \textbf{Equivalencias:} Tests \texttt{test\_equivalences} y \texttt{test\_equivalence\_integration} validan mapeo
+    \item \textbf{Prerequisitos:} Test \texttt{test\_prerequisite\_filtering} valida exclusión correcta
 \end{itemize}
 
 
