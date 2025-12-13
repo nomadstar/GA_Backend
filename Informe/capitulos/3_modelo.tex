@@ -1,0 +1,41 @@
+\section{Modelo y alternativa de solución}
+
+Este capítulo presenta una revisión crítica de los modelos de resolución para el problema de asignación horaria, analizando la evolución algorítmica del sistema y detallando las razones técnicas que motivaron el abandono de la arquitectura anterior.
+
+
+\subsection{Modelo legado: Clique de Peso Máximo}
+El modelo algorítmico vigente hasta el periodo 2023 (Aguilera, 2022; Zhou, 2023) abordaba la asignación como un problema de Subgrafo Completo de Peso Máximo. Se construía un grafo $G=(V, E)$ donde cada nodo $v \in V$ representaba una sección y cada arista $e \in E$ denotaba compatibilidad horaria. El objetivo era encontrar el subconjunto $S \subseteq V$ tal que $\forall u,v \in S, (u,v) \in E$, maximizando la suma de pesos de prioridad académica. En donde se encontraron las siguientes limitaciones, por la que se decidió abarcar otro modelo para su resolución:\\
+\begin{itemize}
+\item \textbf{Explosión combinatoria:} Si bien la construcción de la matriz de adyacencia implicaba un costo polinomial, la limitación crítica del sistema legado residía en su estrategia de búsqueda exacta.  Esto provocaba que el tiempo de respuesta promedio de 1.55 segundos sufriera una degradación impredecible, alcanzando picos superiores a 10 segundos o timeouts cuando la profundidad de recursión del algoritmo excedía los límites de la pila del intérprete, resultando en una falta de fiabilidad para casos con alta densidad de aristas.
+
+
+\item \textbf{Paradigma destructivo:} El algoritmo tendía a encontrar cliques de cardinalidad máxima (ej. 9 asignaturas compatibles), excediendo la restricción de carga humana (máx. 6 asignaturas). Obligando a ejecutar un post-procesamiento destructivo para descartar asignaturas, desperdiciando ciclos de cómputo en la generación de combinaciones.
+\end{itemize}
+
+
+\subsection{Programación lineal entera (ILP)}
+Se evaluó la implementación de un modelo de optimización matemática estándar para la asignación de recursos. En este enfoque, el problema se define mediante variables de decisión binarias $x_{i}$, donde $x_{i} = 1$ si el estudiante inscribe la sección $i$, y $0$ en caso contrario.\\
+
+Respecto a la formulación matemática, el objetivo consiste en maximizar la utilidad total del horario: \\
+\[
+\text{Maximizar } Z = \sum_{i \in \mathcal{S}} (P_i \cdot x_i)
+\]
+Sujeto a:
+\begin{enumerate}
+    \item Restricción de carga máxima: $\sum x_i \le 6$
+    \item Restricción de No-superposición: $\forall (u, v)$ incompatibles, $x_u + x_v \le 1$
+\end{enumerate}
+Sin embargo, aunque el método garantiza matemáticamente encontrar el óptimo global, además de integrar reglas complejas mediante ecuaciones lineales adicionales su viabilidad técnica fue descartada debido a la imprevisibilidad de la latencia según el número de restricciones (preferencias del estudiante).
+
+
+\subsection{Modelo Greedy}
+La opción de un modelo de Heurística constructiva voraz (Greedy) que, a diferencia de los métodos exactos que exploran el espacio de búsqueda completo, este modelo construye la solución incrementalmente. Para poder mitigar el riesgo de convergencia a óptimos locales, se implementó una ejecución paralela de $k$ iteraciones, forzando puntos de partida distintos en el grafo de búsqueda permitiendo obtener garantía estadística en tiempo lineal $O(N \cdot k)$, eliminando la construcción de la matriz de adyacencia cuadrática. El modelo fue elegido ya que aunque se sacrifica la garantía de optimalidad matemática absoluta, se tiene a favor tres ventajas operativas críticas para la experiencia del usuario (según los requisitos de usabilidad de Urzúa, 2022)
+
+\begin{itemize}
+    \item \textbf{Latencia} Garantiza respuestas sub-200ms independientemente de la carga.
+    \item \textbf{Diversidad de soluciones} Entrega múltiples opciones válidas (ej: "mañana compacta" vs "carga distribuida")
+    \item \textbf{Estabilidad} Al utilizar Rust se eliminan los crashes por recursión que afectan al sistema anterior.
+\end{itemize}
+
+
+

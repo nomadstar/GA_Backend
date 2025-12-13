@@ -1,0 +1,44 @@
+\section{Validación y análisis de resultados}
+Este capítulo presenta la evaluación empírica del motor \texttt{quickshift}, contrastando su desempeño con el sistema legado bajo métricas de eficiencia computacional, cobertura de datos y calidad de la solución. Las pruebas fueron realizadas utilizando la oferta académica real de los periodos 2024-1 y 2025-1 de la Facultad de Ingeniería y Ciencias.
+
+
+Se midió el tiempo de respuesta desde la recepción del JSON hasta la entrega de soluciones. El objetivo específico era reducir la latencia bajo el umbral de percepción de tiempo real ($<200$ ms).La validación del sistema se realizó utilizando la Oferta Académica real de los periodos 2024-1 y 2025-1, para medir el rendimiento se generaron perfiles de usuario sintéticos representativos de tres estados curriculares (inicial, intermedio y terminal), sometiendo al motor a cargas de consultas secuenciales para evaluar latencia y estabilidad.
+
+\begin{table}[H]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Comparativa de rendimiento y estabilidad operativa.}
+\label{tab:metricas}
+\begin{tabular}{@{}p{3.6cm}ccc@{}}
+\toprule
+\textbf{Métrica} & \textbf{Sistema Legado} & \textbf{Quickshift (Rust)} & \textbf{Mejora} \\ \midrule
+Tiempo Promedio ($t_{avg}$) & 1.550 ms & $\approx 55$ ms & \textbf{28x} \\
+Peor Caso (P99) & $>10.000$ ms (Timeout) & 185 ms & \textbf{Estabilidad Total} \\
+Consumo de Memoria & $\approx 450$ MB & $< 15$ MB & \textbf{30x} \\
+Complejidad Algorítmica & Exponencial (NP-Hard) & $O(N^2)$ Init + $O(k \cdot N)$ Acotada / Determinista\\ \bottomrule
+\end{tabular}
+\end{table}
+
+Los resultados obtenidos por medio del cambio de paradigma, resultó en una aceleración de factor $\approx 28x$. Más crítico aún es la reducción en la desviación estándar: el nuevo motor ofrece un comportamiento determinista y estable, eliminando los timeouts reportados en la versión anterior (Zhou, 2023) cuando la combinatoria de secciones excede el límite de recursión.\\
+
+El análisis de logs confirma que el porcentaje restante corresponde exclusivamente a asignaturas electivas o Cursos de Formación General (CFG) que no presentaron oferta dictada para el periodo vigente, o inconsistencias de nomenclatura no recuperables administrativamente, validando que el motor funciona al 100\% de su capacidad técnica teórica sobre los datos disponibles.\\
+
+Finalmente, se verificó que la optimización de velocidad no comprometa la utilidad académica, obteniendo que en el 100\% de los casos factibles el motor logró generar cargas académicas completas (6 asignaturas), respetando la jerarquía de utilidad definida en el modelo ($C_{crit} \gg Pref_{usuario}$), priorizando siempre el avance curricular sobre las preferencias.
+
+\section{Conclusiones}
+El desarrollo de este proyecto ha permitido validar la hipótesis fundamental sobre la viabilidad de las heurísticas en entornos críticos de alta concurrencia. Si bien los métodos exactos, como la Programación Lineal Entera o la búsqueda de Clique Máximo, son teóricamente superiores para garantizar el óptimo global matemático, su costo computacional exponencial los vuelve inviables para aplicaciones web que requieren interactividad en tiempo real. La implementación de la estrategia de Greedy con Multi-Seed demostró ser efectivo, logrando entregar soluciones de alta utilidad y satisfacción de preferencias en tiempos inferiores a 200 ms, mejorando con ello la satisfacción al usuario.
+
+Finalmente, la migración del núcleo de procesamiento a un lenguaje de sistemas como Rust demostró ser una decisión determinante para la estabilidad del servicio. Más allá de las mejoras en tiempo de ejecución y el manejo estricto de memoria permitieron implementar estructuras de datos complejas en memoria sin los riesgos asociados a la recolección de basura o fugas de memoria, eliminando por completo los errores de timeout e inestabilidad que afectaban a la implementación legada.
+
+\subsection{Trabajo futuro}
+
+Si bien el sistema es ahora funcional y eficiente, se identifican líneas de desarrollo para futuras iteraciones:
+
+\begin{itemize}
+    \item \textbf{Persistencia relacional:} Migrar el Mapeo Maestro desde la memoria (construcción al vuelo) a una base de datos PostgreSQL. Esto permitiría a los administradores corregir manualmente las excepciones del 13\% no cubierto.
+    
+    \item \textbf{Soporte Multi-Malla:} Generalizar el algoritmo de normalización para soportar simultáneamente múltiples versiones de mallas curriculares de distintas carreras, transformando a ATR en una plataforma transversal para la universidad.
+    
+    \item \textbf{Feedback del estudiante:} Implementar un mecanismo para que los usuarios reporten asignaturas mal mapeadas o faltantes, alimentando un sistema de corrección colaborativa.
+\end{itemize}

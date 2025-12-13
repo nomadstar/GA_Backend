@@ -1,0 +1,46 @@
+\section{Antecedentes}
+
+El punto de partida para la presente reingeniería es el sistema operativo hasta el periodo 2023, consolidado mediante los trabajos de \cite{aguilera2022} y \cite{zhou2023}. Esta etapa representa la iteración en la resolución del problema de asignación horaria bajo la arquitectura original en Python. A continuación, se detalla el funcionamiento técnico, el modelo matemático implementado y los desafíos de escalabilidad que motivaron la evolución tecnológica.
+
+\subsection{Modelo algorítmico legado}
+
+El núcleo del sistema anterior basó su funcionamiento en la resolución del problema del \textbf{Clique de Peso Máximo} (Maximum Weight Clique Problem). Según lo documentado por \cite{aguilera2022}, el modelo representaba la oferta académica como un grafo donde la idoneidad de un horario se determina asignando un peso específico a cada nodo (sección).
+
+Este peso se calculaba mediante una función de urgencia académica derivada del método \textbf{PERT}, priorizando aquellas asignaturas críticas para el avance curricular. El objetivo matemático consistía en encontrar el subgrafo completo (clique) que maximizará esta puntuación acumulada, garantizando teóricamente la combinación de asignaturas de mayor valor para el estudiante.
+
+\subsection{Limitaciones estructurales y rendimiento}
+
+Luego, en el trabajo de \cite{zhou2023}, enfocado en la optimización operativa del backend, logrando reducir el tiempo de respuesta promedio de 1.55 segundos a aproximadamente 1.36 segundos en entornos controlados. No obstante, se constató que las mejoras incrementales no resolvían las barreras de fondo, ya que el modelo sacrificaba estabilidad y robustez para lograr estas reducciones marginales de latencia.
+
+Finalmente, el análisis de la arquitectura legada reveló dos deficiencias estructurales críticas que motivaron el cambio de paradigma:
+
+\begin{enumerate}
+    \item \textbf{Paradigma destructivo:} El algoritmo carecía de mecanismos para integrar la restricción de carga máxima ($k=6$) durante la búsqueda. Como señala \cite{aguilera2022}, el sistema tendía a encontrar soluciones óptimas de mayor tamaño (ej. 9 asignaturas) para luego ejecutar un post-procesamiento destructivo que descarta las asignaturas excedentes, desperdiciando ciclos de cómputo generando combinaciones complejas que eran inmediatamente eliminadas, añadiendo redundancia y dificultando la convergencia en tiempo real.
+
+    \item \textbf{Complejidad computacional:}  Debido al incremento de la oferta a 692 secciones, el espacio de búsqueda crecía de manera exponencial y no polinomial, provocando saturación de la capacidad de procesamiento y tiempos de espera impredecibles.
+\end{enumerate}
+
+\subsection{Ruta Crítica: definición y enfoque empleado}
+En este trabajo se utiliza una herramienta denominada \texttt{RutaCritica} (carpeta \texttt{RutaCritica} del repositorio). Su flujo es:
+\begin{enumerate}
+  \item \textbf{Extracción de datos:} \texttt{extract_data.py} procesa los ficheros de entrada y genera la representación en grafo (nodos = ramos/secciones, aristas = conflictos/compatibilidades).
+  \item \textbf{Construcción del grafo ponderado:} cada nodo recibe un peso según prioridad, créditos y prefencias; la ponderación se gestiona en \texttt{get\_clique\_max\_pond.py}.
+  \item \textbf{Algoritmo de optimización:} se aplica búsqueda de subgrafo con máximo valor (implementación basada en heurística para clique máxima ponderada — ver \texttt{get\_clique\_max\_pond.py}). Complejidad esperada: exponencial en peor caso; el código aplica podas y heurísticas.
+  \item \textbf{Salida y post-procesado:} \texttt{rutaCritica.py} genera la solución (horario sugerido) en formato JSON/CSV.
+\end{enumerate}
+
+\subsection{Rigor metodológico aplicado}
+Para documentar la Ruta Crítica se debe dejar constancia explícita de:
+\begin{itemize}
+  \item Datos de entrada (columnas esperadas, formato).
+  \item Criterio de asignación de pesos (fórmulas y normalizaciones).
+  \item Heurísticas empleadas (ordenamiento por grado, podas por bound, número máximo de iteraciones).
+  \item Métricas de evaluación (tiempo de ejecución, tamaño de la solución, score final).
+\end{itemize}
+
+\subsection{Recomendación}
+En el informe incluya tablas con:
+\begin{itemize}
+  \item Descripción de scripts: \texttt{extract\_data.py}, \texttt{get\_clique\_max\_pond.py}, \texttt{rutaCritica.py}
+  \item Parámetros de ejecución y valores por defecto.
+\end{itemize}

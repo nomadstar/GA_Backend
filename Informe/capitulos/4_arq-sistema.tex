@@ -1,0 +1,268 @@
+\section{Modelo implementado}
+
+Este capítulo detalla la arquitectura técnica, el modelo de datos y los algoritmos implementados en \texttt{quickshift}, el motor de cálculo desarrollado en Rust. La solución se ha diseñado priorizando el rendimiento en tiempo de ejecución y la robustez en la ingesta de datos, adoptando un enfoque pragmático que combina modelado de grafos implícitos con heurísticas de optimización.
+
+\subsection{Definición del modelo} 
+Esta sección detalla la formalización matemática y la lógica algorítmica del motor. La solución prioriza el uso de estructuras de datos inmutables y evaluación de restricciones para maximizar el uso de caché de CPU.
+
+\subsubsection{Función de utilidad}
+A diferencia del modelo legado que sumaba pesos arbitrarios, Quickshift implementa una Evaluación de Prioridad Posicional. La utilidad $U(s)$ de una sección $s$ se modela como un entero compuesto por la concatenación de factores de criticidad, garantizando dominancia estricta de los criterios superiores sobre los inferiores:
+
+\[
+   $$U(s) = C_{crit} \cdot 10^7 + H_{inv} \cdot 10^4 + K_{inv} \cdot 10^2 + S_{id}$$
+\]
+Donde:
+\begin{itemize}
+    \item $C_{crit}(s) \in \{0, 1\}$: indicador binario de criticidad (ramo en ruta crítica PERT con holgura cero).
+    \item $H_{inv}(s) \in [00, 10]$: valor inverso a la holgura del ramo (a menor holgura, mayor urgencia).
+    \item $K_{inv}(s) \in \{00, 60\}$: posición en malla ($60 - n^{\circ}correlativo$). Prioriza cursos de niveles inferiores.
+    \item $S_{id}(s) \in \{00, 99\}$: numero de secciones
+\end{itemize}
+Asegurando matemáticamente que ninguna combinación de preferencias de usuario pueda superar la urgencia de un ramo crítico para la titulación.
+
+
+\subsubsection{Estrategia de multiples semillas} 
+Para evitar la convergencia a óptimos locales, se implementa diversificación con consumo de recursos para generar múltiples propuestas de horario válidas y diversas,evitando también que no se generen variaciones del mismo horario sino que estas sean distintas (ej. horario compacto en la mañana'' vs horario con viernes libre''). Mostrado de acuerdo al siguiente flujo:
+
+
+\begin{enumerate}
+    \item \textbf{Inicialización:} se genera una lista de candidatos $L$, ordenada descendentemente por $U(s)$.
+    \item \textbf{Iteración de semillas ($k$ veces):}
+    \begin{itemize}
+        \item Se selecciona la sección $s_{seed} \in L$ con mayor utilidad que no haya sido utilizada como semilla principal anteriormente.
+        \item Se inicializa el horario $H = \{s_{seed}\}$.
+        \item \textbf{Expansión voraz:} se recorre $L$. Para cada sección candidata $c \in L$, si $c$ es compatible con todas las secciones en $H$, se agrega $c$ a $H$.
+        \item Se almacena $H$ en el conjunto de soluciones.
+        \item \textbf{Poda:} las secciones contenidas en $H$ se marcan temporalmente para reducir su prioridad en la selección de futuras semillas, forzando al algoritmo a explorar ramas alternativas del árbol de decisión.
+    \end{itemize}
+    \item \textbf{Fallback combinatorio} en caso de que la fase Greedy no genera suficiente diversidad (menos de 15 soluciones óptimas), el sistema activa automáticamente un enumerador exhaustivo acotado para explorar combinaciones complejas que el algoritmo voraz pudo omitir.
+\end{enumerate}
+
+\subsubsection{Verificación de restricciones }
+ Para lograr tiempos de respuesta de latencia mínima, el algoritmo elimina la construcción de grafos de objetos pesados, reemplazándola por una matriz primitiva de bajo coste. Por lo que, la validación de conflictos en los topes horarios se realiza mediante normalización de intervalos enteros.\\
+
+Se tiene, que cada bloque horario (ej. ``Lunes 08:30 - 10:00'') se transforma a un intervalo de minutos semanales $[t_{start}, t_{end}]$. La función de conflicto $\Phi(s_a, s_b)$ se evalúa en tiempo constante $O(1)$:
+\[\Phi(A, B) = \exists (t_a \in A, t_b \in B)  : \max(\text{Inicio}_A, \text{Inicio}_B) < \min(\text{Fin}_A, \text{Fin}_B)\]
+
+\subsection{Arquitectura del sistema}
+
+La solución sigue una arquitectura de tubería (\textit{pipeline}) de procesamiento de datos, diseñada para transformar archivos Excel heterogéneos en horarios válidos de manera eficiente.
+
+El sistema se estructura en tres capas lógicas diferenciadas:
+
+\begin{center}
+    \begin{tikzpicture}[
+      node distance=1.7cm,
+      every node/.style={font=\small},
+      box/.style={rectangle, draw, rounded corners, align=center, fill=gray!10, minimum width=3.0cm, minimum height=1.1cm},
+      arrow/.style={->, thick},
+    ]
+    
+    \node[box, fill=blue!10] (ingesta) {Capa de Ingesta \\ \texttt{excel/} \\
+    Lectura Excel \\ Normalización \\ Mapeo};
+    
+    \node[box, fill=green!10, right=1.0cm of ingesta] (algoritmia) {Capa de Algoritmia \\ \texttt{algorithm/} \\
+    Filtros \\ Motor Greedy \\ Conflictos};
+    
+    \node[box, fill=orange!10, right=1.0cm of algoritmia] (api) {Capa REST \\ \texttt{api\_json/} \\
+    HTTP \\ JSON};
+    
+    \draw[arrow] (ingesta) -- (algoritmia);
+    \draw[arrow] (algoritmia) -- (api);
+    
+    \end{tikzpicture}
+    \\[0.2cm]
+    \textbf{Figura 1:} Pipeline de procesamiento End-to-End del sistema.
+\end{center}
+
+\begin{enumerate}
+    \item \textbf{Capa de Ingesta y Normalización (\texttt{excel}):} Responsable de la lectura de datos crudos. Implementa el patrón \textit{Builder} para la construcción del ``Mapeo Maestro'', un componente crítico que resuelve inconsistencias de nombres y códigos entre diferentes periodos académicos.
+    \item \textbf{Capa de Algoritmia (\texttt{algorithm}):} Núcleo del sistema. Aquí reside la lógica de filtrado de prerrequisitos, la detección de conflictos horarios y el motor de búsqueda de soluciones. A diferencia de una arquitectura de objetos pura, este módulo prioriza estructuras de datos planas y operaciones vectoriales para maximizar la eficiencia del caché de la CPU.
+    \item \textbf{Capa de Interfaz (\texttt{api\_json} y \texttt{server}):} Actúa como controlador REST, exponiendo la funcionalidad del núcleo mediante \textit{endpoints} HTTP y gestionando la serialización de resultados hacia el cliente.
+\end{enumerate}
+
+El flujo de información es unidireccional y jerárquico:
+
+\begin{center}
+    \begin{tikzpicture}[
+      node distance=0.8cm,
+      box/.style={rectangle, draw, rounded corners, align=center, fill=gray!10, minimum width=8cm, minimum height=1.0cm},
+      every node/.style={font=\small},
+    ]
+    
+    \node[box, fill=orange!15] (api) {Capa de Interfaz (REST) \\ \texttt{server/}, \texttt{api\_json/}};
+    
+    \node[box, fill=green!15, below=of api] (algoritmia)
+    {Capa de Algoritmia \\ \texttt{algorithm/}};
+    
+    \node[box, fill=blue!15, below=of algoritmia] (excel)
+    {Capa de Ingesta y Normalización \\ \texttt{excel/}};
+    
+    \draw[-latex, thick] (excel) -- (algoritmia);
+    \draw[-latex, thick] (algoritmia) -- (api);
+    
+    \end{tikzpicture}
+    \\[0.2cm]
+    \textbf{Figura 2:} Diagrama de capas y flujo de dependencia.
+\end{center}
+
+
+\subsection{Modelo de datos e implementación}
+Si bien conceptualmente el problema se modela mediante entidades académicas, la implementación en Rust utiliza representaciones optimizadas para el cálculo.
+
+\subsubsection{Estructuras principales}
+
+\begin{itemize}
+    \item \textbf{\texttt{Seccion}:} Estructura que agrupa los metadatos de una instancia de curso (código, profesor, número de sección).
+    \item \textbf{Representación del Horario:} En lugar de objetos complejos de fecha/hora, los bloques horarios se parsean y normalizan a representaciones numéricas o cadenas estandarizadas (ej. ``LU 08:30'') que permiten comparaciones de igualdad y superposición en tiempo constante $O(1)$ o cuasi-constante.
+    \item \textbf{Malla y RamoDisponible}: Estructuras que mantienen el grafo de dependencias curriculares. Se utilizan para validar el estado académico del alumno antes de iniciar la búsqueda de horarios.
+\end{itemize}
+
+\subsection{Algoritmos y lógica de resolución}
+
+El problema de la generación de horarios se aborda como un problema de satisfacción de restricciones (CSP) modelado sobre un grafo de compatibilidad implícito.
+
+\begin{center}
+    \begin{tikzpicture}[
+      node distance=1.0cm,
+      box/.style={rectangle, draw, align=center, rounded corners, minimum width=3.5cm, minimum height=0.8cm, fill=gray!10},
+      arrow/.style={->, thick},
+      every node/.style={font=\footnotesize}
+    ]
+    
+    \node[box, fill=blue!15] (ingesta) {Excel + $\Phi(s)$};
+    
+    \node[box, fill=green!15, right=of ingesta] (prer)
+    {Filtrado Prerreq.};
+    
+    \node[box, fill=green!10, right=of prer] (filtros)
+    {Filtros Usuario};
+    
+    \node[box, fill=yellow!15, below=of ingesta] (greedy)
+    {Motor Greedy};
+    
+    \node[box, fill=orange!15, right=of greedy] (json)
+    {JSON Output};
+    
+    \draw[arrow] (ingesta) -- (prer);
+    \draw[arrow] (prer) -- (filtros);
+    \draw[arrow] (filtros.south) -- ++(0,-0.5) -| (greedy.north);
+    \draw[arrow] (greedy) -- (json);
+    
+    \end{tikzpicture}
+    \\[0.2cm]
+    \textbf{Figura 3:} Diagrama de flujo simplificado del proceso.
+\end{center}
+
+\subsubsection{1. Mapeo y normalización}
+Para resolver el problema de \textit{Data Drift}, se implementó una estrategia de resolución de entidades basada en normalización de cadenas. La función de normalización $\Phi(s)$ transforma los nombres de entrada a una forma canónica:
+$$ \Phi(s) = \mathrm{trim}(\mathrm{lower}(\mathrm{remove\_accents}(s))) $$
+Esto permite que el sistema identifique correctamente que ``Inglés General II'' (código 2024) es la misma entidad que ``INGLES GENERAL 2'' (código 2025), habilitando la fusión de datos históricos con la oferta vigente.
+
+\subsubsection{2. Filtrado de espacio de búsqueda}
+Antes de intentar generar horarios, el sistema reduce drásticamente el espacio de búsqueda mediante filtros duros:
+\begin{itemize}
+    \item \textbf{Validación de prerrequisitos:} Se verifica que el alumno haya aprobado todos los requisitos previos para cada asignatura candidata.
+    \item \textbf{Filtros de usuario:} Se descartan de antemano las secciones que ocurren en ventanas de tiempo prohibidas por el usuario o con profesores excluidos.
+\end{itemize}
+
+\subsubsection{3. Motor de búsqueda Greedy con heurísticas}
+A diferencia de los enfoques académicos clásicos que construyen explícitamente un grafo de adyacencia en memoria, \texttt{quickshift} utiliza una estrategia de expansión \textit{greedy} (voraz) con múltiples semillas.
+
+\begin{center}
+    \begin{tikzpicture}[
+      node distance=0.8cm,
+      box/.style={rectangle, draw, rounded corners, align=center, fill=gray!10, minimum width=4cm, minimum height=0.8cm},
+      every node/.style={font=\footnotesize},
+      arrow/.style={->, thick},
+    ]
+    
+    \node[box, fill=blue!10] (orden)
+    {1. Ordenamiento Heurístico};
+    
+    \node[box, below=of orden, fill=green!10] (expansion)
+    {2. Expansión Iterativa};
+    
+    \node[box, below=of expansion, fill=green!10] (validacion)
+    {3. Validación al Vuelo};
+    
+    \node[box, below=of validacion, fill=red!10] (poda)
+    {4. Poda Temprana};
+    
+    \node[box, below=of poda, fill=orange!10] (resultado)
+    {5. Horario Final};
+    
+    % Arrows
+    \draw[arrow] (orden) -- (expansion);
+    \draw[arrow] (expansion) -- (validacion);
+    \draw[arrow] (validacion) -- (poda);
+    \draw[arrow] (poda) -- (resultado);
+    
+    \end{tikzpicture}
+    \\[0.2cm]
+    \textbf{Figura 4:} Etapas del motor de búsqueda Greedy.
+\end{center}
+
+El algoritmo opera de la siguiente manera:
+\begin{enumerate}
+    \item \textbf{Ordenamiento:} Las secciones candidatas se ordenan bajo criterios heurísticos (ej. prioridad curricular, preferencia de profesor).
+    \item \textbf{Expansión:} Se intenta construir un horario iterativamente, agregando una sección a la vez.
+    \item \textbf{Validación al Vuelo:} Cada vez que se intenta agregar una sección, se verifica su compatibilidad con las ya seleccionadas mediante funciones optimizadas como \texttt{sections\_conflict} y \texttt{horario\_solapa\_franja}. No se requiere una matriz de adyacencia pre-calculada.
+    \item \textbf{Poda:} Si un horario parcial viola una restricción dura (tope de horario, ventana libre insuficiente), la rama se descarta inmediatamente.
+\end{enumerate}
+
+La siguiente figura ilustra cómo se evalúan dinámicamente las compatibilidades (aristas verdes) y conflictos (aristas rojas) durante la construcción del clique:
+
+\begin{center}
+    \begin{tikzpicture}[
+        node distance=1.4cm,
+        every node/.style={font=\footnotesize},
+        sec/.style={circle, draw, minimum size=0.9cm, align=center, fill=gray!10},
+        good/.style={->, thick, color=green!60!black},
+        bad/.style={-o, thick, color=red!70},
+        box/.style={rectangle, draw, rounded corners, fill=gray!10, minimum width=4cm, minimum height=0.8cm, align=center}
+    ]
+    
+    % Nodes for sections
+    \node[sec] (s1) {S1};
+    \node[sec, right=1.2cm of s1] (s2) {S2};
+    \node[sec, right=1.2cm of s2] (s3) {S3};
+    \node[sec, below=1.2cm of s1] (s4) {S4};
+    \node[sec, right=1.2cm of s4] (s5) {S5};
+    \node[sec, right=1.2cm of s5] (s6) {S6};
+    
+    % Compatible edges (implied edges)
+    \draw[good] (s1) -- (s2);
+    \draw[good] (s2) -- (s3);
+    \draw[good] (s1) -- (s5);
+    \draw[good] (s5) -- (s3);
+    
+    % Conflicts (red)
+    \draw[bad] (s1) -- (s4);
+    \draw[bad] (s2) -- (s6);
+    \draw[bad] (s4) -- (s3);
+    
+    % Seed box
+    \node[box, above=0.7cm of s2, fill=blue!10] (seed)
+    {Selección de \textbf{Seed} inicial};
+    
+    \draw[->, thick] (seed) -- (s2);
+    
+    % Clique building box
+    \node[box, right=2.3cm of s3, fill=yellow!20] (build)
+    {\textbf{Expansión Greedy}: \\ agregar sólo secciones compatibles};
+    
+    % Arrow from s3 to building
+    \draw[->, thick] (s3) -- (build);
+    
+    % Result box
+    \node[box, below=1.5cm of build, fill=green!20] (result)
+    {\textbf{Horario Final (Clique Válido)}};
+    
+    \draw[->, thick] (build) -- (result);
+    
+    \end{tikzpicture}
+    \\[0.2cm]
+    \textbf{Figura 5:} Esquema conceptual del sistema de cliques implícitos en \texttt{quickshift}. Las compatibilidades se evalúan al vuelo; el motor expande iterativamente un conjunto totalmente compatible (clique) a partir de semillas heurísticas.
+\end{center}
+
