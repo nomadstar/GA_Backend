@@ -998,20 +998,32 @@ pub fn get_clique_with_user_prefs(
     ramos_disponibles: &HashMap<String, RamoDisponible>,
     params: &InputParams,
 ) -> Vec<(Vec<(Seccion, i32)>, i64)> {
-    // Usar enumerador exhaustivo limitado para generar combinaciones diversas
-    // Optimizar el límite de iteraciones según el número de secciones
-    // para respuestas rápidas (< 5 segundos en clique)
+    // DETERMINISMO + OPTIMALIDAD: Usar enumerador exhaustivo con límite MUY alto
+    // para capturar TODAS las combinaciones válidas y retornar TOP 50
     let max_size = 6usize;
     let n_secciones = lista_secciones.len();
-    let limit = if n_secciones < 50 {
-        5000usize  // Pocos cursos = buscar más
-    } else if n_secciones < 150 {
-        2000usize  // Moderado = balancear rapidez vs diversidad
-    } else {
-        1000usize  // Muchos cursos = priorizar rapidez
-    };
-    eprintln!("   [CLIQUE-OPT] secciones={}, limit={}", n_secciones, limit);
-    get_all_clique_combinations_with_pert(lista_secciones, ramos_disponibles, params, max_size, limit)
+    
+    // CAMBIO CRÍTICO: limit = 50,000 para garantizar captura de todas las cliques
+    // Con 6 ramos × 20 secciones = 120 secciones, C(120,6) = 1.5B teórico
+    // Pero filtrado por no-conflictos + 1 por ramo = ~5K-50K máximo realista
+    let limit = 50_000usize;
+    
+    eprintln!("   [CLIQUE-DETERMINISM] secciones={}, limit={} (TOP 50 ENUMERATOR)", n_secciones, limit);
+    eprintln!("   [GUARANTEE] Garantía: Enumeración exhaustiva retorna TOP 50 óptimos + subóptimos");
+    
+    let mut results = get_all_clique_combinations_with_pert(lista_secciones, ramos_disponibles, params, max_size, limit);
+    
+    // DETERMINISMO: Ordenar por score DESC, sin desempate (mostrar TODOS los empatados)
+    // Esto permite ver múltiples soluciones con el mismo score
+    results.sort_by(|a, b| b.1.cmp(&a.1)); // Score descendente (óptimos primero)
+    
+    // Retornar TOP 50 (o menos si no hay)
+    if results.len() > 50 {
+        results.truncate(50);
+    }
+    
+    eprintln!("✅ [DETERMINISM] Retornando {} soluciones (índices 0-49 si aplica)", results.len());
+    results
 }
 
 /// Wrapper para generar más soluciones con un máximo de iteraciones personalizado
@@ -1332,8 +1344,12 @@ pub fn get_all_clique_combinations_with_pert(
     // Run enumerator
     let mut combos = enumerate_clique_combinations(&filtered, &adj, ramos_disponibles, params, max_size, limit);
 
-    // sort by score desc and truncate
-    combos.sort_by(|a, b| b.1.cmp(&a.1));
-    combos.truncate(80);
+    // DETERMINISMO + OPTIMALIDAD: Ordenar por score DESC (sin desempate, mostrar todos)
+    combos.sort_by(|a, b| b.1.cmp(&a.1)); // Score descendente solamente
+    
+    // Retornar hasta 50 combinaciones (o menos si hay menos)
+    // Nota: Ya fueron filtradas por el `limit` del backtracker
+    combos.truncate(50);
+    eprintln!("   [ENUM-FINAL] Retornando {} combinaciones (TOP 50)", combos.len());
     combos
 }

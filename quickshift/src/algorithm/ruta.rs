@@ -82,6 +82,12 @@ pub fn ejecutar_ruta_critica_with_params(
         };
     eprintln!("   ✓ ramos cargados: {}", ramos_disponibles.len());
     
+    // 1c) PODADO DETERMINISTA: Filtrar ramos cuyo satisfacción de prerequisitos es imposible
+    // REGLA DURA: Un ramo solo es viable si TODOS sus prerequisites están en ramos_pasados
+    eprintln!("   🔪 PODADO: Filtrando ramos inviables (prerequisitos no satisfacibles)");
+    let ramos_viable_map = crate::algorithm::pert::build_viable_ramos(&ramos_disponibles, &params.ramos_pasados);
+    ramos_disponibles = ramos_viable_map.into_iter().collect();
+    
     // =========================================================================
     // PHASE 2: extract_viable_sections
     // =========================================================================

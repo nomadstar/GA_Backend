@@ -2,9 +2,74 @@ use petgraph::graph::{NodeIndex, DiGraph};
 use petgraph::Direction;
 use crate::models::PertNode;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap, HashSet};
 use std::error::Error;
 use crate::models::{RamoDisponible, Seccion};
+
+/// Filtra ramos inviables (cuyo satisfacción de prerequisitos es imposible)
+/// REGLA DURA: Un ramo solo es viable si TODOS sus prerequisites están en ramos_pasados
+pub fn build_viable_ramos(
+    ramos_disponibles: &HashMap<String, RamoDisponible>,
+    ramos_pasados: &[String],
+) -> BTreeMap<String, RamoDisponible> {
+    eprintln!("🔍 [PERT] Filtrando ramos inviables (podado determinista)");
+    
+    let passed_set: HashSet<String> = ramos_pasados
+        .iter()
+        .map(|s| s.to_uppercase())
+        .collect();
+    
+    let mut memo: HashMap<i32, bool> = HashMap::new();
+    
+    /// Verifica si un ramo es alcanzable (todos sus prerequisites están aprobados)
+    fn is_reachable(
+        ramo_id: i32,
+        passed_set: &HashSet<String>,
+        ramos_map: &HashMap<String, RamoDisponible>,
+        memo: &mut HashMap<i32, bool>,
+    ) -> bool {
+        if let Some(&cached) = memo.get(&ramo_id) {
+            return cached;
+        }
+        
+        let ramo = match ramos_map.values().find(|r| r.id == ramo_id) {
+            Some(r) => r,
+            None => {
+                memo.insert(ramo_id, false);
+                return false;
+            }
+        };
+        
+        if passed_set.contains(&ramo.codigo.to_uppercase()) {
+            memo.insert(ramo_id, true);
+            return true;
+        }
+        
+        let all_prereqs_ok = ramo.requisitos_ids.iter().all(|prereq_id| {
+            is_reachable(*prereq_id, passed_set, ramos_map, memo)
+        });
+        
+        memo.insert(ramo_id, all_prereqs_ok);
+        all_prereqs_ok
+    }
+    
+    let mut viable = BTreeMap::new();
+    let mut sorted_ramos: Vec<_> = ramos_disponibles.iter().collect();
+    sorted_ramos.sort_by(|a, b| a.0.cmp(b.0));
+    
+    let mut excluded_count = 0;
+    for (codigo, ramo) in sorted_ramos {
+        if is_reachable(ramo.id, &passed_set, ramos_disponibles, &mut memo) {
+            viable.insert(codigo.clone(), ramo.clone());
+        } else {
+            excluded_count += 1;
+            eprintln!("   ⊘ Excluido: {} (prerequisites no satisfacen)", codigo);
+        }
+    }
+    
+    eprintln!("✅ [PERT] Ramos viables: {} (excluidos: {})", viable.len(), excluded_count);
+    viable
+}
 
 /// Construye un grafo PERT a partir de `ramos_actualizados`, añade aristas por
 /// `codigo_ref`, `numb_correlativo` y por hojas de prerequisitos dentro de la
@@ -27,7 +92,11 @@ pub fn build_and_run_pert(
         .map(|s| s.codigo.trim().to_ascii_uppercase())
         .collect();
 
-    for (code_key, ramo) in ramos_actualizados.iter() {
+    // DETERMINISMO: Iterar en orden alfabético por clave para garantizar reproducibilidad
+    let mut sorted_ramos: Vec<_> = ramos_actualizados.iter().collect();
+    sorted_ramos.sort_by(|a, b| a.0.cmp(b.0));
+
+    for (code_key, ramo) in sorted_ramos.iter() {
         // `code_key` corresponde a la clave usada en `ramos_actualizados` y
         // normalmente coincide con `Seccion.codigo`. Si no está presente en
         // `lista_secciones`, saltamos el ramo.
@@ -49,7 +118,11 @@ pub fn build_and_run_pert(
     }
 
     // Añadir aristas por requisitos_ids (que apuntan a IDs prerequisitos)
-    for (_nombre_norm, ramo) in ramos_actualizados.iter() {
+    // DETERMINISMO: Iterar en orden determinista
+    let mut sorted_for_prereqs: Vec<_> = ramos_actualizados.iter().collect();
+    sorted_for_prereqs.sort_by(|a, b| a.0.cmp(b.0));
+    
+    for (_nombre_norm, ramo) in sorted_for_prereqs.iter() {
         for prereq_id in &ramo.requisitos_ids {
             if prereq_id != &ramo.id {
                 if let (Some(&from), Some(&to)) = (node_map.get(prereq_id), node_map.get(&ramo.id)) {
@@ -123,7 +196,9 @@ pub fn build_and_run_pert(
 
         // construir índice: nombre normalizado -> ID
         let mut name_norm_to_id: HashMap<String, i32> = HashMap::new();
-        for (_norm_name, ramo) in ramos_actualizados.iter() {
+        let mut sorted_ramos_for_names: Vec<_> = ramos_actualizados.iter().collect();
+        sorted_ramos_for_names.sort_by(|a, b| a.0.cmp(b.0));
+        for (_norm_name, ramo) in sorted_ramos_for_names.iter() {
             name_norm_to_id.insert(normalize(&ramo.nombre), ramo.id);
         }
         for (codigo_str, prereqs) in pr_map.iter() {

@@ -1,0 +1,30 @@
+{
+  "test_date": "2025-12-15",
+  "input_file": "MC2020moded.xlsx",
+  "num_runs": 10,
+  "successful_runs": 10,
+  "deterministic": true,
+  "ramos_count": 19,
+  "ramos_list": [
+    "CBF1001",
+    "CBM1005",
+    "CBM1006",
+    "CFG2",
+    "CFG3",
+    "CFG4",
+    "CIG1012",
+    "CII1000",
+    "CII2100",
+    "CIT2006",
+    "CIT2008",
+    "CIT2114",
+    "CIT2204",
+    "CIT3310",
+    "CIT3311",
+    "CIT3312",
+    "CIT3410",
+    "CIT3411",
+    "CIT3412"
+  ],
+  "errors": []
+}
