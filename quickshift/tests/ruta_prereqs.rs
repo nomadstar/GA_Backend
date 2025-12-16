@@ -71,6 +71,7 @@ fn test_prereqs_produce_pert_edges() {
                 profesor: String::new(),
                 codigo_box: String::new(),
                 is_cfg: false,
+                is_electivo: false,
             }).collect()
         }
     };

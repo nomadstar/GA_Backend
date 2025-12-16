@@ -231,6 +231,7 @@ fn create_demo_secciones() -> Vec<Seccion> {
                     profesor: format!("Prof {}", sec),
                     codigo_box: format!("BOX_S{}_{}_SEC{}", sem, i, sec),
                     is_cfg: false,
+                    is_electivo: false,
                 });
             }
         }

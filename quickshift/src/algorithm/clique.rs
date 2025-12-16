@@ -798,10 +798,18 @@ pub fn get_clique_max_pond_with_prefs(
         }
         
         // Si NO encontramos ni por código ni por nombre,
-        // permitir si la sección proviene de un CFG (se considerará luego)
+        // permitir si la sección proviene de un CFG o es un electivo
         if s.is_cfg {
             eprintln!(
                 "   ✓ Permitido {} - SECCIÓN CFG no encontrada en malla pero aceptada",
+                s.codigo
+            );
+            return true;
+        }
+        
+        if s.is_electivo {
+            eprintln!(
+                "   ✓ Permitido {} - ELECTIVO DE ESPECIALIZACIÓN no encontrado en malla pero aceptado",
                 s.codigo
             );
             return true;
@@ -817,7 +825,9 @@ pub fn get_clique_max_pond_with_prefs(
     
     eprintln!("   ✓ Después de validar prerequisitos: {} secciones", filtered_with_preqs.len());
     let debug_cfg_count = filtered_with_preqs.iter().filter(|s| s.is_cfg).count();
+    let debug_electivo_count = filtered_with_preqs.iter().filter(|s| s.is_electivo).count();
     eprintln!("   [DEBUG] Secciones CFG después de prerequisitos: {}", debug_cfg_count);
+    eprintln!("   [DEBUG] Secciones ELECTIVOS después de prerequisitos: {}", debug_electivo_count);
     let mut filtered = filtered_with_preqs;
     
     // Aplicar filtros del usuario ANTES de construir la matriz de adjacencia
@@ -944,9 +954,14 @@ pub fn get_clique_max_pond_with_prefs(
             Some(r) => compute_priority(r, s),
             None if s.is_cfg => {
                 // CFG sin entrada en malla: asignar prioridad similar a cursos de 3er semestre
-                // (para que sean competitivos en greedy)
                 eprintln!("   [DEBUG] CFG {} sin entrada en malla, asignando prioridad competitiva", s.codigo);
-                10010150i64  // Similar a un curso no crítico, holgura media-baja, correlativo bajo, seccion 50
+                10010150i64  // Similar a un curso no crítico, holgura media-baja, correlativo bajo
+            },
+            None if s.is_electivo => {
+                // ELECTIVO DE CARRERA: prioridad más baja que obligatorios pero válida
+                // Prioridad base: 00 05 30 00 (no crítico, holgura alta, correlativo medio)
+                eprintln!("   [DEBUG] ELECTIVO {} sin entrada en malla, asignando prioridad de electivo", s.codigo);
+                53000i64  // Prioridad más baja que cursos obligatorios pero mayor que 0
             },
             None => 0,
         };
@@ -1366,6 +1381,7 @@ fn enumerate_cliques_with_cfg_priority(
         let p = match candidate {
             Some(r) => compute_priority(r, s),
             None if s.is_cfg => 10010150i64,
+            None if s.is_electivo => 53000i64,
             None => 0,
         };
         pri_cache.push(p);
@@ -1475,6 +1491,10 @@ fn enumerate_clique_combinations(
             None if s.is_cfg => {
                 // CFG sin entrada en malla: asignar prioridad similar a cursos de 3er semestre
                 10010150i64
+            },
+            None if s.is_electivo => {
+                // ELECTIVO: prioridad más baja
+                53000i64
             },
             None => 0,
         };
@@ -1661,6 +1681,7 @@ fn enumerate_clique_combinations_size_priority(
         let p = match candidate {
             Some(r) => compute_priority(r, s),
             None if s.is_cfg => 10010150i64,
+            None if s.is_electivo => 53000i64,
             None => 0,
         };
         pri_cache.push(p);

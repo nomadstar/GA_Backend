@@ -79,6 +79,9 @@ pub struct Seccion {
     /// True si esta sección proviene del archivo CFG (Curso de Formación General)
     /// Las secciones leídas desde la Oferta Académica normal tienen `is_cfg = false`.
     pub is_cfg: bool,
+    /// True si esta sección es un electivo de especialización
+    /// (está en la oferta académica pero NO en la malla curricular)
+    pub is_electivo: bool,
 }
 
 #[allow(dead_code)]

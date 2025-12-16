@@ -1,0 +1,27 @@
+{
+  "email": "test@udp.cl",
+  "ramos_pasados": [
+    "CBM1000", "CBM1001", "CBQ1000", "CIT1000", "FIC1000", "CFG1",
+    "CIT1010", "CBF1000", "CBM1003", "CBM1002", "CBM1005", "CBM1006", "CBF1001", "CIT2006", "CIT2114", "CIG1012",
+    "CIT2008", "CIT2007", "CBF1002", "CIT2107", "CIT2204", "CII2750", "CIT2205", "CIT2009", "CFG2", "CIG1013",
+    "CIT4000", "CIT2108", "CIG1014", "CFG3", "CIT2010", "CIT2110", "CIT2109", "CII1000", "CFG4",
+    "CIT2012", "CIT2111", "CIT2011", "CIT2206"
+  ],
+  "ramos_prioritarios": [],
+  "horarios_preferidos": [],
+  "horarios_prohibidos": [],
+  "malla": "MC2020moded.xlsx",
+  "student_ranking": 0.5,
+  "filtros": {
+    "dias_horarios_libres": {
+      "habilitado": true,
+      "minimizar_ventanas": true,
+      "ventana_ideal_minutos": 30
+    },
+    "ventana_entre_actividades": {
+      "habilitado": true,
+      "minutos_entre_clases": 15
+    }
+  },
+  "optimizations": ["minimize-gaps"]
+}

@@ -127,6 +127,43 @@ pub fn ejecutar_ruta_critica_with_params(
     }
     eprintln!("   ✓ secciones cargadas: {}", lista_secciones.len());
     
+    // 2a.c) Marcar electivos: cursos que están en oferta pero NO en la malla
+    eprintln!("   🎓 Identificando electivos de especialización...");
+    let codigos_en_malla: std::collections::HashSet<String> = ramos_disponibles
+        .values()
+        .map(|r| crate::excel::normalize_name(&r.codigo))
+        .collect();
+    
+    let nombres_en_malla: std::collections::HashSet<String> = ramos_disponibles
+        .values()
+        .map(|r| crate::excel::normalize_name(&r.nombre))
+        .collect();
+    
+    let mut electivos_count = 0;
+    for sec in lista_secciones.iter_mut() {
+        // Skip CFGs (ya tienen su propia categoría)
+        if sec.is_cfg {
+            sec.is_electivo = false;
+            continue;
+        }
+        
+        // Verificar si el curso está en la malla (por código o nombre normalizado)
+        let codigo_norm = crate::excel::normalize_name(&sec.codigo);
+        let nombre_norm = crate::excel::normalize_name(&sec.nombre);
+        
+        let en_malla = codigos_en_malla.contains(&codigo_norm) || 
+                       nombres_en_malla.contains(&nombre_norm);
+        
+        if !en_malla {
+            sec.is_electivo = true;
+            electivos_count += 1;
+        } else {
+            sec.is_electivo = false;
+        }
+    }
+    
+    eprintln!("   ✓ Electivos identificados: {} secciones de electivos de especialización", electivos_count);
+    
     // 2b) Ejecutar PERT ANTES de filtrar secciones
     // (porque necesitamos critico/holgura/numb_correlativo propagados)
     eprintln!("   🧭 Ejecutando PERT (primera pasada)...");
