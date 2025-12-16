@@ -1,0 +1,44 @@
+{
+  "email": "ignacio.marambio_z@mail.udp.cl",
+  "ramos_pasados": [
+    "CBM1000",
+    "CBM1001",
+    "CBQ1000",
+    "CIT1000",
+    "FIC1000",
+    "CFG1",
+    "CIT1010",
+    "CBF1000",
+    "CBM1003",
+    "CBM1002",
+    "CBM1005",
+    "CBM1006",
+    "CBF1001",
+    "CIT2006",
+    "CIT2114"
+  ],
+  "ramos_prioritarios": [],
+  "horarios_preferidos": [],
+  "horarios_prohibidos": [],
+  "malla": "MC2020moded.xlsx",
+  "student_ranking": 0.5,
+  "filtros": {
+    "dias_horarios_libres": {
+      "habilitado": true,
+      "minimizar_ventanas": true,
+      "ventana_ideal_minutos": 30
+    },
+    "ventana_entre_actividades": {
+      "habilitado": true,
+      "minutos_entre_clases": 15
+    },
+    "preferencias_profesores": {
+      "habilitado": false,
+      "profesores_preferidos": [],
+      "profesores_evitar": []
+    }
+  },
+  "optimizations": [
+    "minimize-gaps"
+  ]
+}

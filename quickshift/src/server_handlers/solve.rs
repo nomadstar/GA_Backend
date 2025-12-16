@@ -78,25 +78,16 @@ pub async fn solve_handler(req: HttpRequest, body: web::Json<serde_json::Value>)
         Err(err_msg) => return HttpResponse::InternalServerError().json(json!({"error": err_msg})),
     };
 
-    // Cargar códigos disponibles UNA SOLA VEZ (lo más rápido posible)
-    let available_codes = match crate::excel::oferta::get_available_course_codes("OA20251_normalizado.xlsx") {
-        Ok(codes) => codes,
-        Err(e) => {
-            eprintln!("Warning: Could not load available course codes: {}", e);
-            std::collections::HashSet::new()
-        }
-    };
-
-    // Convertir Vec<(Vec<(Seccion, i32)>, i64)> a Vec<SolutionEntry> con filtrado rápido
+    // Convertir Vec<(Vec<(Seccion, i32)>, i64)> a Vec<SolutionEntry>
+    // NO filtrar por available_codes porque las secciones ya fueron validadas por el algoritmo
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
     for (sol_with_prefs, score) in soluciones.iter().take(20) {
-        // Filtrar solo las secciones cuyo código existe en la oferta académica
+        // Extraer todas las secciones (ya validadas por el algoritmo)
         let final_secs: Vec<Seccion> = sol_with_prefs.iter()
-            .filter(|(sec, _pref)| available_codes.contains(&sec.codigo))
             .map(|(sec, _pref)| sec.clone())
             .collect();
         
-        // Solo agregar la solución si tiene al menos una sección válida
+        // Agregar la solución con todas sus secciones
         if !final_secs.is_empty() {
             soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
         }
@@ -176,24 +167,16 @@ pub async fn solve_get_handler(query: web::Query<std::collections::HashMap<Strin
         Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("ruta_critica failed: {}", e)})),
     };
 
-    // Cargar códigos disponibles UNA SOLA VEZ (lo más rápido posible)
-    let available_codes = match crate::excel::oferta::get_available_course_codes("OA20251_normalizado.xlsx") {
-        Ok(codes) => codes,
-        Err(e) => {
-            eprintln!("Warning: Could not load available course codes: {}", e);
-            std::collections::HashSet::new()
-        }
-    };
-
+    // Convertir Vec<(Vec<(Seccion, i32)>, i64)> a Vec<SolutionEntry>
+    // NO filtrar por available_codes porque las secciones ya fueron validadas por el algoritmo
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
     for (sol_with_prefs, score) in soluciones.iter().take(20) {
-        // Filtrar solo las secciones cuyo código existe en la oferta académica
+        // Extraer todas las secciones (ya validadas por el algoritmo)
         let final_secs: Vec<Seccion> = sol_with_prefs.iter()
-            .filter(|(sec, _pref)| available_codes.contains(&sec.codigo))
             .map(|(sec, _pref)| sec.clone())
             .collect();
         
-        // Solo agregar la solución si tiene al menos una sección válida
+        // Agregar la solución con todas sus secciones
         if !final_secs.is_empty() {
             soluciones_serial.push(SolutionEntry { total_score: *score, secciones: final_secs });
         }
