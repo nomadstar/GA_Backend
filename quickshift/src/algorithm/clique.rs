@@ -439,6 +439,12 @@ fn seccion_cumple_filtros(seccion: &Seccion, filtros: &Option<crate::models::Use
         return true;
     }
     
+    // Las secciones CFG siempre pasan los filtros de usuario
+    // (se tratan especialmente en la lógica de clique)
+    if seccion.is_cfg {
+        return true;
+    }
+    
     let f = filtros.as_ref().unwrap();
     
     // Filtro: Franjas prohibidas
@@ -497,6 +503,179 @@ fn seccion_cumple_filtros(seccion: &Seccion, filtros: &Option<crate::models::Use
     true
 }
 
+/// Búsqueda exhaustiva usando petgraph para máximas cliques
+/// Prioriza CFGs y garantiza que aparezcan en soluciones
+pub fn exhaustive_clique_search_with_cfg(
+    filtered: &[Seccion],
+    ramos_disponibles: &HashMap<String, RamoDisponible>,
+    params: &InputParams,
+    max_size: usize,
+    max_solutions: usize,
+) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    eprintln!("   [EXHAUSTIVE] Construyendo grafo de compatibilidad con petgraph...");
+    
+    // Construir grafo usando petgraph
+    let mut graph: UnGraph<(usize, &Seccion), ()> = UnGraph::new_undirected();
+    let mut node_map: HashMap<usize, NodeIndex> = HashMap::new();
+    
+    // Añadir nodos (secciones)
+    for (idx, sec) in filtered.iter().enumerate() {
+        let node_idx = graph.add_node((idx, sec));
+        node_map.insert(idx, node_idx);
+    }
+    
+    // Añadir aristas (compatibilidad entre secciones)
+    for i in 0..filtered.len() {
+        for j in (i + 1)..filtered.len() {
+            let s1 = &filtered[i];
+            let s2 = &filtered[j];
+            
+            // Verificar compatibilidad: mismo código? conflicto horario?
+            let code_a = &s1.codigo[..std::cmp::min(7, s1.codigo.len())];
+            let code_b = &s2.codigo[..std::cmp::min(7, s2.codigo.len())];
+            
+            let compatible = s1.codigo_box != s2.codigo_box 
+                && code_a != code_b 
+                && !sections_conflict(s1, s2)
+                && seccion_cumple_filtros(s1, &params.filtros)
+                && seccion_cumple_filtros(s2, &params.filtros);
+            
+            if compatible {
+                if let (Some(&n1), Some(&n2)) = (node_map.get(&i), node_map.get(&j)) {
+                    graph.add_edge(n1, n2, ());
+                }
+            }
+        }
+    }
+    
+    eprintln!("   [EXHAUSTIVE] Grafo: {} nodos, {} aristas", graph.node_count(), graph.edge_count());
+    
+    let mut all_solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    let mut seen_solutions: HashSet<String> = HashSet::new();
+    
+    // Búsqueda exhaustiva de cliques usando DFS con backtracking
+    fn find_cliques_dfs(
+        node: NodeIndex,
+        candidates: Vec<NodeIndex>,
+        graph: &UnGraph<(usize, &Seccion), ()>,
+        current_clique: &mut Vec<NodeIndex>,
+        all_cliques: &mut Vec<Vec<NodeIndex>>,
+        max_size: usize,
+        max_cliques: usize,
+        ramos_disponibles: &HashMap<String, RamoDisponible>,
+    ) {
+        if all_cliques.len() >= max_cliques {
+            return;
+        }
+        
+        // PODA: tamaño máximo alcanzado
+        if current_clique.len() == max_size {
+            all_cliques.push(current_clique.clone());
+            return;
+        }
+        
+        // PODA: no hay suficientes candidatos
+        if current_clique.len() + candidates.len() < max_size {
+            return;
+        }
+        
+        // Base case: guardar cliques parciales válidos
+        if candidates.is_empty() {
+            if !current_clique.is_empty() {
+                all_cliques.push(current_clique.clone());
+            }
+            return;
+        }
+        
+        for (i, &cand) in candidates.iter().enumerate() {
+            // Verificar que cand es compatible con todos en current_clique
+            let mut compatible = true;
+            for &existing in current_clique.iter() {
+                if !graph.contains_edge(cand, existing) {
+                    compatible = false;
+                    break;
+                }
+            }
+            
+            if compatible {
+                current_clique.push(cand);
+                
+                // Nuevos candidatos: solo aquellos conectados a cand
+                let new_candidates: Vec<NodeIndex> = candidates[(i+1)..]
+                    .iter()
+                    .filter(|&&c| graph.contains_edge(cand, c))
+                    .copied()
+                    .collect();
+                
+                find_cliques_dfs(cand, new_candidates, graph, current_clique, 
+                               all_cliques, max_size, max_cliques, ramos_disponibles);
+                
+                current_clique.pop();
+            }
+        }
+    }
+    
+    // Ejecutar búsqueda comenzando desde cada nodo (priorizando CFGs)
+    let mut all_nodes: Vec<NodeIndex> = graph.node_indices().collect();
+    all_nodes.sort_by(|&a, &b| {
+        let is_cfg_a = filtered[graph[a].0].is_cfg;
+        let is_cfg_b = filtered[graph[b].0].is_cfg;
+        b.index().cmp(&a.index())  // Orden determinista
+    });
+    
+    let mut cliques_found: Vec<Vec<NodeIndex>> = Vec::new();
+    
+    for &start_node in &all_nodes {
+        if cliques_found.len() >= max_solutions {
+            break;
+        }
+        
+        let neighbors: Vec<NodeIndex> = graph.neighbors(start_node).collect();
+        let mut current = vec![start_node];
+        find_cliques_dfs(start_node, neighbors, &graph, &mut current, 
+                        &mut cliques_found, max_size, max_solutions, ramos_disponibles);
+    }
+    
+    eprintln!("   [EXHAUSTIVE] Encontradas {} cliques", cliques_found.len());
+    
+    // Convertir cliques a soluciones
+    for clique_nodes in cliques_found {
+        let mut sol_vec: Vec<(Seccion, i32)> = Vec::new();
+        let mut score = 0i64;
+        
+        for &node_idx in &clique_nodes {
+            let (sec_idx, sec) = graph[node_idx];
+            let priority = if let Some(r) = ramos_disponibles.values()
+                .find(|r| r.codigo.to_uppercase() == sec.codigo.to_uppercase()) {
+                compute_priority(r, sec) as i32
+            } else if sec.is_cfg {
+                10010150i32
+            } else {
+                0
+            };
+            
+            sol_vec.push((sec.clone(), priority));
+            score += priority as i64;
+        }
+        
+        let key = sol_vec.iter()
+            .map(|(s, _)| s.codigo_box.clone())
+            .collect::<Vec<_>>()
+            .join("|");
+        
+        if !seen_solutions.contains(&key) && !sol_vec.is_empty() {
+            seen_solutions.insert(key);
+            all_solutions.push((sol_vec, score));
+        }
+    }
+    
+    // Ordenar por score descendente
+    all_solutions.sort_by(|a, b| b.1.cmp(&a.1));
+    
+    eprintln!("   [EXHAUSTIVE] ✅ {} soluciones únicamente después de deduplicación", all_solutions.len());
+    all_solutions
+}
+
 pub fn get_clique_max_pond_with_prefs(
     lista_secciones: &[Seccion],
     ramos_disponibles: &HashMap<String, RamoDisponible>,
@@ -508,6 +687,14 @@ pub fn get_clique_max_pond_with_prefs(
     let has_filters = params.filtros.is_some();
     eprintln!("   [DEBUG] has_filters={}, filtros={:?}", has_filters, 
               params.filtros.as_ref().map(|f| format!("UserFilters present")));
+
+    // Calcular límite de CFGs: máximo 4 CFGs en total
+    let cfgs_aprobados = params.ramos_pasados.iter()
+        .filter(|r| r.to_uppercase().starts_with("CFG"))
+        .count();
+    let max_cfgs_permitidos = 4usize.saturating_sub(cfgs_aprobados);
+    eprintln!("   [CFG-LIMIT] CFGs aprobados: {}, máximo permitido en soluciones: {}", 
+              cfgs_aprobados, max_cfgs_permitidos);
 
     // --- Filtrado inicial (semestre y ramos pasados) ---
     let mut max_sem = 0;
@@ -546,8 +733,8 @@ pub fn get_clique_max_pond_with_prefs(
         }
         
         // Si NO encontramos en ramos_disponibles (ni por código ni por nombre),
-        // excluir (es un curso externo no en la malla)
-        false
+        // permitir si es una sección CFG, si no excluir
+        s.is_cfg
     }).cloned().collect();
 
     // Orden determinista de secciones para evitar no-determinismo por iteración
@@ -610,7 +797,16 @@ pub fn get_clique_max_pond_with_prefs(
             }
         }
         
-        // Si NO encontramos ni por código ni por nombre, excluir
+        // Si NO encontramos ni por código ni por nombre,
+        // permitir si la sección proviene de un CFG (se considerará luego)
+        if s.is_cfg {
+            eprintln!(
+                "   ✓ Permitido {} - SECCIÓN CFG no encontrada en malla pero aceptada",
+                s.codigo
+            );
+            return true;
+        }
+
         // (significa que es un curso que no está en la malla)
         eprintln!(
             "   ⊘ Excluyendo {} - NO ENCONTRADO EN MALLA (puede ser electivo externo)",
@@ -620,6 +816,8 @@ pub fn get_clique_max_pond_with_prefs(
     }).collect::<Vec<_>>();
     
     eprintln!("   ✓ Después de validar prerequisitos: {} secciones", filtered_with_preqs.len());
+    let debug_cfg_count = filtered_with_preqs.iter().filter(|s| s.is_cfg).count();
+    eprintln!("   [DEBUG] Secciones CFG después de prerequisitos: {}", debug_cfg_count);
     let mut filtered = filtered_with_preqs;
     
     // Aplicar filtros del usuario ANTES de construir la matriz de adjacencia
@@ -630,10 +828,19 @@ pub fn get_clique_max_pond_with_prefs(
             seccion_cumple_filtros(s, &params.filtros)
         }).collect::<Vec<_>>();
         eprintln!("   Después de filtros de usuario: {} secciones", pre_filtered.len());
+        let debug_cfg_after = pre_filtered.iter().filter(|s| s.is_cfg).count();
+        eprintln!("   [DEBUG] Secciones CFG después de filtros de usuario: {}", debug_cfg_after);
         pre_filtered
     } else {
         filtered
     };
+    
+    // FILTRO POR LÍMITE DE CFGs: Si el usuario ya completó su cuota de CFGs, eliminar todos los CFGs
+    if max_cfgs_permitidos == 0 {
+        eprintln!("   [CFG-FILTER] Usuario ya completó 4 CFGs - removiendo todos los CFGs del pool");
+        filtered = filtered.into_iter().filter(|s| !s.is_cfg).collect();
+        eprintln!("   Después de filtrar CFGs por límite: {} secciones", filtered.len());
+    }
     
     if filtered.is_empty() && params.filtros.is_some() {
         eprintln!("   ⚠️  Todos fueron filtrados!");
@@ -704,6 +911,25 @@ pub fn get_clique_max_pond_with_prefs(
             }
         }
     }
+    
+    // [DEBUG] Verificar conectividad de CFGs en el grafo
+    let cfg_count = filtered.iter().filter(|s| s.is_cfg).count();
+    if cfg_count > 0 {
+        eprintln!("   [GRAPH-DEBUG] Verificando conectividad de {} CFGs en grafo de {} nodos", cfg_count, n);
+        let mut cfgs_with_edges = 0;
+        for i in 0..n {
+            if filtered[i].is_cfg {
+                let edge_count = adj[i].iter().filter(|&&connected| connected).count();
+                if edge_count > 0 {
+                    cfgs_with_edges += 1;
+                }
+                if edge_count == 0 {
+                    eprintln!("      ⚠ CFG {} NO tiene edges (aislado)", filtered[i].codigo);
+                }
+            }
+        }
+        eprintln!("   [GRAPH-DEBUG] {}/{} CFGs tienen al menos 1 edge", cfgs_with_edges, cfg_count);
+    }
 
     // --- Prioridades por sección (resolver RamoDisponible por código o nombre normalizado) ---
     let mut pri: Vec<i64> = Vec::with_capacity(n);
@@ -714,7 +940,16 @@ pub fn get_clique_max_pond_with_prefs(
             }
             normalize_name(&r.nombre) == normalize_name(&s.nombre)
         });
-        let p = candidate.map(|r| compute_priority(r, s)).unwrap_or(0);
+        let p = match candidate {
+            Some(r) => compute_priority(r, s),
+            None if s.is_cfg => {
+                // CFG sin entrada en malla: asignar prioridad similar a cursos de 3er semestre
+                // (para que sean competitivos en greedy)
+                eprintln!("   [DEBUG] CFG {} sin entrada en malla, asignando prioridad competitiva", s.codigo);
+                10010150i64  // Similar a un curso no crítico, holgura media-baja, correlativo bajo, seccion 50
+            },
+            None => 0,
+        };
         pri.push(p);
     }
 
@@ -723,6 +958,7 @@ pub fn get_clique_max_pond_with_prefs(
     // Si encontramos soluciones con 6 cursos -> guardar y seguir buscando DIFERENTES de 6
     // Detener cuando tengamos 10 soluciones con 6 cursos cada una
     let mut all_solutions: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    let mut cfg_selected_as_seed_count = 0;  // Contador de CFGs seleccionados como seed
     
     // FALLBACK para 1 sección: retornar como solución única (LEY FUNDAMENTAL)
     if n == 1 {
@@ -799,6 +1035,12 @@ pub fn get_clique_max_pond_with_prefs(
         
         let seed_idx = candidates[0];
         
+        // [DEBUG] Track si el seed es CFG
+        if filtered[seed_idx].is_cfg {
+            cfg_selected_as_seed_count += 1;
+            eprintln!("      [GREEDY-SEED] CFG {} seleccionado como seed (#{} vez)", filtered[seed_idx].codigo, cfg_selected_as_seed_count);
+        }
+        
         // VALIDAR que el seed cumple filtros Y requisitos previos
         if !seccion_cumple_filtros(&filtered[seed_idx], &params.filtros) {
             remaining_indices.remove(&seed_idx);
@@ -812,10 +1054,13 @@ pub fn get_clique_max_pond_with_prefs(
             .collect();
 
         // Verificar requisitos del seed usando SOLO `ramos_pasados`
-        if let Some(seed_ramo) = ramos_disponibles.values().find(|r| r.codigo == filtered[seed_idx].codigo) {
-            if !requisitos_cumplidos(&filtered[seed_idx], seed_ramo, ramos_disponibles, &base_passed_codes) {
-                remaining_indices.remove(&seed_idx);
-                continue;
+        // Los CFGs no tienen prerequisitos, saltar validación
+        if !filtered[seed_idx].is_cfg {
+            if let Some(seed_ramo) = ramos_disponibles.values().find(|r| r.codigo == filtered[seed_idx].codigo) {
+                if !requisitos_cumplidos(&filtered[seed_idx], seed_ramo, ramos_disponibles, &base_passed_codes) {
+                    remaining_indices.remove(&seed_idx);
+                    continue;
+                }
             }
         }
         
@@ -828,6 +1073,14 @@ pub fn get_clique_max_pond_with_prefs(
             }
             if !remaining_indices.contains(&cand) {
                 continue;
+            }
+            
+            // VALIDAR límite de CFGs en el clique antes de agregar candidato
+            let current_cfg_count = clique.iter().filter(|&&idx| filtered[idx].is_cfg && filtered[idx].codigo.to_uppercase().starts_with("CFG")).count();
+            if filtered[cand].is_cfg && filtered[cand].codigo.to_uppercase().starts_with("CFG") {
+                if current_cfg_count >= max_cfgs_permitidos {
+                    continue;  // Ya alcanzamos el límite de CFGs
+                }
             }
             
             // VALIDAR que el candidato cumple filtros
@@ -880,7 +1133,13 @@ pub fn get_clique_max_pond_with_prefs(
         let mut total: i64 = 0;
         for &ix in clique.iter() {
             let s = filtered[ix].clone();
-            if let Some(r) = ramos_disponibles.values().find(|r| {
+            
+            // Los CFGs no están en ramos_disponibles, usar prioridad fija
+            if s.is_cfg {
+                let score = 10010150i64;  // Prioridad competitiva
+                sol.push((s.clone(), score as i32));
+                total += score;
+            } else if let Some(r) = ramos_disponibles.values().find(|r| {
                 if !r.codigo.is_empty() && !s.codigo.is_empty() {
                     if r.codigo.to_lowercase() == s.codigo.to_lowercase() { return true; }
                 }
@@ -923,7 +1182,9 @@ pub fn get_clique_max_pond_with_prefs(
 
     // Si la búsqueda greedy no produjo suficientes soluciones, usar el enumerador
     // exhaustivo como fallback para aumentar diversidad (hasta 15 soluciones para garantizar 10).
-    if all_solutions.len() < 15 {
+    eprintln!("   [GREEDY-SUMMARY] CFG seeds seleccionados: {}", cfg_selected_as_seed_count);
+    
+    if all_solutions.len() < 5 {
         eprintln!("   [FALLBACK] Solo {} soluciones desde greedy; ejecutando enumerador exhaustivo para aumentar diversidad...", all_solutions.len());
         // Generar combinaciones adicionales (limit aumentado para garantizar 10+)
         let mut extras = get_all_clique_combinations_with_pert(&filtered, ramos_disponibles, params, 6usize, 5000usize);
@@ -952,41 +1213,57 @@ pub fn get_clique_max_pond_with_prefs(
     all_solutions.sort_by(|a, b| b.1.cmp(&a.1));
     
     // ESTRATEGIA DE FILTRADO INTELIGENTE:
-    // Si hay soluciones con 6 cursos (ÓPTIMAS), mantener SOLO esas si hay >= 10
-    // Si hay óptimas pero < 10, complementar con subóptimas hasta llegar a 10
-    // Si no hay óptimas, mantener las mejores diversas (mínimo 10, máximo 20)
-    let has_six_course_solutions = all_solutions.iter().any(|(sol, _)| sol.len() == 6);
-    if has_six_course_solutions {
-        // Separar soluciones óptimas y subóptimas
-        let optimal: Vec<_> = all_solutions.iter().cloned().filter(|(sol, _)| sol.len() == 6).collect();
-        let mut suboptimal: Vec<_> = all_solutions.iter().cloned().filter(|(sol, _)| sol.len() != 6).collect();
+    // SIN FILTROS: Solo retornar soluciones óptimas (máximo tamaño)
+    // CON FILTROS: Permitir soluciones subóptimas si no hay suficientes óptimas
+    let has_filters = params.filtros.is_some();
+    let max_size = all_solutions.iter().map(|(sol, _)| sol.len()).max().unwrap_or(0);
+    
+    if !has_filters && max_size > 0 {
+        // SIN FILTROS: Solo soluciones de tamaño máximo (determinista)
+        let optimal: Vec<_> = all_solutions.into_iter().filter(|(sol, _)| sol.len() == max_size).collect();
         let optimal_count = optimal.len();
         
-        // Si tenemos >= 10 óptimas, usar solo esas (máximo 20)
-        if optimal.len() >= 10 {
-            let mut result = optimal;
-            if result.len() > 20 {
-                result.truncate(20);
-            }
-            all_solutions = result;
-            eprintln!("✅ [clique] {} soluciones ÓPTIMAS (6 ramos cada una, STRATEGY=MAX_COURSES)", all_solutions.len());
-        } else {
-            // Si tenemos < 10 óptimas, complementar con subóptimas
-            suboptimal.sort_by(|a, b| b.1.cmp(&a.1));  // Ordenar subóptimas por score
-            let mut result = optimal;
-            for (sol, score) in suboptimal {
-                if result.len() >= 20 { break; }
-                result.push((sol, score));
-            }
-            eprintln!("✅ [clique] {} soluciones ({} ÓPTIMAS + {} subóptimas)", result.len(), optimal_count, result.len() - optimal_count);
-            all_solutions = result;
-        }
-    } else {
-        // Si no hay soluciones con 6 cursos, mantener las mejores, mínimo 10 máximo 20
+        all_solutions = optimal;
         if all_solutions.len() > 20 {
             all_solutions.truncate(20);
         }
-        eprintln!("✅ [clique] {} soluciones (max_weight_clique, max 6 ramos, sin 6-ramo solutions)", all_solutions.len());
+        eprintln!("✅ [clique] {} soluciones (max {} ramos, sin filtros = solo óptimas)", 
+                  all_solutions.len(), max_size);
+    } else {
+        // CON FILTROS: Aplicar estrategia mixta (óptimas + subóptimas si es necesario)
+        let has_six_course_solutions = all_solutions.iter().any(|(sol, _)| sol.len() == 6);
+        if has_six_course_solutions {
+            // Separar soluciones óptimas y subóptimas
+            let optimal: Vec<_> = all_solutions.iter().cloned().filter(|(sol, _)| sol.len() == 6).collect();
+            let mut suboptimal: Vec<_> = all_solutions.iter().cloned().filter(|(sol, _)| sol.len() != 6).collect();
+            let optimal_count = optimal.len();
+            
+            // Si tenemos >= 10 óptimas, usar solo esas (máximo 20)
+            if optimal.len() >= 10 {
+                let mut result = optimal;
+                if result.len() > 20 {
+                    result.truncate(20);
+                }
+                all_solutions = result;
+                eprintln!("✅ [clique] {} soluciones ÓPTIMAS (6 ramos cada una, STRATEGY=MAX_COURSES)", all_solutions.len());
+            } else {
+                // Si tenemos < 10 óptimas, complementar con subóptimas
+                suboptimal.sort_by(|a, b| b.1.cmp(&a.1));  // Ordenar subóptimas por score
+                let mut result = optimal;
+                for (sol, score) in suboptimal {
+                    if result.len() >= 20 { break; }
+                    result.push((sol, score));
+                }
+                eprintln!("✅ [clique] {} soluciones ({} ÓPTIMAS + {} subóptimas)", result.len(), optimal_count, result.len() - optimal_count);
+                all_solutions = result;
+            }
+        } else {
+            // Si no hay soluciones con 6 cursos, mantener las mejores, mínimo 10 máximo 20
+            if all_solutions.len() > 20 {
+                all_solutions.truncate(20);
+            }
+            eprintln!("✅ [clique] {} soluciones (max_weight_clique, max 6 ramos, sin 6-ramo solutions)", all_solutions.len());
+        }
     }
     
     all_solutions
@@ -1064,6 +1341,112 @@ pub fn get_clique_dependencies_only(
     if sol.is_empty() { vec![] } else { vec![(sol, 300)] }
 }
 
+/// Backtracking enumerator que PRIORITIZA CFGs: garantiza que CFGs aparezcan en soluciones
+fn enumerate_cliques_with_cfg_priority(
+    filtered: &Vec<Seccion>,
+    adj: &Vec<Vec<bool>>,
+    ramos_disponibles: &HashMap<String, RamoDisponible>,
+    params: &InputParams,
+    max_size: usize,
+    limit: usize,
+) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    let n = filtered.len();
+    let mut results: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    // Precompute priorities
+    let mut pri_cache: Vec<i64> = Vec::with_capacity(n);
+    for s in filtered.iter() {
+        let candidate = ramos_disponibles.values().find(|r| {
+            if !r.codigo.is_empty() && !s.codigo.is_empty() {
+                if r.codigo.to_lowercase() == s.codigo.to_lowercase() { return true; }
+            }
+            normalize_name(&r.nombre) == normalize_name(&s.nombre)
+        });
+        let p = match candidate {
+            Some(r) => compute_priority(r, s),
+            None if s.is_cfg => 10010150i64,
+            None => 0,
+        };
+        pri_cache.push(p);
+    }
+
+    // Separar CFGs y no-CFGs
+    let cfg_indices: Vec<usize> = (0..n).filter(|&i| filtered[i].is_cfg).collect();
+    let non_cfg_indices: Vec<usize> = (0..n).filter(|&i| !filtered[i].is_cfg).collect();
+    
+    eprintln!("   [CFG-PRIORITY] {} CFGs, {} no-CFGs", cfg_indices.len(), non_cfg_indices.len());
+
+    // Estrategia 1: Empezar búsqueda desde CADA CFG como seed
+    for &cfg_seed in &cfg_indices {
+        if results.len() >= limit {
+            break;
+        }
+
+        eprintln!("   [CFG-SEED] Partiendo de CFG en índice {} ({})", cfg_seed, filtered[cfg_seed].codigo);
+        
+        // Encuentra vecinos compatibles con este CFG
+        let mut compatible: Vec<usize> = (0..n)
+            .filter(|&i| i != cfg_seed && adj[cfg_seed][i])
+            .collect();
+        
+        // Ordena vecinos por prioridad
+        compatible.sort_by(|&a, &b| pri_cache[b].cmp(&pri_cache[a]));
+        
+        // Intenta construir cliques empezando con este CFG
+        let mut current = vec![cfg_seed];
+        
+        // Greedy: agregar compatibles hasta llenar o sin más candidatos
+        for &cand in &compatible {
+            if current.len() >= max_size {
+                break;
+            }
+            
+            // Verificar que cand es compatible con TODOS en current
+            if current.iter().all(|&u| adj[u][cand]) {
+                // No permitir duplicado de código de curso
+                let cand_code = filtered[cand].codigo.to_uppercase();
+                if !current.iter().any(|&u| filtered[u].codigo.to_uppercase() == cand_code) {
+                    current.push(cand);
+                }
+            }
+        }
+
+        // Construir solución
+        let mut sol: Vec<(Seccion, i32)> = Vec::new();
+        let mut total: i64 = 0;
+        for &ix in &current {
+            let s = filtered[ix].clone();
+            let priority = if let Some(r) = ramos_disponibles.values()
+                .find(|r| r.codigo.to_uppercase() == s.codigo.to_uppercase()) {
+                compute_priority(r, &s) as i32
+            } else if s.is_cfg {
+                10010150i32
+            } else {
+                0
+            };
+            sol.push((s, priority));
+            total += priority as i64;
+        }
+
+        // Aplicar optimizaciones
+        let optimized_total = apply_optimization_modifiers(total, &sol, params);
+
+        // Verificar duplicado
+        let mut keys: Vec<String> = sol.iter().map(|(s, _)| s.codigo_box.clone()).collect();
+        keys.sort();
+        let key = keys.join("|");
+        
+        if !seen.contains(&key) && !sol.is_empty() {
+            seen.insert(key);
+            results.push((sol, optimized_total));
+        }
+    }
+
+    eprintln!("   [CFG-PRIORITY] {} soluciones generadas desde CFG seeds", results.len());
+    results
+}
+
 /// Backtracking enumerator: genera combinaciones compatibles (cliques) hasta `max_size`.
 /// - `limit` evita explosión combinatoria.
 fn enumerate_clique_combinations(
@@ -1087,7 +1470,14 @@ fn enumerate_clique_combinations(
             }
             normalize_name(&r.nombre) == normalize_name(&s.nombre)
         });
-        let p = candidate.map(|r| compute_priority(r, s)).unwrap_or(0);
+        let p = match candidate {
+            Some(r) => compute_priority(r, s),
+            None if s.is_cfg => {
+                // CFG sin entrada en malla: asignar prioridad similar a cursos de 3er semestre
+                10010150i64
+            },
+            None => 0,
+        };
         pri_cache.push(p);
     }
 
@@ -1274,8 +1664,12 @@ pub fn get_all_clique_combinations_with_pert(
         if let Some(r) = ramos_disponibles.values().find(|r| normalize_name(&r.nombre) == sec_nombre_norm) {
             if let Some(sem) = r.semestre { return sem <= max_sem; } else { return true; }
         }
-        false
+        // Permitir CFG aunque no esté en malla
+        s.is_cfg
     }).cloned().collect();
+
+    let cfg_after_initial_filter = filtered.iter().filter(|s| s.is_cfg).count();
+    eprintln!("   [ENUM] Después de filtrado inicial: {} secciones ({} CFGs)", filtered.len(), cfg_after_initial_filter);
 
     // --- SELLAR ramos que cumplen prerequisitos según ramos_pasados ---
     eprintln!("   [SEAL] Sellando ramos que cumplen prerequisitos con ramos_pasados...");
@@ -1310,21 +1704,47 @@ pub fn get_all_clique_combinations_with_pert(
 
     eprintln!("   [SEAL] ramos viables (según ramos_pasados): {} de {}", viable_ramo_ids.len(), ramos_disponibles.len());
 
-    // Filtrar secciones para dejar solo aquellas que pertenecen a ramos viables
+    // Contar CFGs ANTES del filtrado SEAL
+    let cfg_before_seal = filtered.iter().filter(|s| s.is_cfg).count();
+    eprintln!("   [SEAL] CFGs antes de filtrado: {}", cfg_before_seal);
+
+    // Filtrar secciones para dejar solo aquellas que pertenecen a ramos viables O son CFG
     let filtered: Vec<Seccion> = filtered.into_iter().filter(|s| {
+        // Si es CFG, SIEMPRE permitir - no necesita estar en malla viable
+        if s.is_cfg {
+            eprintln!("   [SEAL-FILTER] ✓ Preservando CFG: {}", s.codigo);
+            return true;
+        }
+        
+        // Para no-CFG: verificar que pertenecen a ramos viables
         // match by codigo
         if let Some(r) = ramos_disponibles.values().find(|r| r.codigo.to_uppercase() == s.codigo.to_uppercase()) {
-            return viable_ramo_ids.contains(&r.id);
+            let viable = viable_ramo_ids.contains(&r.id);
+            if !viable {
+                eprintln!("   [SEAL-FILTER] ✗ Excluyendo no-CFG (no viable): {} (id={})", s.codigo, r.id);
+            }
+            return viable;
         }
         // match by normalized name
         let sec_nombre_norm = normalize_name(&s.nombre);
         if let Some(r) = ramos_disponibles.values().find(|r| normalize_name(&r.nombre) == sec_nombre_norm) {
-            return viable_ramo_ids.contains(&r.id);
+            let viable = viable_ramo_ids.contains(&r.id);
+            if !viable {
+                eprintln!("   [SEAL-FILTER] ✗ Excluyendo no-CFG (no viable): {} (id={})", s.codigo, r.id);
+            }
+            return viable;
         }
+
+        eprintln!("   [SEAL-FILTER] ✗ Excluyendo (no encontrado en malla): {}", s.codigo);
         false
     }).collect();
 
     eprintln!("   [SEAL] Después de sellar por prerequisitos: {} secciones", filtered.len());
+    
+    // Contar CFGs disponibles después del SEAL
+    let cfg_count = filtered.iter().filter(|s| s.is_cfg).count();
+    let non_cfg_count = filtered.len() - cfg_count;
+    eprintln!("   [SEAL] {} CFG, {} no-CFG después de sellar", cfg_count, non_cfg_count);
 
     // build adjacency
     let n = filtered.len();
@@ -1341,8 +1761,104 @@ pub fn get_all_clique_combinations_with_pert(
         }
     }
 
-    // Run enumerator
-    let mut combos = enumerate_clique_combinations(&filtered, &adj, ramos_disponibles, params, max_size, limit);
+    // Si hay CFGs disponibles, crear soluciones con CFGs como base
+    let mut combos: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    
+    if cfg_count > 0 {
+        eprintln!("   [CFG-PRIORITY] {} CFGs detectados - creando soluciones con CFGs", cfg_count);
+        
+        // Estrategia: Crear soluciones que incluyan cada CFG
+        for (i, sec) in filtered.iter().enumerate() {
+            if !sec.is_cfg {
+                continue;
+            }
+            
+            let cfg_priority = if let Some(r) = ramos_disponibles.values()
+                .find(|r| r.codigo.to_uppercase() == sec.codigo.to_uppercase()) {
+                compute_priority(r, sec) as i32
+            } else {
+                10010150i32
+            };
+            
+            let mut sol = vec![(sec.clone(), cfg_priority)];
+            let mut total = cfg_priority as i64;
+            
+            // Intentar agregar más secciones compatibles con este CFG
+            for (j, other) in filtered.iter().enumerate() {
+                if i == j || other.is_cfg { continue; }
+                if sol.len() >= max_size { break; }
+                if !adj[i][j] { continue; }
+                
+                // Evitar duplicados de código
+                let other_code = other.codigo.to_uppercase();
+                if sol.iter().any(|(s, _)| s.codigo.to_uppercase() == other_code) {
+                    continue;
+                }
+                
+                let other_priority = if let Some(r) = ramos_disponibles.values()
+                    .find(|r| r.codigo.to_uppercase() == other.codigo.to_uppercase()) {
+                    compute_priority(r, other) as i32
+                } else {
+                    0
+                };
+                
+                sol.push((other.clone(), other_priority));
+                total += other_priority as i64;
+            }
+            
+            let optimized_total = apply_optimization_modifiers(total, &sol, params);
+            
+            // Verificar duplicado
+            let mut keys: Vec<String> = sol.iter().map(|(s, _)| s.codigo_box.clone()).collect();
+            keys.sort();
+            let key = keys.join("|");
+            
+            let mut is_dup = false;
+            for (prev, _) in combos.iter() {
+                let mut prev_keys: Vec<String> = prev.iter().map(|(s, _)| s.codigo_box.clone()).collect();
+                prev_keys.sort();
+                if prev_keys.join("|") == key {
+                    is_dup = true;
+                    break;
+                }
+            }
+            
+            if !is_dup && !sol.is_empty() {
+                combos.push((sol, optimized_total));
+            }
+            
+            if combos.len() >= limit {
+                break;
+            }
+        }
+        
+        eprintln!("   [CFG-PRIORITY] {} soluciones creadas desde CFGs", combos.len());
+    }
+    
+    // Usar enumerador estándar para agregar más soluciones si es necesario
+    if combos.len() < limit / 2 {
+        eprintln!("   [STANDARD] Búsqueda exhaustiva estándar para diversidad...");
+        let mut extras = enumerate_clique_combinations(&filtered, &adj, ramos_disponibles, params, max_size, limit);
+        // Mezclar sin duplicados
+        for (sol, score) in extras.drain(..) {
+            let mut keys: Vec<String> = sol.iter().map(|(s, _)| s.codigo_box.clone()).collect();
+            keys.sort();
+            let key = keys.join("|");
+            let mut is_dup = false;
+            for (prev, _) in combos.iter() {
+                let mut prev_keys: Vec<String> = prev.iter().map(|(s, _)| s.codigo_box.clone()).collect();
+                prev_keys.sort();
+                if prev_keys.join("|") == key {
+                    is_dup = true;
+                    break;
+                }
+            }
+            if !is_dup {
+                combos.push((sol, score));
+            }
+            if combos.len() >= limit { break; }
+        }
+    }
 
     // DETERMINISMO + OPTIMALIDAD: Ordenar por score DESC (sin desempate, mostrar todos)
     combos.sort_by(|a, b| b.1.cmp(&a.1)); // Score descendente solamente

@@ -201,6 +201,143 @@ mod test_ley_fundamental {
     /// 1. Se pueden aplicar filtros sin errores
     /// 2. El número de soluciones con filtros es ≤ sin filtros
     #[test]
+    fn test_sin_filtros_genera_10_soluciones_de_6_ramos() {
+        use quickshift::api_json::InputParams;
+        use quickshift::algorithm::ruta::ejecutar_ruta_critica_with_params;
+
+        println!("\n🧪 TEST: Sin Filtros → ≥10 Soluciones de 6 Ramos\n");
+        println!("{}", "=".repeat(70));
+
+        // Parámetros base: estudiante con algunos cursos aprobados (semestre 1 completo)
+        let ramos_aprobados = vec![
+            "CBM1000".to_string(),
+            "CBM1001".to_string(),
+            "CBQ1000".to_string(),
+            "CIT1000".to_string(),
+            "FIC1000".to_string(),
+        ];
+
+        println!("📋 Configuración del Test:");
+        println!("   - Ramos aprobados: {:?}", ramos_aprobados);
+        println!("   - Filtros: NINGUNO");
+        println!("   - Preferencias: NINGUNA");
+        println!();
+
+        // Ejecutar SIN FILTROS y SIN PREFERENCIAS
+        let params = InputParams {
+            email: "test@example.com".to_string(),
+            ramos_pasados: ramos_aprobados.clone(),
+            ramos_prioritarios: vec![],
+            horarios_preferidos: vec![],
+            horarios_prohibidos: vec![],
+            malla: "MC2020moded.xlsx".to_string(),
+            anio: None,
+            sheet: None,
+            student_ranking: Some(0.5),
+            ranking: None,
+            filtros: None, // SIN FILTROS
+            optimizations: vec![],
+        };
+
+        let soluciones = match ejecutar_ruta_critica_with_params(params) {
+            Ok(sol) => sol,
+            Err(e) => {
+                eprintln!("❌ Error ejecutando sin filtros: {}", e);
+                panic!("No se pudieron obtener soluciones: {}", e);
+            }
+        };
+
+        println!("✅ Soluciones obtenidas: {}", soluciones.len());
+        println!();
+
+        // VALIDACIÓN 1: Debe haber al menos 10 soluciones
+        assert!(
+            soluciones.len() >= 10,
+            "❌ FALLO: Se esperaban ≥10 soluciones, pero se obtuvieron {}",
+            soluciones.len()
+        );
+        println!("✅ VALIDACIÓN 1: Hay {} soluciones (≥10 requerido)", soluciones.len());
+
+        // VALIDACIÓN 2: Cada solución debe tener exactamente 6 ramos
+        let mut todas_tienen_6_ramos = true;
+        let mut soluciones_invalidas = Vec::new();
+
+        for (idx, (sol, score)) in soluciones.iter().enumerate() {
+            if sol.len() != 6 {
+                todas_tienen_6_ramos = false;
+                soluciones_invalidas.push((idx + 1, sol.len()));
+            }
+        }
+
+        if todas_tienen_6_ramos {
+            println!("✅ VALIDACIÓN 2: Todas las soluciones tienen exactamente 6 ramos");
+        } else {
+            println!("❌ VALIDACIÓN 2 FALLO: Soluciones con cantidad incorrecta:");
+            for (idx, count) in &soluciones_invalidas {
+                println!("   - Solución #{}: {} ramos (esperado: 6)", idx, count);
+            }
+        }
+
+        assert!(
+            todas_tienen_6_ramos,
+            "❌ FALLO: No todas las soluciones tienen 6 ramos"
+        );
+
+        // VALIDACIÓN 3: Las soluciones deben ser distintas entre sí
+        use std::collections::HashSet;
+        let mut soluciones_unicas: HashSet<String> = HashSet::new();
+
+        for (sol, _) in &soluciones {
+            let mut codigos: Vec<String> = sol.iter().map(|(sec, _)| sec.codigo.clone()).collect();
+            codigos.sort();
+            let firma = codigos.join("|");
+            soluciones_unicas.insert(firma);
+        }
+
+        let son_todas_distintas = soluciones_unicas.len() == soluciones.len();
+
+        if son_todas_distintas {
+            println!("✅ VALIDACIÓN 3: Las {} soluciones son todas distintas", soluciones.len());
+        } else {
+            let duplicadas = soluciones.len() - soluciones_unicas.len();
+            println!("⚠️  VALIDACIÓN 3: Hay {} soluciones duplicadas", duplicadas);
+            println!("   (Total: {}, Únicas: {})", soluciones.len(), soluciones_unicas.len());
+        }
+
+        // Mostrar primeras 3 soluciones como ejemplo
+        println!();
+        println!("📊 Primeras 3 Soluciones (ejemplo):");
+        for (idx, (sol, score)) in soluciones.iter().take(3).enumerate() {
+            println!("\n   Solución #{} (Score: {}):", idx + 1, score);
+            for (sec, _) in sol.iter() {
+                println!("     • {} - {}", sec.codigo, sec.nombre);
+            }
+        }
+
+        // RESUMEN FINAL
+        println!();
+        println!("{}", "=".repeat(70));
+        println!("\n📈 RESUMEN:");
+        println!("   ✓ Total soluciones: {}", soluciones.len());
+        println!("   ✓ Soluciones únicas: {}", soluciones_unicas.len());
+        println!("   ✓ Ramos por solución: 6 (todas)");
+        println!();
+
+        if soluciones.len() >= 10 && todas_tienen_6_ramos && son_todas_distintas {
+            println!("✅ TEST COMPLETAMENTE EXITOSO");
+        } else if soluciones.len() >= 10 && todas_tienen_6_ramos {
+            println!("✅ TEST EXITOSO (con algunas soluciones duplicadas)");
+        } else {
+            println!("❌ TEST FALLIDO");
+        }
+        println!();
+    }
+
+    /// TEST: Validar que los filtros de horarios funcionan correctamente
+    /// Aplica restricciones de horario aleatorias y verifica que:
+    /// 1. Se pueden aplicar filtros sin errores
+    /// 2. El número de soluciones con filtros es ≤ sin filtros
+    #[test]
     fn test_filtros_horarios_funcionan() {
         use quickshift::api_json::InputParams;
         use quickshift::algorithm::ejecutar_ruta_critica_with_params;

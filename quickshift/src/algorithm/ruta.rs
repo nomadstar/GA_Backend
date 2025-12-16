@@ -98,8 +98,33 @@ pub fn ejecutar_ruta_critica_with_params(
     
     // 2a) Leer oferta académica -> Vec<Seccion>
     eprintln!("   📥 Leyendo oferta académica...");
-    let lista_secciones: Vec<Seccion> = 
+    let mut lista_secciones: Vec<Seccion> = 
         crate::excel::leer_oferta_academica_excel(&oferta_str)?;
+
+    // 2a.b) Intentar leer archivo CFG (si existe) y añadir sus secciones
+    if let Some(cfg_pathbuf) = crate::excel::latest_file_for_keywords(&["cfg"]) {
+        if let Some(cfg_str) = cfg_pathbuf.to_str() {
+            match crate::excel::leer_oferta_academica_excel(cfg_str) {
+                Ok(cfg_secs) => {
+                    eprintln!("   DEBUG: CFG cargado: {} secciones desde {}", cfg_secs.len(), cfg_str);
+                    for mut s in cfg_secs.into_iter() {
+                        // Regla especial: "Inglés I" pertenece a "Inglés 1" y NO se considera CFG
+                        let name_norm = crate::excel::normalize_name(&s.nombre);
+                        if name_norm == crate::excel::normalize_name("Inglés I") || name_norm == crate::excel::normalize_name("Ingles I") {
+                            s.nombre = "Inglés 1".to_string();
+                            s.is_cfg = false;
+                        } else {
+                            s.is_cfg = true;
+                        }
+                        lista_secciones.push(s);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("   WARN: no se pudo leer CFG '{}': {}", cfg_str, e);
+                }
+            }
+        }
+    }
     eprintln!("   ✓ secciones cargadas: {}", lista_secciones.len());
     
     // 2b) Ejecutar PERT ANTES de filtrar secciones
