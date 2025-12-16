@@ -70,6 +70,7 @@ fn test_prereqs_produce_pert_edges() {
                 horario: Vec::new(),
                 profesor: String::new(),
                 codigo_box: String::new(),
+                is_cfg: false,
             }).collect()
         }
     };

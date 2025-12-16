@@ -167,7 +167,7 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
                             }
                         }
                         if horarios_acc.is_empty() { horarios_acc.push("Sin horario".to_string()); }
-                        result.push(Seccion { codigo: codigo.clone(), nombre: nombre_pref.clone(), seccion: _secc.clone(), horario: horarios_acc, profesor: profesor_pref.clone(), codigo_box: codigo_box.clone() });
+                        result.push(Seccion { codigo: codigo.clone(), nombre: nombre_pref.clone(), seccion: _secc.clone(), horario: horarios_acc, profesor: profesor_pref.clone(), codigo_box: codigo_box.clone(), is_cfg: false });
                     }
                     return Ok(result);
                 }
@@ -292,7 +292,7 @@ pub fn leer_oferta_academica_excel(nombre_archivo: &str) -> Result<Vec<Seccion>,
                             }
                         }
                         if horarios_acc.is_empty() { horarios_acc.push("Sin horario".to_string()); }
-                        result.push(Seccion { codigo: codigo.clone(), nombre: nombre_pref.clone(), seccion: secc.clone(), horario: horarios_acc, profesor: profesor_pref.clone(), codigo_box: codigo_box.clone() });
+                        result.push(Seccion { codigo: codigo.clone(), nombre: nombre_pref.clone(), seccion: secc.clone(), horario: horarios_acc, profesor: profesor_pref.clone(), codigo_box: codigo_box.clone(), is_cfg: false });
                     }
                     eprintln!("DEBUG: leer_oferta_academica_excel cargó {} secciones vía zip agrupadas", result.len());
                     return Ok(result);

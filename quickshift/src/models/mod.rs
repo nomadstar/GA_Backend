@@ -76,6 +76,9 @@ pub struct Seccion {
     pub horario: Vec<String>,
     pub profesor: String,
     pub codigo_box: String,
+    /// True si esta sección proviene del archivo CFG (Curso de Formación General)
+    /// Las secciones leídas desde la Oferta Académica normal tienen `is_cfg = false`.
+    pub is_cfg: bool,
 }
 
 #[allow(dead_code)]

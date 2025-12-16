@@ -65,6 +65,32 @@ pub fn extract_data(
         }
     };
 
+    // 2.b) Intentar leer archivo CFG (si existe) y añadir sus secciones
+    let mut secciones = secciones;
+    if let Some(cfg_pathbuf) = crate::excel::latest_file_for_keywords(&["cfg"]) {
+        if let Some(cfg_str) = cfg_pathbuf.to_str() {
+            match crate::excel::leer_oferta_academica_excel(cfg_str) {
+                Ok(cfg_secs) => {
+                    eprintln!("DEBUG: CFG cargado: {} secciones", cfg_secs.len());
+                    for mut s in cfg_secs.into_iter() {
+                        // Regla especial: "Inglés I" pertenece a "Inglés 1" y NO se considera CFG
+                        let name_norm = crate::excel::normalize_name(&s.nombre);
+                        if name_norm == crate::excel::normalize_name("Inglés I") || name_norm == crate::excel::normalize_name("Ingles I") {
+                            s.nombre = "Inglés 1".to_string();
+                            s.is_cfg = false;
+                        } else {
+                            s.is_cfg = true;
+                        }
+                        secciones.push(s);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("WARN: no se pudo leer CFG '{}': {}", cfg_str, e);
+                }
+            }
+        }
+    }
+
     // 3) IMPORTANTE: Filtrar secciones para que solo incluya aquellas que existen en la Malla
     // Esto es crítico porque OA2024 contiene muchos cursos que no están en Malla2020
     let total_secciones = secciones.len();

@@ -230,6 +230,7 @@ fn create_demo_secciones() -> Vec<Seccion> {
                     horario: vec![format!("{}:00-{}:00 MW", 8 + sem + i, 10 + sem + i)],
                     profesor: format!("Prof {}", sec),
                     codigo_box: format!("BOX_S{}_{}_SEC{}", sem, i, sec),
+                    is_cfg: false,
                 });
             }
         }
