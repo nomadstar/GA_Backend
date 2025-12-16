@@ -1635,6 +1635,151 @@ fn enumerate_clique_combinations(
     results
 }
 
+/// Enumerador con prioridad de tamaño: busca primero cliques del tamaño especificado
+fn enumerate_clique_combinations_size_priority(
+    filtered: &Vec<Seccion>,
+    adj: &Vec<Vec<bool>>,
+    ramos_disponibles: &HashMap<String, RamoDisponible>,
+    params: &InputParams,
+    min_size: usize,
+    max_size: usize,
+    limit: usize,
+) -> Vec<(Vec<(Seccion, i32)>, i64)> {
+    let n = filtered.len();
+    let mut results: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    // Precompute priorities
+    let mut pri_cache: Vec<i64> = Vec::with_capacity(n);
+    for s in filtered.iter() {
+        let candidate = ramos_disponibles.values().find(|r| {
+            if !r.codigo.is_empty() && !s.codigo.is_empty() {
+                if r.codigo.to_lowercase() == s.codigo.to_lowercase() { return true; }
+            }
+            normalize_name(&r.nombre) == normalize_name(&s.nombre)
+        });
+        let p = match candidate {
+            Some(r) => compute_priority(r, s),
+            None if s.is_cfg => 10010150i64,
+            None => 0,
+        };
+        pri_cache.push(p);
+    }
+
+    // Build order by priority
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| pri_cache[b].cmp(&pri_cache[a]).then(a.cmp(&b)));
+
+    // Recursive DFS que PRIORIZA encontrar soluciones del tamaño objetivo
+    fn dfs_size_priority(
+        start: usize,
+        order: &Vec<usize>,
+        filtered: &Vec<Seccion>,
+        adj: &Vec<Vec<bool>>,
+        ramos_disponibles: &HashMap<String, RamoDisponible>,
+        params: &InputParams,
+        min_size: usize,
+        max_size: usize,
+        limit: usize,
+        pri_cache: &Vec<i64>,
+        current: &mut Vec<usize>,
+        current_total: i64,
+        results: &mut Vec<(Vec<(Seccion, i32)>, i64)>,
+        seen: &mut HashSet<String>,
+    ) {
+        if results.len() >= limit { return; }
+
+        // SOLO registrar si alcanzamos el tamaño mínimo
+        if current.len() >= min_size {
+            let mut keys: Vec<String> = current.iter().map(|&i| filtered[i].codigo_box.clone()).collect();
+            keys.sort();
+            let key = keys.join("|");
+            
+            if !seen.contains(&key) {
+                let mut sol: Vec<(Seccion, i32)> = Vec::new();
+                let mut total: i64 = 0;
+                for &ix in current.iter() {
+                    let s = filtered[ix].clone();
+                    if let Some(r) = ramos_disponibles.values().find(|r| {
+                        if !r.codigo.is_empty() && !s.codigo.is_empty() {
+                            if r.codigo.to_lowercase() == s.codigo.to_lowercase() { return true; }
+                        }
+                        normalize_name(&r.nombre) == normalize_name(&s.nombre)
+                    }) {
+                        let score = compute_priority(r, &s);
+                        sol.push((s.clone(), score as i32));
+                        total += score;
+                    } else {
+                        sol.push((s.clone(), 0));
+                    }
+                }
+                let optimized_total = apply_optimization_modifiers(total, &sol, params);
+                results.push((sol, optimized_total));
+                seen.insert(key);
+            }
+        }
+
+        if current.len() >= max_size { return; }
+
+        for pos in start..order.len() {
+            if results.len() >= limit { break; }
+
+            let i = order[pos];
+
+            // Compatibilidad
+            let mut ok = true;
+            for &u in current.iter() {
+                if !adj[u][i] { ok = false; break; }
+            }
+            if !ok { continue; }
+
+            // No duplicar curso
+            let i_code = filtered[i].codigo.to_uppercase();
+            let mut already = false;
+            for &u in current.iter() {
+                if filtered[u].codigo.to_uppercase() == i_code { already = true; break; }
+            }
+            if already { continue; }
+
+            // Filtros
+            if !seccion_cumple_filtros(&filtered[i], &params.filtros) { continue; }
+
+            if let Some(ref ventana) = params.filtros.as_ref().and_then(|f| f.ventana_entre_actividades.as_ref()) {
+                if ventana.habilitado {
+                    let minutos = ventana.minutos_entre_clases.unwrap_or(15);
+                    let mut ventana_ok = true;
+                    for &u in current.iter() {
+                        if !cumple_ventana_entre(&filtered[u], &filtered[i], minutos) { ventana_ok = false; break; }
+                    }
+                    if !ventana_ok { continue; }
+                }
+            }
+
+            // Prerequisitos
+            let local_passed: HashSet<String> = params.ramos_pasados.iter().map(|s| s.to_uppercase()).collect();
+            if let Some(ramo_i) = ramos_disponibles.values().find(|r| r.codigo.to_uppercase() == filtered[i].codigo.to_uppercase()) {
+                if !requisitos_cumplidos(&filtered[i], ramo_i, ramos_disponibles, &local_passed) { continue; }
+            } else {
+                let sec_nombre_norm = normalize_name(&filtered[i].nombre);
+                if let Some(ramo_i) = ramos_disponibles.values().find(|r| normalize_name(&r.nombre) == sec_nombre_norm) {
+                    if !requisitos_cumplidos(&filtered[i], ramo_i, ramos_disponibles, &local_passed) { continue; }
+                } else { continue; }
+            }
+
+            current.push(i);
+            dfs_size_priority(pos+1, order, filtered, adj, ramos_disponibles, params, min_size, max_size, limit, pri_cache, current, current_total + pri_cache[i], results, seen);
+            current.pop();
+
+            if results.len() >= limit { break; }
+        }
+    }
+
+    let mut current: Vec<usize> = Vec::new();
+    dfs_size_priority(0, &order, filtered, adj, ramos_disponibles, params, min_size, max_size, limit, &pri_cache, &mut current, 0, &mut results, &mut seen);
+
+    results
+}
+
 /// Genera todas (hasta un límite) las combinaciones compatibles y devuelve las mejores ordenadas por score.
 pub fn get_all_clique_combinations_with_pert(
     lista_secciones: &[Seccion],
@@ -1860,12 +2005,99 @@ pub fn get_all_clique_combinations_with_pert(
         }
     }
 
-    // DETERMINISMO + OPTIMALIDAD: Ordenar por score DESC (sin desempate, mostrar todos)
-    combos.sort_by(|a, b| b.1.cmp(&a.1)); // Score descendente solamente
+    // ===== ESTRATEGIA: Buscar PRIMERO todas las soluciones de 6 cursos =====
+    eprintln!("   [SIZE-PRIORITY] Separando por tamaño y priorizando soluciones de 6 cursos");
     
-    // Retornar hasta 50 combinaciones (o menos si hay menos)
-    // Nota: Ya fueron filtradas por el `limit` del backtracker
-    combos.truncate(50);
-    eprintln!("   [ENUM-FINAL] Retornando {} combinaciones (TOP 50)", combos.len());
-    combos
+    // Separar por tamaño
+    let mut size_6: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    let mut size_5: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    let mut size_other: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    
+    for (sol, score) in combos {
+        match sol.len() {
+            6 => size_6.push((sol, score)),
+            5 => size_5.push((sol, score)),
+            _ => size_other.push((sol, score)),
+        }
+    }
+    
+    eprintln!("   [SIZE-PRIORITY] {} soluciones de 6 cursos, {} de 5, {} otras", 
+              size_6.len(), size_5.len(), size_other.len());
+    
+    // Si hay pocas soluciones de 6 cursos, buscar más exhaustivamente
+    if size_6.len() < 50 {
+        eprintln!("   [EXHAUSTIVE-6] Solo {} soluciones de 6 cursos - buscando más exhaustivamente", size_6.len());
+        
+        // Aumentar límite de búsqueda para encontrar MÁS soluciones de 6 cursos
+        let extended_limit = 200_000usize;
+        eprintln!("   [EXHAUSTIVE-6] Buscando con límite extendido: {}", extended_limit);
+        
+        let mut extended_combos = enumerate_clique_combinations_size_priority(
+            &filtered, 
+            &adj, 
+            ramos_disponibles, 
+            params, 
+            6, // MIN_SIZE = 6
+            6, // MAX_SIZE = 6  
+            extended_limit
+        );
+        
+        eprintln!("   [EXHAUSTIVE-6] Encontradas {} soluciones adicionales de 6 cursos", extended_combos.len());
+        
+        // Agregar las nuevas sin duplicados
+        let mut seen_keys: HashSet<String> = HashSet::new();
+        for (sol, _) in &size_6 {
+            let mut keys: Vec<String> = sol.iter().map(|(s, _)| s.codigo_box.clone()).collect();
+            keys.sort();
+            seen_keys.insert(keys.join("|"));
+        }
+        
+        for (sol, score) in extended_combos.drain(..) {
+            let mut keys: Vec<String> = sol.iter().map(|(s, _)| s.codigo_box.clone()).collect();
+            keys.sort();
+            let key = keys.join("|");
+            
+            if !seen_keys.contains(&key) {
+                seen_keys.insert(key);
+                size_6.push((sol, score));
+            }
+        }
+        
+        eprintln!("   [EXHAUSTIVE-6] Total después de búsqueda extendida: {} soluciones de 6 cursos", size_6.len());
+    }
+    
+    // Ordenar por score DESC
+    size_6.sort_by(|a, b| b.1.cmp(&a.1));
+    size_5.sort_by(|a, b| b.1.cmp(&a.1));
+    size_other.sort_by(|a, b| b.1.cmp(&a.1));
+    
+    // PRIORIDAD: 6 cursos > 5 cursos > otros
+    let mut final_combos: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
+    
+    // Agregar soluciones de 6 cursos (hasta 50)
+    let take_6 = std::cmp::min(50, size_6.len());
+    final_combos.extend_from_slice(&size_6[..take_6]);
+    
+    // Si no hay suficientes de 6, complementar con 5
+    if final_combos.len() < 50 && !size_5.is_empty() {
+        let needed = 50 - final_combos.len();
+        let take_5 = std::cmp::min(needed, size_5.len());
+        final_combos.extend_from_slice(&size_5[..take_5]);
+        eprintln!("   [SIZE-PRIORITY] ⚠️ Complementando con {} soluciones de 5 cursos", take_5);
+    }
+    
+    // Si aún faltan, agregar otras
+    if final_combos.len() < 50 && !size_other.is_empty() {
+        let needed = 50 - final_combos.len();
+        let take_other = std::cmp::min(needed, size_other.len());
+        final_combos.extend_from_slice(&size_other[..take_other]);
+        eprintln!("   [SIZE-PRIORITY] ⚠️ Complementando con {} soluciones de otros tamaños", take_other);
+    }
+    
+    eprintln!("   [ENUM-FINAL] Retornando {} combinaciones ({} de 6 cursos, {} otras)", 
+              final_combos.len(), 
+              final_combos.iter().filter(|(s, _)| s.len() == 6).count(),
+              final_combos.iter().filter(|(s, _)| s.len() != 6).count());
+    
+    final_combos
 }
