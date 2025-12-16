@@ -1,5 +1,5 @@
 # Fdb version 4
-["pdflatex"] 1765662529.81546 "/home/ignatus/GitHub/GA_Backend/Informe/main.tex" "main.pdf" "main" 1765662529.93946 2
+["pdflatex"] 1765924970.13658 "/home/ignatus/GitHub/GA_Backend/Informe/main.tex" "main.pdf" "main" 1765924970.24907 2
   "/home/ignatus/GitHub/GA_Backend/Informe/main.tex" 1765655569.09821 4887 0b5ad449de8f1f29dbfbd92794cbf40a ""
   "/usr/share/texmf-dist/tex/generic/babel/babel.sty" 1755987285 143388 b008e1666520ff43d0878397f2926242 ""
   "/usr/share/texmf-dist/tex/generic/babel/errbabel.def" 1755987285 8981 98ab153dc9ca2dfe1d1abb8eaa263794 ""
@@ -14,7 +14,7 @@
   "/usr/share/texmf-dist/tex/latex/l3packages/xparse/xparse.sty" 1755987285 9783 ab4bee47700c04aadedb8da27591b0ab ""
   "/usr/share/texmf-dist/web2c/texmf.cnf" 1755987285 42087 b0f9697c952c8f5a8eede4134282cb0d ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1765653729 2008251 40534b3e6432a3a48f0d108f7152e4a8 ""
-  "main.aux" 1765662529.81398 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
+  "main.aux" 1765924970.1334 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
   "main.tex" 1765655569.09821 4887 0b5ad449de8f1f29dbfbd92794cbf40a ""
   (generated)
   "main.aux"
