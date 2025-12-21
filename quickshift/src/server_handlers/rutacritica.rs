@@ -79,7 +79,8 @@ pub async fn rutacritica_run_handler(body: web::Json<serde_json::Value>) -> impl
     match crate::algorithm::ejecutar_ruta_critica_with_params(params) {
         Ok(soluciones) => {
             let mut out: Vec<serde_json::Value> = Vec::new();
-            for (sol, total_score) in soluciones.into_iter().take(20) {
+            // CAMBIO: Retornar TODAS las soluciones (sin límite de .take(20))
+            for (sol, total_score) in soluciones.into_iter() {
                 let mut secciones_json: Vec<serde_json::Value> = Vec::new();
                 for (s, prio) in sol.into_iter() {
                     secciones_json.push(json!({"seccion": s, "prioridad": prio}));
@@ -121,7 +122,8 @@ pub async fn rutacritica_run_dependencies_only_handler(body: web::Json<serde_jso
     let soluciones = crate::algorithm::get_clique_dependencies_only(&lista_secciones, &ramos_actualizados);
 
     let mut out: Vec<serde_json::Value> = Vec::new();
-    for (sol, total_score) in soluciones.into_iter().take(20) {
+    // CAMBIO: Retornar TODAS las soluciones (sin límite de .take(20))
+    for (sol, total_score) in soluciones.into_iter() {
         let mut secciones_json: Vec<serde_json::Value> = Vec::new();
         for (s, prio) in sol.into_iter() {
             secciones_json.push(json!({"seccion": s, "prioridad": prio}));

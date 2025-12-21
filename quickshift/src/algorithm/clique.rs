@@ -1027,20 +1027,8 @@ pub fn get_clique_max_pond_with_prefs(
     let mut consecutive_empty_resets = 0;
     
     for _iteration in 0..max_iterations {
-        // EARLY TERMINATION LOGIC (PYTHON-STYLE):
-        // Generar MUCHAS más soluciones antes de parar para maximizar diversidad
-        // Python genera `amount` soluciones (usualmente 5), pero nosotros queremos más para dar opciones
-        let optimal_solutions_count = all_solutions.iter().filter(|(sol, _)| sol.len() == 6).count();
-        if optimal_solutions_count >= 50 {
-            eprintln!("   [OPTIMIZATION] Early termination: {} optimal 6-course solutions found", optimal_solutions_count);
-            break;
-        }
-        
-        // Generar hasta 50 soluciones totales para maximizar diversidad
-        if all_solutions.len() >= 50 {
-            eprintln!("   [OPTIMIZATION] Early termination: {} total solutions found", all_solutions.len());
-            break;
-        }
+        // CAMBIO: Sin límites artificiales - generar TODAS las soluciones posibles
+        // El límite se aplica solo por agotamiento del espacio de búsqueda o max_iterations
         
         if remaining_indices.is_empty() {
             // Si permitimos reutilización y no hay más nodos únicos, reinicializar
@@ -1249,7 +1237,7 @@ pub fn get_clique_max_pond_with_prefs(
             if !is_dup {
                 all_solutions.push((sol, total));
             }
-            if all_solutions.len() >= 15 { break; }
+            // CAMBIO: Sin límite artificial de 15
         }
         eprintln!("   [FALLBACK] now have {} solutions after merging extras", all_solutions.len());
     }
@@ -1265,14 +1253,12 @@ pub fn get_clique_max_pond_with_prefs(
     
     if !has_filters && max_size > 0 {
         // SIN FILTROS: Solo soluciones de tamaño máximo (determinista)
+        // CAMBIO: Retornar TODAS las soluciones óptimas (sin límite de 20)
         let optimal: Vec<_> = all_solutions.into_iter().filter(|(sol, _)| sol.len() == max_size).collect();
         let optimal_count = optimal.len();
         
         all_solutions = optimal;
-        if all_solutions.len() > 20 {
-            all_solutions.truncate(20);
-        }
-        eprintln!("✅ [clique] {} soluciones (max {} ramos, sin filtros = solo óptimas)", 
+        eprintln!("✅ [clique] {} soluciones (max {} ramos, sin filtros = TODAS óptimas)", 
                   all_solutions.len(), max_size);
     } else {
         // CON FILTROS: Aplicar estrategia mixta (óptimas + subóptimas si es necesario)
@@ -1283,30 +1269,18 @@ pub fn get_clique_max_pond_with_prefs(
             let mut suboptimal: Vec<_> = all_solutions.iter().cloned().filter(|(sol, _)| sol.len() != 6).collect();
             let optimal_count = optimal.len();
             
-            // Si tenemos >= 10 óptimas, usar solo esas (máximo 20)
-            if optimal.len() >= 10 {
-                let mut result = optimal;
-                if result.len() > 20 {
-                    result.truncate(20);
-                }
-                all_solutions = result;
-                eprintln!("✅ [clique] {} soluciones ÓPTIMAS (6 ramos cada una, STRATEGY=MAX_COURSES)", all_solutions.len());
-            } else {
-                // Si tenemos < 10 óptimas, complementar con subóptimas
-                suboptimal.sort_by(|a, b| b.1.cmp(&a.1));  // Ordenar subóptimas por score
-                let mut result = optimal;
-                for (sol, score) in suboptimal {
-                    if result.len() >= 20 { break; }
-                    result.push((sol, score));
-                }
-                eprintln!("✅ [clique] {} soluciones ({} ÓPTIMAS + {} subóptimas)", result.len(), optimal_count, result.len() - optimal_count);
-                all_solutions = result;
+            // CAMBIO: Retornar TODAS las soluciones óptimas (sin límite artificial)
+            let mut result = optimal;
+            // Complementar con subóptimas para máxima diversidad
+            suboptimal.sort_by(|a, b| b.1.cmp(&a.1));  // Ordenar subóptimas por score
+            for (sol, score) in suboptimal {
+                result.push((sol, score));
             }
+            eprintln!("✅ [clique] {} soluciones TOTALES ({} óptimas + {} subóptimas)", 
+                      result.len(), optimal_count, result.len() - optimal_count);
+            all_solutions = result;
         } else {
-            // Si no hay soluciones con 6 cursos, mantener las mejores, mínimo 10 máximo 20
-            if all_solutions.len() > 20 {
-                all_solutions.truncate(20);
-            }
+            // Si no hay soluciones con 6 cursos, mantener TODAS
             eprintln!("✅ [clique] {} soluciones (max_weight_clique, max 6 ramos, sin 6-ramo solutions)", all_solutions.len());
         }
     }
@@ -1339,12 +1313,8 @@ pub fn get_clique_with_user_prefs(
     // Esto permite ver múltiples soluciones con el mismo score
     results.sort_by(|a, b| b.1.cmp(&a.1)); // Score descendente (óptimos primero)
     
-    // Retornar TOP 50 (o menos si no hay)
-    if results.len() > 50 {
-        results.truncate(50);
-    }
-    
-    eprintln!("✅ [DETERMINISM] Retornando {} soluciones (índices 0-49 si aplica)", results.len());
+    // CAMBIO: Retornar TODAS las soluciones (sin truncar a 50)
+    eprintln!("✅ [DETERMINISM] Retornando TODAS {} soluciones", results.len());
     results
 }
 
@@ -2125,24 +2095,19 @@ pub fn get_all_clique_combinations_with_pert(
     // PRIORIDAD: 6 cursos > 5 cursos > otros
     let mut final_combos: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
     
-    // Agregar soluciones de 6 cursos (hasta 50)
-    let take_6 = std::cmp::min(50, size_6.len());
-    final_combos.extend_from_slice(&size_6[..take_6]);
+    // CAMBIO: Agregar TODAS las soluciones de 6 cursos (sin límite de 50)
+    final_combos.extend_from_slice(&size_6);
     
-    // Si no hay suficientes de 6, complementar con 5
-    if final_combos.len() < 50 && !size_5.is_empty() {
-        let needed = 50 - final_combos.len();
-        let take_5 = std::cmp::min(needed, size_5.len());
-        final_combos.extend_from_slice(&size_5[..take_5]);
-        eprintln!("   [SIZE-PRIORITY] ⚠️ Complementando con {} soluciones de 5 cursos", take_5);
+    // Agregar TODAS las soluciones de 5 cursos
+    if !size_5.is_empty() {
+        final_combos.extend_from_slice(&size_5);
+        eprintln!("   [SIZE-PRIORITY] Agregando {} soluciones de 5 cursos", size_5.len());
     }
     
-    // Si aún faltan, agregar otras
-    if final_combos.len() < 50 && !size_other.is_empty() {
-        let needed = 50 - final_combos.len();
-        let take_other = std::cmp::min(needed, size_other.len());
-        final_combos.extend_from_slice(&size_other[..take_other]);
-        eprintln!("   [SIZE-PRIORITY] ⚠️ Complementando con {} soluciones de otros tamaños", take_other);
+    // Agregar TODAS las otras
+    if !size_other.is_empty() {
+        final_combos.extend_from_slice(&size_other);
+        eprintln!("   [SIZE-PRIORITY] Agregando {} soluciones de otros tamaños", size_other.len());
     }
     
     eprintln!("   [ENUM-FINAL] Retornando {} combinaciones ({} de 6 cursos, {} otras)", 

@@ -80,8 +80,9 @@ pub async fn solve_handler(req: HttpRequest, body: web::Json<serde_json::Value>)
 
     // Convertir Vec<(Vec<(Seccion, i32)>, i64)> a Vec<SolutionEntry>
     // NO filtrar por available_codes porque las secciones ya fueron validadas por el algoritmo
+    // CAMBIO: Retornar TODAS las soluciones (sin límite de .take(20))
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
-    for (sol_with_prefs, score) in soluciones.iter().take(20) {
+    for (sol_with_prefs, score) in soluciones.iter() {
         // Extraer todas las secciones (ya validadas por el algoritmo)
         let final_secs: Vec<Seccion> = sol_with_prefs.iter()
             .map(|(sec, _pref)| sec.clone())
@@ -169,8 +170,9 @@ pub async fn solve_get_handler(query: web::Query<std::collections::HashMap<Strin
 
     // Convertir Vec<(Vec<(Seccion, i32)>, i64)> a Vec<SolutionEntry>
     // NO filtrar por available_codes porque las secciones ya fueron validadas por el algoritmo
+    // CAMBIO: Retornar TODAS las soluciones (sin límite de .take(20))
     let mut soluciones_serial: Vec<SolutionEntry> = Vec::new();
-    for (sol_with_prefs, score) in soluciones.iter().take(20) {
+    for (sol_with_prefs, score) in soluciones.iter() {
         // Extraer todas las secciones (ya validadas por el algoritmo)
         let final_secs: Vec<Seccion> = sol_with_prefs.iter()
             .map(|(sec, _pref)| sec.clone())

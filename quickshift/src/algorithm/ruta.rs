@@ -321,6 +321,7 @@ pub fn ejecutar_ruta_critica_with_params(
     let mut seleccionadas: Vec<(Vec<(Seccion, i32)>, i64)> = Vec::new();
 
     // Agrupar por longitud y recorrer desde 6 descendente hasta 1
+    // CAMBIO: Retornar TODAS las soluciones (sin límite artificial de 10)
     for k in (1..=6).rev() {
         // tomar las soluciones de longitud k, ordenar por score desc
         let mut grupo: Vec<_> = soluciones_filtradas
@@ -331,23 +332,21 @@ pub fn ejecutar_ruta_critica_with_params(
         grupo.sort_by(|a, b| b.1.cmp(&a.1));
 
         for item in grupo.into_iter() {
-            if seleccionadas.len() >= 10 { break; }
             seleccionadas.push(item);
         }
-
-        if seleccionadas.len() >= 10 { break; }
     }
 
-    // Si no se seleccionó nada (caso extremo), mantener las mejores hasta 10
+    // Si no se seleccionó nada (caso extremo), mantener TODAS las disponibles
     if seleccionadas.is_empty() {
         eprintln!("   ⚠️  No se encontraron soluciones por longitud; devolviendo las mejores disponibles");
-        seleccionadas = soluciones_filtradas.into_iter().take(20).collect();
+        seleccionadas = soluciones_filtradas.into_iter().collect();
     }
 
     let soluciones_filtradas_count = seleccionadas.len();
     eprintln!("   ✓ soluciones que cumplen filtros (seleccionadas): {}", soluciones_filtradas_count);
 
-    let mut resultado: Vec<_> = seleccionadas.into_iter().take(20).collect();
+    // CAMBIO: Retornar TODAS las soluciones (sin límite de .take(20))
+    let mut resultado: Vec<_> = seleccionadas.into_iter().collect();
     
     // =====================================================================
     // VALIDACIÓN CRÍTICA - LEY FUNDAMENTAL
@@ -408,7 +407,7 @@ pub fn ejecutar_ruta_critica_with_params(
         eprintln!("   - Felicidades, has completado el programa");
     }
     
-    eprintln!("✅ Pipeline completado: {} soluciones (máximo 10)", resultado.len());
+    eprintln!("✅ Pipeline completado: {} soluciones (SIN LÍMITE - TODAS)", resultado.len());
     Ok(resultado)
 }
 
