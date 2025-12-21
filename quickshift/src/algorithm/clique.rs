@@ -195,6 +195,14 @@ fn sections_conflict(s1: &Seccion, s2: &Seccion) -> bool {
 }
 
 /// Aplica modificadores de puntuación basados en optimizaciones seleccionadas
+/// y ramos prioritarios del usuario.
+/// 
+/// PRIORIDADES (de mayor a menor peso):
+/// 1. Ramos prioritarios: +100_000 por cada ramo prioritario en la solución
+/// 2. Optimizaciones de días: ±10_000 * compactness
+/// 3. Minimizar ventanas: -100 por minuto de ventana
+/// 
+/// Esto garantiza que los ramos prioritarios siempre tengan más peso que las ventanas.
 fn apply_optimization_modifiers(base_score: i64, solution: &[(Seccion, i32)], params: &InputParams) -> i64 {
     let mut score = base_score;
     
@@ -202,30 +210,55 @@ fn apply_optimization_modifiers(base_score: i64, solution: &[(Seccion, i32)], pa
     let compactness = calculate_compactness_score(solution);
     let total_gaps = calculate_total_gaps(solution) as i64;
     
+    // 1. BONUS POR RAMOS PRIORITARIOS (máxima prioridad)
+    // +100_000 por cada ramo prioritario en la solución
+    // Esto supera ampliamente cualquier penalización de ventanas (max ~12_000 para 2 horas)
+    if !params.ramos_prioritarios.is_empty() {
+        let priority_codes: std::collections::HashSet<String> = params.ramos_prioritarios
+            .iter()
+            .map(|s| normalize_name(s))
+            .collect();
+        
+        let mut priority_count = 0;
+        for (sec, _) in solution.iter() {
+            let sec_code_norm = normalize_name(&sec.codigo);
+            let sec_name_norm = normalize_name(&sec.nombre);
+            
+            if priority_codes.contains(&sec_code_norm) || priority_codes.contains(&sec_name_norm) {
+                priority_count += 1;
+            }
+        }
+        
+        if priority_count > 0 {
+            let priority_bonus = priority_count * 100_000i64;
+            eprintln!("[OPT] ramos-prioritarios: {} ramos prioritarios, +{}", priority_count, priority_bonus);
+            score += priority_bonus;
+        }
+    }
+    
     // Solo mostrar debug si hay optimizaciones
     if !params.optimizations.is_empty() {
         eprintln!("[OPT-DEBUG] base_score={}, gaps={}min, compactness={:.2}%, opts={:?}", 
                   base_score, total_gaps, compactness, params.optimizations);
     }
     
-    if params.optimizations.is_empty() {
-        return score;
-    }
-    
+    // 2. OPTIMIZACIONES DE HORARIO (menor prioridad que ramos prioritarios)
     for opt in &params.optimizations {
         eprintln!("[OPT-DEBUG] Processing optimization: {}", opt);
         match opt.as_str() {
             "compact-days" => {
-                let modifier = (compactness as i64) * 10000;
+                let modifier = (compactness as i64) * 10_000;
                 eprintln!("[OPT] compact-days: +{}", modifier);
                 score += modifier;
             }
             "spread-days" => {
-                let modifier = (compactness as i64) * 10000;
+                let modifier = (compactness as i64) * 10_000;
                 eprintln!("[OPT] spread-days: -{}", modifier);
                 score -= modifier;
             }
             "minimize-gaps" => {
+                // Penalización por ventanas: -100 por minuto
+                // Una ventana de 2 horas = -12_000, mucho menor que el bonus de 1 ramo prioritario (+100_000)
                 let modifier = total_gaps * 100;
                 eprintln!("[OPT] minimize-gaps: -{}", modifier);
                 score -= modifier;
