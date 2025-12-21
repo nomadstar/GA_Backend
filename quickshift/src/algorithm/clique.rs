@@ -211,8 +211,9 @@ fn apply_optimization_modifiers(base_score: i64, solution: &[(Seccion, i32)], pa
     let total_gaps = calculate_total_gaps(solution) as i64;
     
     // 1. BONUS POR RAMOS PRIORITARIOS (máxima prioridad)
-    // +100_000 por cada ramo prioritario en la solución
-    // Esto supera ampliamente cualquier penalización de ventanas (max ~12_000 para 2 horas)
+    // +100_000_000 (100 millones) por cada ramo prioritario en la solución
+    // Esto garantiza que las soluciones con más ramos prioritarios SIEMPRE ganen
+    // ya que los scores base típicos son ~10-40 millones
     if !params.ramos_prioritarios.is_empty() {
         let priority_codes: std::collections::HashSet<String> = params.ramos_prioritarios
             .iter()
@@ -230,7 +231,8 @@ fn apply_optimization_modifiers(base_score: i64, solution: &[(Seccion, i32)], pa
         }
         
         if priority_count > 0 {
-            let priority_bonus = priority_count * 100_000i64;
+            // 100 millones por ramo prioritario = domina sobre cualquier score base
+            let priority_bonus = priority_count * 100_000_000i64;
             eprintln!("[OPT] ramos-prioritarios: {} ramos prioritarios, +{}", priority_count, priority_bonus);
             score += priority_bonus;
         }
@@ -1012,6 +1014,16 @@ pub fn get_clique_max_pond_with_prefs(
     }
 
     // --- Prioridades por sección (resolver RamoDisponible por código o nombre normalizado) ---
+    // IMPORTANTE: Los ramos prioritarios del usuario reciben un MEGA-BONUS para que se seleccionen primero
+    let priority_codes: HashSet<String> = params.ramos_prioritarios
+        .iter()
+        .map(|s| normalize_name(s))
+        .collect();
+    
+    // Bonus MASIVO para ramos prioritarios: 1_000_000_000 (mil millones)
+    // Esto garantiza que SIEMPRE se seleccionen primero durante la construcción greedy
+    const USER_PRIORITY_BONUS: i64 = 1_000_000_000;
+    
     let mut pri: Vec<i64> = Vec::with_capacity(n);
     for s in filtered.iter() {
         let candidate = ramos_disponibles.values().find(|r| {
@@ -1020,7 +1032,7 @@ pub fn get_clique_max_pond_with_prefs(
             }
             normalize_name(&r.nombre) == normalize_name(&s.nombre)
         });
-        let p = match candidate {
+        let mut p = match candidate {
             Some(r) => compute_priority(r, s),
             None if s.is_cfg => {
                 // CFG sin entrada en malla: asignar prioridad similar a cursos de 3er semestre
@@ -1035,7 +1047,23 @@ pub fn get_clique_max_pond_with_prefs(
             },
             None => 0,
         };
+        
+        // MEGA-BONUS para ramos prioritarios del usuario
+        let sec_code_norm = normalize_name(&s.codigo);
+        let sec_name_norm = normalize_name(&s.nombre);
+        if priority_codes.contains(&sec_code_norm) || priority_codes.contains(&sec_name_norm) {
+            eprintln!("   [PRIORITY] 🌟 Ramo prioritario detectado: {} - Bonus +{}", s.codigo, USER_PRIORITY_BONUS);
+            p += USER_PRIORITY_BONUS;
+        }
+        
         pri.push(p);
+    }
+    
+    // Log de ramos prioritarios encontrados
+    if !params.ramos_prioritarios.is_empty() {
+        let found_count = pri.iter().filter(|&&p| p >= USER_PRIORITY_BONUS).count();
+        eprintln!("   [PRIORITY] {} ramos prioritarios solicitados, {} encontrados en secciones viables", 
+                  params.ramos_prioritarios.len(), found_count);
     }
 
     // --- Greedy multi-seed to build real cliques with max 6 courses ---
