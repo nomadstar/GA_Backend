@@ -133,6 +133,8 @@ pub async fn run_server(bind_addr: &str) -> std::io::Result<()> {
             .route("/api/mallas/{malla_id}/semestres/{semestre}/cursos", web::get().to(malla_cursos_semestre_handler))
             .route("/api/mallas/{malla_id}/cursos", web::get().to(malla_cursos_all_handler))
             .route("/api/cursos/recomendados", web::post().to(cursos_recomendados_handler))
+            .route("/api/cursos/disponibles", web::post().to(cursos_disponibles_handler))
+            .route("/api/profesores/disponibles", web::post().to(profesores_disponibles_handler))
             .route("/datafiles/debug/pa-names", web::get().to(debug_pa_names_handler))
             .route("/help", web::get().to(help_handler))
             // Registrar rutas de documentación SWAGGER
@@ -217,4 +219,16 @@ async fn cursos_recomendados_handler(
     body: web::Json<crate::api_json::handlers::courses::CursosRecomendadosRequest>,
 ) -> impl Responder {
     crate::api_json::handlers::courses::cursos_recomendados_handler(body).await
+}
+
+async fn cursos_disponibles_handler(
+    body: web::Json<crate::api_json::handlers::courses::CursosDisponiblesRequest>,
+) -> impl Responder {
+    crate::api_json::handlers::courses::cursos_disponibles_handler(body).await
+}
+
+async fn profesores_disponibles_handler(
+    body: web::Json<crate::api_json::handlers::courses::ProfesoresDisponiblesRequest>,
+) -> impl Responder {
+    crate::api_json::handlers::courses::profesores_disponibles_handler(body).await
 }
