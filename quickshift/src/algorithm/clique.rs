@@ -764,18 +764,28 @@ pub fn get_clique_max_pond_with_prefs(
         }
     }
     
+    // PYTHON-STYLE: Filtrado de prerequisitos MENOS estricto
+    // En Python, solo se filtran prerequisitos para ELECTIVOS (importancia=2)
+    // Los ramos normales NO se filtran por prerequisitos
     let filtered_with_preqs = filtered.into_iter().filter(|s| {
         // Encontrar el ramo correspondiente a esta sección
         if let Some(ramo) = ramos_disponibles.values().find(|r| r.codigo.to_uppercase() == s.codigo.to_uppercase()) {
-            // Verificar si cumple los prerequisitos
-            if requisitos_cumplidos(s, ramo, ramos_disponibles, &passed_codes_set) {
-                return true;
+            // PYTHON-STYLE: Solo verificar prerequisitos para ELECTIVOS
+            // Los ramos normales pasan sin verificación de prerequisitos
+            if s.is_electivo {
+                // Para electivos, verificar prerequisitos (como hace Python)
+                if requisitos_cumplidos(s, ramo, ramos_disponibles, &passed_codes_set) {
+                    return true;
+                } else {
+                    eprintln!(
+                        "   ⊘ Excluyendo ELECTIVO {} (id={}) - prerequisitos no cumplidos",
+                        ramo.nombre, ramo.id
+                    );
+                    return false;
+                }
             } else {
-                eprintln!(
-                    "   ⊘ Excluyendo {} (id={}) - prerequisitos no cumplidos",
-                    ramo.nombre, ramo.id
-                );
-                return false;
+                // Ramos normales: permitir SIN verificar prerequisitos (como Python)
+                return true;
             }
         }
         
@@ -785,20 +795,24 @@ pub fn get_clique_max_pond_with_prefs(
         if let Some(ramo) = ramos_disponibles.values().find(|r| {
             normalize_name(&r.nombre) == sec_nombre_norm
         }) {
-            // Encontrado por nombre, verificar requisitos
-            if requisitos_cumplidos(s, ramo, ramos_disponibles, &passed_codes_set) {
-                return true;
+            // PYTHON-STYLE: Solo verificar prerequisitos para ELECTIVOS
+            if s.is_electivo {
+                if requisitos_cumplidos(s, ramo, ramos_disponibles, &passed_codes_set) {
+                    return true;
+                } else {
+                    eprintln!(
+                        "   ⊘ Excluyendo ELECTIVO {} (nombre match) - prerequisitos no cumplidos",
+                        ramo.nombre
+                    );
+                    return false;
+                }
             } else {
-                eprintln!(
-                    "   ⊘ Excluyendo {} (nombre match con id={}) - prerequisitos no cumplidos",
-                    ramo.nombre, ramo.id
-                );
-                return false;
+                return true;
             }
         }
         
         // Si NO encontramos ni por código ni por nombre,
-        // permitir si la sección proviene de un CFG o es un electivo
+        // permitir si la sección proviene de un CFG o es un electivo (lógica original)
         if s.is_cfg {
             eprintln!(
                 "   ✓ Permitido {} - SECCIÓN CFG no encontrada en malla pero aceptada",
@@ -815,12 +829,12 @@ pub fn get_clique_max_pond_with_prefs(
             return true;
         }
 
-        // (significa que es un curso que no está en la malla)
+        // Cursos no encontrados en malla: permitir (PYTHON-STYLE)
         eprintln!(
-            "   ⊘ Excluyendo {} - NO ENCONTRADO EN MALLA (puede ser electivo externo)",
+            "   ✓ Permitido {} - no encontrado en malla pero aceptado (PYTHON-STYLE)",
             s.codigo
         );
-        false
+        true
     }).collect::<Vec<_>>();
     
     eprintln!("   ✓ Después de validar prerequisitos: {} secciones", filtered_with_preqs.len());
@@ -995,33 +1009,37 @@ pub fn get_clique_max_pond_with_prefs(
     }
     
     let should_allow_reuse = n < 6;  // Si hay menos de 6 secciones viables, permitir reutilización
-    // OPTIMIZACIÓN: aumentar iteraciones de búsqueda en modo optimizado pero con límites
-    // - Si hay muy pocas secciones viables permitimos más reutilización/iteraciones
-    // - El valor dinámico evita que en casos moderados la búsqueda quede demasiado limitada
+    // OPTIMIZACIÓN PYTHON-STYLE: Más iteraciones para generar más soluciones
+    // Con la estrategia de eliminar solo el nodo de menor prioridad, necesitamos más iteraciones
+    // porque cada iteración solo elimina 1 nodo (vs todos los nodos de la solución)
     let max_iterations = if should_allow_reuse {
-        400usize  // Aumentado de 200
+        1000usize  // Aumentado significativamente para permitir más variaciones
     } else {
-        let computed = std::cmp::max(200usize, n.saturating_mul(15));  // Multiplicador aumentado
-        std::cmp::min(computed, 5000usize)  // Límite máximo aumentado de 2000
+        // Fórmula: queremos al menos n iteraciones para dar oportunidad a cada sección
+        // Multiplicador alto porque solo eliminamos 1 nodo por solución encontrada
+        let computed = std::cmp::max(500usize, n.saturating_mul(3));
+        std::cmp::min(computed, 10000usize)  // Límite máximo aumentado
     };
 
-    eprintln!("   [DEBUG] n={}, should_allow_reuse={}, max_iterations={} (OPTIMIZED)", n, should_allow_reuse, max_iterations);
+    eprintln!("   [DEBUG] n={}, should_allow_reuse={}, max_iterations={} (PYTHON-STRATEGY)", n, should_allow_reuse, max_iterations);
     
     let mut remaining_indices: HashSet<usize> = (0..n).collect();
     let mut consecutive_empty_resets = 0;
     
     for _iteration in 0..max_iterations {
-        // EARLY TERMINATION LOGIC:
-        // Si tenemos 15+ soluciones con 6 cursos cada una -> PARAR (son ÓPTIMAS, garantizamos mínimo 10)
+        // EARLY TERMINATION LOGIC (PYTHON-STYLE):
+        // Generar MUCHAS más soluciones antes de parar para maximizar diversidad
+        // Python genera `amount` soluciones (usualmente 5), pero nosotros queremos más para dar opciones
         let optimal_solutions_count = all_solutions.iter().filter(|(sol, _)| sol.len() == 6).count();
-        if optimal_solutions_count >= 15 {
+        if optimal_solutions_count >= 50 {
             eprintln!("   [OPTIMIZATION] Early termination: {} optimal 6-course solutions found", optimal_solutions_count);
             break;
         }
         
-        // O si tenemos 15+ soluciones totales (para casos donde no hay 6-course solutions posibles)
-        if all_solutions.len() >= 15 {
-            break;  // Ya tenemos suficientes soluciones (15+ para retornar 10)
+        // Generar hasta 50 soluciones totales para maximizar diversidad
+        if all_solutions.len() >= 50 {
+            eprintln!("   [OPTIMIZATION] Early termination: {} total solutions found", all_solutions.len());
+            break;
         }
         
         if remaining_indices.is_empty() {
@@ -1068,9 +1086,10 @@ pub fn get_clique_max_pond_with_prefs(
             .map(|s| s.to_uppercase())
             .collect();
 
-        // Verificar requisitos del seed usando SOLO `ramos_pasados`
-        // Los CFGs no tienen prerequisitos, saltar validación
-        if !filtered[seed_idx].is_cfg {
+        // PYTHON-STYLE: Solo verificar requisitos del seed si es ELECTIVO
+        // Los CFGs no tienen prerequisitos, saltar validación (lógica original)
+        // Los ramos normales tampoco verifican prerequisitos (como Python)
+        if !filtered[seed_idx].is_cfg && filtered[seed_idx].is_electivo {
             if let Some(seed_ramo) = ramos_disponibles.values().find(|r| r.codigo == filtered[seed_idx].codigo) {
                 if !requisitos_cumplidos(&filtered[seed_idx], seed_ramo, ramos_disponibles, &base_passed_codes) {
                     remaining_indices.remove(&seed_idx);
@@ -1110,16 +1129,19 @@ pub fn get_clique_max_pond_with_prefs(
                     if clique.iter().any(|&u| filtered[u].codigo.to_uppercase() == cand_code) {
                         continue;
                     }
-                // VALIDAR requisitos previos del candidato: usar SOLO `ramos_pasados` (no co-requisitos)
-                let mut prereq_ok = true;
-                if let Some(cand_ramo) = ramos_disponibles.values().find(|r| r.codigo == filtered[cand].codigo) {
-                    if !requisitos_cumplidos(&filtered[cand], cand_ramo, ramos_disponibles, &base_passed_codes) {
-                        prereq_ok = false;
+                // PYTHON-STYLE: Solo verificar requisitos para ELECTIVOS
+                // Los ramos normales pasan sin verificación (como en Python)
+                if filtered[cand].is_electivo && !filtered[cand].is_cfg {
+                    let mut prereq_ok = true;
+                    if let Some(cand_ramo) = ramos_disponibles.values().find(|r| r.codigo == filtered[cand].codigo) {
+                        if !requisitos_cumplidos(&filtered[cand], cand_ramo, ramos_disponibles, &base_passed_codes) {
+                            prereq_ok = false;
+                        }
                     }
-                }
-                
-                if !prereq_ok {
-                    continue;
+                    
+                    if !prereq_ok {
+                        continue;
+                    }
                 }
                 
                 // Además: si cand y algún u pertenecen a la misma materia base,
@@ -1179,12 +1201,20 @@ pub fn get_clique_max_pond_with_prefs(
             });
 
             if !is_duplicate {
-                all_solutions.push((sol, total));
+                all_solutions.push((sol.clone(), total));
                 consecutive_empty_resets = 0;  // Reset el contador
                 
-                // IMPORTANTE: Remover solo los índices de las secciones ya usadas en esta solución
-                for &used_idx in clique.iter() {
-                    remaining_indices.remove(&used_idx);
+                // ESTRATEGIA PYTHON: Eliminar SOLO el nodo de menor prioridad de la solución
+                // Esto permite generar más variaciones manteniendo los nodos de alta prioridad
+                if !clique.is_empty() {
+                    // Encontrar el índice con menor prioridad en el clique
+                    let min_pri_idx = clique.iter()
+                        .min_by_key(|&&idx| pri[idx])
+                        .copied()
+                        .unwrap_or(seed_idx);
+                    remaining_indices.remove(&min_pri_idx);
+                    eprintln!("   [PYTHON-STRATEGY] Removiendo nodo de menor prioridad: {} (pri={})", 
+                              filtered[min_pri_idx].codigo, pri[min_pri_idx]);
                 }
             } else {
                 remaining_indices.remove(&seed_idx);
