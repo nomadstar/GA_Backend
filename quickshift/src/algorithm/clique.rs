@@ -14,21 +14,42 @@ fn parse_time_to_minutes(time_str: &str) -> Option<i32> {
     Some(hours * 60 + minutes)
 }
 
-/// Extrae el rango de horas de un string como "08:30 - 10:00" o "08:30-10:00"
+/// Extrae el rango de horas de un string como "LU MI 08:30 - 10:00" o "08:30-10:00"
 fn parse_horario_range(horario: &str) -> Option<(i32, i32)> {
     // Normalizar guiones (reemplazar múltiples tipos de dash por "-")
     let normalized = horario
         .replace("–", "-") // en-dash
         .replace("—", "-") // em-dash
         .replace("−", "-") // minus sign
-        .replace("‐", "-") // hyphen
-        .replace(" - ", "-"); // space-dash-space
+        .replace("‐", "-"); // hyphen
     
-    let parts: Vec<&str> = normalized.split('-').collect();
-    if parts.len() < 2 { return None; }
+    // Buscar el patrón HH:MM-HH:MM o HH:MM - HH:MM
+    // Primero encontramos las partes que contienen ":"
+    let tokens: Vec<&str> = normalized.split_whitespace().collect();
     
-    let start = parse_time_to_minutes(parts[0])?;
-    let end = parse_time_to_minutes(parts[1])?;
+    let mut start_time: Option<&str> = None;
+    let mut end_time: Option<&str> = None;
+    
+    for (i, token) in tokens.iter().enumerate() {
+        if token.contains(':') {
+            // Este token tiene un tiempo
+            if token.contains('-') {
+                // Formato "08:30-10:00" todo junto
+                let time_parts: Vec<&str> = token.split('-').collect();
+                if time_parts.len() >= 2 {
+                    start_time = Some(time_parts[0]);
+                    end_time = Some(time_parts[1]);
+                }
+            } else if start_time.is_none() {
+                start_time = Some(token);
+            } else if end_time.is_none() {
+                end_time = Some(token);
+            }
+        }
+    }
+    
+    let start = parse_time_to_minutes(start_time?)?;
+    let end = parse_time_to_minutes(end_time?)?;
     
     Some((start, end))
 }
@@ -181,10 +202,13 @@ fn apply_optimization_modifiers(base_score: i64, solution: &[(Seccion, i32)], pa
     let compactness = calculate_compactness_score(solution);
     let total_gaps = calculate_total_gaps(solution) as i64;
     
-    eprintln!("[OPT-DEBUG] CALLED! opts={:?}, compactness={:.2}%, gaps={}", params.optimizations, compactness, total_gaps);
+    // Solo mostrar debug si hay optimizaciones
+    if !params.optimizations.is_empty() {
+        eprintln!("[OPT-DEBUG] base_score={}, gaps={}min, compactness={:.2}%, opts={:?}", 
+                  base_score, total_gaps, compactness, params.optimizations);
+    }
     
     if params.optimizations.is_empty() {
-        eprintln!("[OPT-DEBUG] No optimizations, returning base_score");
         return score;
     }
     
@@ -212,7 +236,6 @@ fn apply_optimization_modifiers(base_score: i64, solution: &[(Seccion, i32)], pa
         }
     }
     
-    eprintln!("[OPT-DEBUG] final_score={}", score);
     score
 }
 
@@ -1189,7 +1212,9 @@ pub fn get_clique_max_pond_with_prefs(
             });
 
             if !is_duplicate {
-                all_solutions.push((sol.clone(), total));
+                // Aplicar modificadores de optimización ANTES de guardar
+                let optimized_total = apply_optimization_modifiers(total, &sol, params);
+                all_solutions.push((sol.clone(), optimized_total));
                 consecutive_empty_resets = 0;  // Reset el contador
                 
                 // ESTRATEGIA PYTHON: Eliminar SOLO el nodo de menor prioridad de la solución
