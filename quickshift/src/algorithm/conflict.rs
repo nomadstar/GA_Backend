@@ -21,37 +21,63 @@ pub fn parse_slots(h: &str) -> Vec<(String, i32, i32)> {
     let s = h.trim().replace('.', ":").to_uppercase();
     let parts: Vec<&str> = s.split_whitespace().collect();
     if parts.is_empty() { return vec![]; }
-    let mut time_token_idx: Option<usize> = None;
-    for (i, &t) in parts.iter().enumerate() {
-        if t.contains('-') { time_token_idx = Some(i); break; }
+
+    let mut day_tokens: Vec<String> = Vec::new();
+    let mut time_tokens: Vec<&str> = Vec::new();
+    let mut time_started = false;
+
+    for &token in parts.iter() {
+        if !time_started && (token.contains(':') || token.contains('-')) {
+            time_started = true;
+        }
+
+        if time_started {
+            time_tokens.push(token);
+        } else {
+            day_tokens.push(token.to_string());
+        }
     }
-    let time_idx = match time_token_idx { Some(i) => i, None => return vec![] };
-    let time_tok = parts[time_idx];
+
     // Manejar forma compacta "LU:08:30-10:00" donde el día y la hora están en el mismo token
-    let mut days_prefix: Vec<String> = Vec::new();
-    let mut actual_time_tok = time_tok;
-    if time_idx == 0 && time_tok.contains(':') {
-        // separar por la primera ':' para extraer posible día
-        if let Some(pos) = time_tok.find(':') {
-            let (maybe_day, rest) = time_tok.split_at(pos);
-            // rest comienza con ':'; quitarla
+    if day_tokens.is_empty() && !time_tokens.is_empty() {
+        let first = time_tokens[0];
+        if let Some(pos) = first.find(':') {
+            let (maybe_day, rest) = first.split_at(pos);
             let rest = &rest[1..];
-            // si la parte antes de ':' parece un día (2-3 letras), úsala
-            let day_tok = maybe_day.trim();
-            if !day_tok.is_empty() {
-                days_prefix.push(day_tok.to_string());
-                actual_time_tok = rest;
+            if !maybe_day.trim().is_empty() {
+                day_tokens.push(maybe_day.trim().to_string());
+                time_tokens[0] = rest;
             }
         }
     }
-    let times: Vec<&str> = actual_time_tok.split('-').collect();
-    if times.len() != 2 { return vec![]; }
-    let start = to_min_opt(times[0]).unwrap_or(0);
-    let end = to_min_opt(times[1]).unwrap_or(start + 60);
+
+    if day_tokens.is_empty() || time_tokens.is_empty() {
+        return vec![];
+    }
+
+    let mut time_join = time_tokens.join(" ");
+    time_join = time_join
+        .replace('–', "-")
+        .replace('—', "-")
+        .replace('―', "-")
+        .replace('‐', "-")
+        .replace('−', "-");
+    time_join = time_join.replace(" - ", "-").replace(" -", "-").replace("- ", "-");
+
+    let time_parts: Vec<&str> = time_join
+        .split('-')
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if time_parts.len() != 2 {
+        return vec![];
+    }
+
+    let start = to_min_opt(time_parts[0]).unwrap_or(0);
+    let end = to_min_opt(time_parts[1]).unwrap_or(start + 60);
     let mut days = Vec::new();
-    // primero incluir cualquier prefijo de día extraído del mismo token (p.ej. "LU:08:30-...")
-    for d in &days_prefix { days.push(d.clone()); }
-    for d in &parts[..time_idx] {
+
+    for d in &day_tokens {
         let token = d.trim().chars().take(3).collect::<String>();
         let dn = match token.as_str() {
             "LUN" | "LU" => "LU",
@@ -62,9 +88,11 @@ pub fn parse_slots(h: &str) -> Vec<(String, i32, i32)> {
             "SAB" | "SA" => "SA",
             "DOM" | "DO" => "DO",
             other => other,
-        }.to_string();
+        }
+        .to_string();
         days.push(dn);
     }
+
     days.into_iter().map(|d| (d, start, end)).collect()
 }
 

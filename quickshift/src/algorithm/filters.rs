@@ -4,9 +4,20 @@
 /// Los filtros se aplican sobre las soluciones generadas para
 /// excluir aquellas que no cumplen con las preferencias del usuario.
 
+use crate::algorithm::conflict::parse_slots;
 use crate::models::{Seccion, UserFilters};
 use std::collections::HashSet;
 use std::str::FromStr;
+
+/// Convierte "HH:MM" -> minutos desde 00:00
+fn parse_hora_minutos(s: &str) -> Option<i32> {
+    let s = s.trim();
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() != 2 { return None; }
+    let h = i32::from_str(parts[0]).ok()?;
+    let m = i32::from_str(parts[1]).ok()?;
+    Some(h * 60 + m)
+}
 
 /// Aplica todos los filtros habilitados a una lista de soluciones
 /// Retorna solo las soluciones que pasan todos los filtros
@@ -132,90 +143,13 @@ fn filtro_preferencias_profesores(
     true
 }
 
-/// Convierte "HH:MM" -> minutos desde 00:00
-fn parse_hora_minutos(s: &str) -> Option<i32> {
-    let s = s.trim();
-    let parts: Vec<&str> = s.split(':').collect();
-    if parts.len() != 2 { return None; }
-    let h = i32::from_str(parts[0]).ok()?;
-    let m = i32::from_str(parts[1]).ok()?;
-    Some(h * 60 + m)
-}
-
-/// Extrae rango "HH:MM - HH:MM" (soporta espacios alrededor del guion)
-/// Maneja múltiples variantes de guiones Unicode: - – — ―
-fn parse_rango(s: &str) -> Option<(i32,i32)> {
-    // Normalizar todos los tipos de guiones Unicode a ASCII '-'
-    let normalized = s
-        .replace('–', "-")  // en-dash
-        .replace('—', "-")  // em-dash
-        .replace('―', "-")  // horizontal bar
-        .replace('‐', "-")  // hyphen
-        .replace('−', "-"); // minus sign
-    
-    let parts: Vec<&str> = normalized.split('-').map(|t| t.trim()).collect();
-    
-    if parts.len() != 2 {
-        eprintln!("[parse_rango DEBUG] Esperaba 2 partes, obtuve: {} - input: '{}'", parts.len(), s);
-        return None;
-    }
-    
-    let a = parse_hora_minutos(parts[0])?;
-    let b = parse_hora_minutos(parts[1])?;
-    
-    eprintln!("[parse_rango SUCCESS] '{}' -> ({}, {})", s, a, b);
-    Some((a,b))
-}
-
 /// Expande una entrada de horario como "LU JU 14:30 - 15:50" a vectores (dia, inicio, fin)
 pub fn expand_horario_entry(entry: &str) -> Vec<(String, i32, i32)> {
     eprintln!("[expand_horario_entry START] input: '{}'", entry);
-    
-    if entry.trim().is_empty() {
-        eprintln!("[expand_horario_entry] Entrada vacía");
-        return vec![];
-    }
-    
-    // Tokens divididos por espacios en blanco
-    let tokens: Vec<&str> = entry.split_whitespace().collect();
-    eprintln!("[expand_horario_entry] tokens: {:?}", tokens);
-    
-    if tokens.is_empty() {
-        eprintln!("[expand_horario_entry] Sin tokens después de split");
-        return vec![];
-    }
-    
-    // Buscar el primer token que contenga ':'
-    let time_idx = tokens.iter().position(|t| t.contains(':'));
-    
-    if time_idx.is_none() {
-        eprintln!("[expand_horario_entry] No se encontró ':' en los tokens");
-        return vec![];
-    }
-    
-    let ti = time_idx.unwrap();
-    eprintln!("[expand_horario_entry] time_idx: {}", ti);
-    
-    let day_tokens = &tokens[..ti];
-    let time_part = tokens[ti..].join(" ");
-    
-    eprintln!("[expand_horario_entry] day_tokens: {:?}, time_part: '{}'", day_tokens, time_part);
-    
-    if let Some((s, e)) = parse_rango(&time_part) {
-        let result: Vec<(String, i32, i32)> = day_tokens
-            .iter()
-            .map(|d| {
-                let d_upper = d.to_uppercase();
-                eprintln!("[expand_horario_entry] -> ({}, {}, {})", d_upper, s, e);
-                (d_upper, s, e)
-            })
-            .collect();
-        eprintln!("[expand_horario_entry SUCCESS] Retornando {} entradas", result.len());
-        result
-    } else {
-        eprintln!("[expand_horario_entry FAILED] parse_rango falló para: '{}'", time_part);
-        vec![]
-    }
+    let result = parse_slots(entry);
+    eprintln!("[expand_horario_entry] parsed slots: {:?}", result);
+    eprintln!("[expand_horario_entry SUCCESS] Retornando {} entradas", result.len());
+    result
 }
 
 /// True si dos intervalos de minutos se solapan
