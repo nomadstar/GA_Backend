@@ -1,3 +1,6 @@
 [submodule "generador_de_horarios_Practica"]
 	path = generador_de_horarios_Practica
 	url = https://github.com/agamboar/generador_de_horarios_Practica
+[submodule "quickshift/frontend"]
+	path = quickshift/frontend
+	url = https://github.com/nomadstar/horarios-frontend
